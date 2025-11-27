@@ -502,10 +502,12 @@ function deleteClient(index) {
 }
 
 function markAsAnswered(index) {
-    clients[index].answered = true;
-    saveClients();
-    renderClients();
-    addLog(`✅ ${clients[index].name} marcado como respondido`);
+    if(clients[index].answered === false) {
+        clients[index].answered = true;
+        saveClients();
+        renderClients();
+        addLog(`✅ ${clients[index].name} marcado como respondido`);
+    }
 }
 
 // Socket.IO event handlers
@@ -561,13 +563,10 @@ socket.on('message-received', (data) => {
     addLog(`📩 Mensagem de ${data.from}: ${data.message.substring(0, 50)}`);
 });
 
-socket.on('user-status-update', (data) => {
+socket.on('user-answered-status-update', (data) => {
     const clientIndex = clients.findIndex(c => c.phone === data.phone);
     if (clientIndex !== -1) {
-        clients[clientIndex].answered = true;
-        saveClients();
-        renderClients();
-        addLog(`✅ ${clients[clientIndex].name} marcado como respondido`);
+        markAsAnswered(clientIndex);
     }
     addLog(data.phone + "test");
 });

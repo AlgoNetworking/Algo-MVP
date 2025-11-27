@@ -101,26 +101,33 @@ class WhatsAppService {
       }
     });
 
-    this.client.on('message', async (message) => {
-      await this.handleMessage(message);
+    this.client.on('message', async (message) => {      
+      const chat = await message.getChat();
+      if(message.type === 'chat') {
+        if(!(message.from === 'status@broadcast' || message.fromMe || chat.isGroup)) {
+          await this.handleMessage(message);
 
-      const formattedPhone = this.formatPhoneNumber(message.from)      
+          const formattedPhone = this.formatPhoneNumber(message.from)      
 
-      if (this.io) {
-        this.io.emit('user-status-update', {
-          phone: formattedPhone
-        });
-        console.log('test');
+          if (this.io) {
+            this.io.emit('user-answered-status-update', {
+              phone: formattedPhone
+            });
+            console.log('test');
+          }
+        }
+      }
+      else {
+        await this.sendMessage(
+          message.from, 
+          'Perdão, mas o bot não consegue ler nem interpretar mensagens que não são de texto. Se desejar falar com uma pessoa, digite (1).'
+        );
       }
     });
   }
 
   async handleMessage(message) {
     try {
-      // Ignore group messages, status, and own messages
-      if (message.from === 'status@broadcast' || message.fromMe) {
-        return;
-      }
 
       const sender = message.from;
       const messageBody = message.body;

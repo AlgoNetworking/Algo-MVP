@@ -175,7 +175,7 @@ class OrderService {
       const greeting = name !== 'Cliente sem nome' ? `Olá ${name}!` : 'Olá!';
       return {
         success: true,
-        message: `${greeting}\n\nVocê quer pedir(1) ou falar com o gerente(2)?`
+        message: `${greeting}\n\nVocê quer pedir(digite 1) ou falar com o gerente(digite 2)?`
       };
     }
 
