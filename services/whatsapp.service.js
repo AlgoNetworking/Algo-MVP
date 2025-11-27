@@ -108,7 +108,7 @@ class WhatsAppService {
           await this.handleMessage(message);
 
           const formattedPhone = this.formatPhoneNumber(message.from)      
-          // teste
+
           if (this.io) {
             this.io.emit('user-answered-status-update', {
               phone: formattedPhone
