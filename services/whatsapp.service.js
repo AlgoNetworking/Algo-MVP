@@ -103,25 +103,20 @@ class WhatsAppService {
 
     this.client.on('message', async (message) => {      
       const chat = await message.getChat();
-      if(message.type === 'chat') {
+      const formattedSenderPhone = this.formatPhoneNumber(message.from); 
+      const fromUser = this.findUserInfo(formattedSenderPhone);
+      console.log(fromUser.isChatBot);
+      if(fromUser.isChatBot) {
         if(!(message.from === 'status@broadcast' || message.fromMe || chat.isGroup)) {
           await this.handleMessage(message);
 
-          const formattedPhone = this.formatPhoneNumber(message.from)      
-
           if (this.io) {
             this.io.emit('user-answered-status-update', {
-              phone: formattedPhone
+              phone: formattedSenderPhone
             });
             console.log('test');
           }
         }
-      }
-      else {
-        await this.sendMessage(
-          message.from, 
-          'Perdão, mas o bot não consegue ler nem interpretar mensagens que não são de texto. Se desejar falar com uma pessoa, digite (1).'
-        );
       }
     });
   }
@@ -151,6 +146,7 @@ class WhatsAppService {
       const response = await orderService.processMessage({
         sessionId,
         message: messageBody,
+        messageType: message.type,
         phoneNumber: sender,
         name: userInfo.name,
         orderType: userInfo.type
@@ -159,6 +155,13 @@ class WhatsAppService {
       // Send response if available
       if (response && response.message) {
         await this.sendMessage(sender, response.message);
+      }
+      if(!response.isChatBot) {
+        if(this.io) {
+          this.io.emit('disable-bot', {
+            phone: phoneNumber
+          });
+        }
       }
 
       // Emit to connected clients
@@ -181,7 +184,8 @@ class WhatsAppService {
    console.log(phoneNumber);
     return {
       name: user ? user.name : 'Cliente sem nome',
-      type: user ? user.type : 'normal'
+      type: user ? user.type : 'normal',
+      isChatBot: user ? user.isChatBot : true
     };
   }
 

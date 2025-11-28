@@ -124,7 +124,7 @@ class OrderSession {
   }
 
   checkCancelCommand(message) {
-    const cancelCommands = ['cancelar', 'hoje não', 'hoje nao'];
+    const cancelCommands = ['cancelar', 'não', 'nao'];
     return cancelCommands.some(cmd => message.toLowerCase().includes(cmd));
   }
 
@@ -151,7 +151,7 @@ class OrderService {
     return { success: true };
   }
 
-  async processMessage({ sessionId, message, phoneNumber, name, orderType }) {
+  async processMessage({ sessionId, message, messageType, phoneNumber, name, orderType }) {
     const session = this.getSession(sessionId);
     
     if (phoneNumber) session.phoneNumber = phoneNumber;
@@ -162,10 +162,10 @@ class OrderService {
     session.lastActivity = Date.now();
 
     // Check for cancel
-    if (session.checkCancelCommand(messageLower)) {
-      session.state = 'waiting_for_next';
+    if (session.checkCancelCommand(messageLower) && session.state !== 'confirming') {
       session.resetCurrent();
-      return { success: true, message: null };
+      session.state = 'waiting_for_next';
+      return { success: true, message: null, isChatBot: true};
     }
 
     // Handle waiting_for_next
@@ -175,7 +175,18 @@ class OrderService {
       const greeting = name !== 'Cliente sem nome' ? `Olá ${name}!` : 'Olá!';
       return {
         success: true,
-        message: `${greeting}\n\nVocê quer pedir(digite 1) ou falar com o gerente(digite 2)?`
+        message: `${greeting}\n\nVocê quer pedir (digite 1) ou falar com uma pessoa (digite 2)?`,
+        isChatBot: true
+      };
+    }
+
+    if(messageType !== 'chat') {
+      session.state = 'option';
+      session.waitingForOption = true;
+      return {
+        success: true,
+        message: `Perdão, mas o nosso bot ainda não entende mensagens que não sejam de texto. \n\nVocê quer pedir (digite 1) ou falar com uma pessoa (digite 2)?`,
+        isChatBot: true
       };
     }
 
@@ -187,19 +198,22 @@ class OrderService {
         session.startInactivityTimer();
         return {
           success: true,
-          message: 'Ótimo! Digite seus pedidos. Ex: \'2 mangas e 3 queijos\''
+          message: 'Ótimo! Digite seus pedidos. Ex: \'2 mangas e 3 queijos\'',
+          isChatBot: true
         };
       } else if (messageLower === '2') {
         session.waitingForOption = false;
         session.state = 'waiting_for_next';
         return {
           success: true,
-          message: 'Ok então.'
+          message: 'Ok, assim que podermos terá uma resposta!',
+          isChatBot: false
         };
       } else {
         return {
           success: false,
-          message: 'Por favor, escolha uma opção: 1 para pedir ou 2 para falar com o gerente.'
+          message: 'Por favor, escolha uma opção: 1 para pedir ou 2 para falar com uma pessoa.',
+          isChatBot: true
         };
       }
     }
@@ -253,7 +267,7 @@ class OrderService {
           : '\nObrigado pelo pedido! 🎉\n\n';
         response += thankYou;
 
-        return { success: true, message: response };
+        return { success: true, message: response, isChatBot: true };
 
       } else if (denyWords.some(w => messageLower.split(' ').includes(w))) {
         session.cancelTimer();
@@ -261,7 +275,8 @@ class OrderService {
         session.startInactivityTimer();
         return {
           success: true,
-          message: '🔄 **Lista limpa!** Digite novos itens.'
+          message: '🔄 **Lista limpa!** Digite novos itens.',
+          isChatBot: true
         };
 
       } else {
@@ -274,11 +289,12 @@ class OrderService {
           session.state = 'collecting';
           session.reminderCount = 0;
           session.startInactivityTimer();
-          return { success: true };
+          return { success: true, isChatBot: true};
         } else {
           return {
             success: false,
-            message: '❌ Item não reconhecido. Digite \'confirmar\' para confirmar ou \'nao\' para cancelar.'
+            message: '❌ Item não reconhecido. Digite \'confirmar\' para confirmar ou \'nao\' para cancelar.',
+            isChatBot: true,
           };
         }
       }
@@ -289,9 +305,9 @@ class OrderService {
       if (['pronto', 'confirmar'].includes(messageLower)) {
         if (session.hasItems()) {
           session.sendSummary();
-          return { success: true, message: '📋 Preparando seu resumo...' };
+          return { success: true, message: '📋 Preparando seu resumo...', isChatBot: true };
         } else {
-          return { success: false, message: '❌ Lista vazia. Adicione itens primeiro.' };
+          return { success: false, message: '❌ Lista vazia. Adicione itens primeiro.', isChatBot: true };
         }
       } else {
         const { parsedOrders, updatedDb } = orderParser.parse(message, session.currentDb);
@@ -299,18 +315,19 @@ class OrderService {
         
         if (parsedOrders.length > 0) {
           session.startInactivityTimer();
-          return { success: true };
+          return { success: true, isChatBot: true };
         } else {
           session.startInactivityTimer();
           return {
             success: false,
-            message: '❌ Nenhum item reconhecido. Tente usar termos como \'2 mangas\', \'cinco queijos\', etc.'
+            message: '❌ Nenhum item reconhecido. Tente usar termos como \'2 mangas\', \'cinco queijos\', etc.',
+            isChatBot: true
           };
         }
       }
     }
 
-    return { success: false, message: 'Estado não reconhecido. Digite \'cancelar\' para reiniciar.' };
+    return { success: false, message: 'Estado não reconhecido. Digite \'cancelar\' para reiniciar.', isChatBot: true};
   }
 
   async getUpdates(sessionId) {

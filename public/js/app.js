@@ -9,20 +9,23 @@ let clients = [
       "phone": "+55 85 8976-4552",
       "name": "Guilherme Mororó",
       "answered": false,
-      "type": "normal"
+      "type": "normal",
+      "isChatBot": true
     },
     {
       "phone": "+55 85 9789-2528", //seria interessante adicionar uma coisa que permita o numero ir de 
       // "+558597892528" pra "+55 85 9789-2528", deve ser facil.
       "name": "Pedro Tiraboschi",
       "answered": false,
-      "type": "normal"
+      "type": "normal",
+      "isChatBot": true
     },
     {
       "phone": "+55 85 9668-5918",
       "name": "Carlos Sérgio",
       "answered": false,
-      "type": "normal"
+      "type": "normal",
+      "isChatBot": true
     },
 ];
 
@@ -459,7 +462,8 @@ function addClient() {
         phone: phone.trim(),
         name: name.trim(),
         type: type.toLowerCase().trim(),
-        answered: false
+        answered: false,
+        isChatBot: true
     });
     
     saveClients();
@@ -508,6 +512,15 @@ function markAsAnswered(index) {
         renderClients();
         addLog(`✅ ${clients[index].name} marcado como respondido`);
     }
+}
+
+function disableChatBot(index) {
+    addLog('testando 3');
+    clients[index].isChatBot = false;
+    saveClients();
+    renderClients();
+    addLog(`✅ O bot foi desativado para ${clients[index].name} `);
+    
 }
 
 // Socket.IO event handlers
@@ -569,6 +582,15 @@ socket.on('user-answered-status-update', (data) => {
         markAsAnswered(clientIndex);
     }
     addLog(data.phone + "test");
+});
+
+socket.on('disable-bot', (data) => {
+    const clientDisableBotIndex = clients.findIndex(c => c.phone === data.phone);
+    if (clientDisableBotIndex !== -1) {
+        disableChatBot(clientDisableBotIndex);
+        addLog(clients[clientDisableBotIndex].isChatBot);
+    }
+    addLog('testando bip bop...');
 });
 
 socket.on('bulk-message-progress', (data) => {
