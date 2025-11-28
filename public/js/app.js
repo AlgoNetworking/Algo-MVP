@@ -74,23 +74,27 @@ function setupTabs() {
 
 // WhatsApp connection functions
 async function connectWhatsApp() {
-    try {
-        addLog('📱 Conectando WhatsApp...');
-        const response = await fetch('/api/whatsapp/connect', { method: 'POST' });
-        const data = await response.json();
+  try {
+    addLog('📱 Conectando WhatsApp...');
+    const response = await fetch('/api/whatsapp/connect', { method: 'POST' });
+    const data = await response.json();
 
-        for(client of clients) {
-            client.answered = false;
-        }
-        
-        if (data.success) {
-            addLog('✅ WhatsApp conectando...');
-        } else {
-            addLog('❌ Erro: ' + data.message, 'error');
-        }
-    } catch (error) {
-        addLog('❌ Erro de conexão: ' + error.message, 'error');
+    // 🔄 Reset ALL clients when reconnecting WhatsApp
+    for(client of clients) {
+      client.answered = false;
+      client.isChatBot = true; // Reset bot functionality for everyone
     }
+    saveClients(); // Save the changes
+    renderClients(); // Update the UI
+    
+    if (data.success) {
+      addLog('✅ WhatsApp conectando...');
+    } else {
+      addLog('❌ Erro: ' + data.message, 'error');
+    }
+  } catch (error) {
+    addLog('❌ Erro de conexão: ' + error.message, 'error');
+  }
 }
 
 async function disconnectWhatsApp() {
@@ -583,7 +587,7 @@ socket.on('user-answered-status-update', (data) => {
     }
     addLog(data.phone + "test");
 });
-
+/*
 socket.on('disable-bot', (data) => {
     const clientDisableBotIndex = clients.findIndex(c => c.phone === data.phone);
     if (clientDisableBotIndex !== -1) {
@@ -592,6 +596,7 @@ socket.on('disable-bot', (data) => {
     }
     addLog('testando bip bop...');
 });
+*/
 
 socket.on('bulk-message-progress', (data) => {
     addLog(`📤 Enviado para ${data.name} (${data.phone})`);

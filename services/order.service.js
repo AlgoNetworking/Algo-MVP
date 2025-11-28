@@ -168,6 +168,16 @@ class OrderService {
       return { success: true, message: null, isChatBot: true};
     }
 
+    if(messageType !== 'chat') {
+      session.state = 'option';
+      session.waitingForOption = true;
+      return {
+        success: true,
+        message: `Perdão, mas o nosso bot ainda não entende mensagens que não sejam de texto. \n\nVocê quer pedir (digite 1) ou falar com uma pessoa (digite 2)?`,
+        isChatBot: true
+      };
+    }
+
     // Handle waiting_for_next
     if (session.state === 'waiting_for_next') {
       session.state = 'option';
@@ -176,16 +186,6 @@ class OrderService {
       return {
         success: true,
         message: `${greeting}\n\nVocê quer pedir (digite 1) ou falar com uma pessoa (digite 2)?`,
-        isChatBot: true
-      };
-    }
-
-    if(messageType !== 'chat') {
-      session.state = 'option';
-      session.waitingForOption = true;
-      return {
-        success: true,
-        message: `Perdão, mas o nosso bot ainda não entende mensagens que não sejam de texto. \n\nVocê quer pedir (digite 1) ou falar com uma pessoa (digite 2)?`,
         isChatBot: true
       };
     }

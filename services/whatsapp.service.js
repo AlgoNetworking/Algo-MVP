@@ -12,6 +12,7 @@ class WhatsAppService {
     this.isRunning = false;
     this.pollingInterval = null;
     this.clientUsers = [];
+    this.disabledUsers = new Set(); // 🔒 NEW: Track users who disabled bot
   }
 
   initialize(io) {
@@ -25,6 +26,9 @@ class WhatsAppService {
     }
 
     try {
+      this.disabledUsers.clear();
+      console.log('🔄 Cleared disabled users list for fresh connection');
+
       this.client = new Client({
         authStrategy: new LocalAuth({
           dataPath: './whatsapp-session'
@@ -123,12 +127,17 @@ class WhatsAppService {
 
   async handleMessage(message) {
     try {
-
       const sender = message.from;
       const messageBody = message.body;
       const phoneNumber = this.formatPhoneNumber(sender);
 
       console.log(`📩 Message from ${phoneNumber}: ${messageBody}`);
+
+      // 🔒 CRITICAL: Skip processing if user previously chose to talk to a person
+      if (this.disabledUsers.has(sender)) {
+        console.log(`⏸️ Skipping message from ${phoneNumber} - user previously chose to talk to person`);
+        return; // Don't process the message at all
+      }
 
       // Find user info
       const userInfo = this.findUserInfo(phoneNumber);
@@ -156,8 +165,14 @@ class WhatsAppService {
       if (response && response.message) {
         await this.sendMessage(sender, response.message);
       }
-      if(!response.isChatBot) {
-        if(this.io) {
+
+      // 🔒 NEW: If user chose option 2, add them to disabled list
+      if (response && response.isChatBot === false) {
+        console.log(`🚫 Disabling bot for user: ${phoneNumber}`);
+        this.disabledUsers.add(sender);
+        
+        // Also update frontend via socket
+        if (this.io) {
           this.io.emit('disable-bot', {
             phone: phoneNumber
           });
@@ -178,6 +193,7 @@ class WhatsAppService {
       await this.sendMessage(message.from, '❌ Ocorreu um erro. Tente novamente.');
     }
   }
+
 
   findUserInfo(phoneNumber) {
    const user = this.clientUsers.find(u => u.phone === phoneNumber);
