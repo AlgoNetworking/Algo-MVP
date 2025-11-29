@@ -157,22 +157,16 @@ function extractNumbersAndPositions(tokens) {
   return numbers;
 }
 
-function findAssociatedNumber(productPosition, allTokens, numbersWithPositions, usedNumberPositions) {
+function findAssociatedNumber(productPosition, allTokens, numbersWithPositions) {
   if (numbersWithPositions.length === 0) {
     return [1, null];
   }
 
-  const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
-  
-  if (availableNumbers.length === 0) {
-    return [1, null];
-  }
-
-  // Priority 1: Number immediately before
+  // Pattern 1: Number immediately before the product (most common)
   if (productPosition > 0) {
     const prevToken = allTokens[productPosition - 1];
     if (/^\d+$/.test(prevToken) || allNumberWords[prevToken]) {
-      for (const [pos, val] of availableNumbers) {
+      for (const [pos, val] of numbersWithPositions) {
         if (pos === productPosition - 1) {
           return [val, pos];
         }
@@ -180,18 +174,19 @@ function findAssociatedNumber(productPosition, allTokens, numbersWithPositions, 
     }
   }
 
-  // Priority 2: Closest number before
-  const numbersBefore = availableNumbers.filter(([pos, _]) => pos < productPosition);
+  // Pattern 2: Look for numbers before the product (anywhere before)
+  const numbersBefore = numbersWithPositions.filter(([pos, _]) => pos < productPosition);
   if (numbersBefore.length > 0) {
-    const closest = numbersBefore.reduce((max, curr) => curr[0] > max[0] ? curr : max);
-    return [closest[1], closest[0]];
+    // Return the closest number before the product (highest position number before product)
+    const closestBefore = numbersBefore.reduce((max, curr) => curr[0] > max[0] ? curr : max);
+    return [closestBefore[1], closestBefore[0]];
   }
 
-  // Priority 3: Number immediately after
+  // Pattern 3: Number immediately after the product
   if (productPosition + 1 < allTokens.length) {
     const nextToken = allTokens[productPosition + 1];
     if (/^\d+$/.test(nextToken) || allNumberWords[nextToken]) {
-      for (const [pos, val] of availableNumbers) {
+      for (const [pos, val] of numbersWithPositions) {
         if (pos === productPosition + 1) {
           return [val, pos];
         }
@@ -199,17 +194,18 @@ function findAssociatedNumber(productPosition, allTokens, numbersWithPositions, 
     }
   }
 
-  // Priority 4: Closest number after
-  const numbersAfter = availableNumbers.filter(([pos, _]) => pos > productPosition);
+  // Pattern 4: Look for numbers after the product (anywhere after)
+  const numbersAfter = numbersWithPositions.filter(([pos, _]) => pos > productPosition);
   if (numbersAfter.length > 0) {
-    const closest = numbersAfter.reduce((min, curr) => curr[0] < min[0] ? curr : min);
-    return [closest[1], closest[0]];
+    // Return the closest number after the product (lowest position number after product)
+    const closestAfter = numbersAfter.reduce((min, curr) => curr[0] < min[0] ? curr : min);
+    return [closestAfter[1], closestAfter[0]];
   }
 
   return [1, null];
 }
 
-function parse(message, productsDb) {
+function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [1, 80]) {
   let normalized = normalize(message);
   normalized = separateNumbersAndWords(normalized);
   normalized = normalized.replace(/[,\.;\+\-\/\(\)\[\]\:]/g, ' ');
@@ -221,91 +217,87 @@ function parse(message, productsDb) {
 
   const numbersWithPositions = extractNumbersAndPositions(tokens);
   
-  const productNames = productsDb.map(([p, _]) => p);
-  const sortedProducts = productNames
-    .map((p, idx) => [p, idx])
+  // Sort products by word count (longest first) to prioritize multi-word matches
+  const sortedProducts = productsDb.map(([product, qty], index) => [product, qty, index])
     .sort((a, b) => b[0].split(' ').length - a[0].split(' ').length);
   
-  const maxProdWords = Math.max(...productNames.map(p => p.split(' ').length));
+  const normalizedProducts = sortedProducts.map(([product]) => normalize(product));
+  const maxProdWords = Math.max(...productsDb.map(([p]) => p.split(' ').length));
 
+  // Precompute the set of words that appear in any product name
   const productWords = new Set();
-  productNames.forEach(product => {
+  productsDb.forEach(([product]) => {
     product.split(' ').forEach(word => productWords.add(normalize(word)));
   });
 
-  const usedPositions = new Set();
   const usedNumberPositions = new Set();
-  const potentialMatches = [];
 
   let i = 0;
   while (i < tokens.length) {
-    if (usedPositions.has(i)) {
-      i++;
-      continue;
-    }
-
     const token = tokens[i];
-    const fillerWords = ['quero', 'e'];
-    
-    if ((fillerWords.includes(token) && !productWords.has(token)) || 
-        (/^\d+$/.test(token) && !numbersWithPositions.some(([pos, _]) => pos === i)) || 
+
+    // Skip filler words and numbers only if they are not part of a product name
+    const fillerWords = new Set(['quero', 'manda']);
+    if ((fillerWords.has(token) && !productWords.has(token)) || 
+        /^\d+$/.test(token) || 
         allNumberWords[token]) {
       i++;
       continue;
     }
 
     let matched = false;
-
+    
+    // Try different phrase lengths (longest first) - prioritize multi-word products
     for (let size = Math.min(maxProdWords, 4); size > 0; size--) {
       if (i + size > tokens.length) continue;
-
+      
       const phraseTokens = tokens.slice(i, i + size);
+      
+      // Skip if any token in the phrase is a number or filler word (unless part of product)
       let skipPhrase = false;
-
-      for (let j = 0; j < size; j++) {
-        if (usedPositions.has(i + j)) {
-          skipPhrase = true;
-          break;
-        }
-        const t = tokens[i + j];
-        if (/^\d+$/.test(t) || allNumberWords[t] || (fillerWords.includes(t) && !productWords.has(t))) {
+      for (const t of phraseTokens) {
+        if (/^\d+$/.test(t) || allNumberWords[t] || (fillerWords.has(t) && !productWords.has(t))) {
           skipPhrase = true;
           break;
         }
       }
-
       if (skipPhrase) continue;
-
+      
       const phrase = phraseTokens.join(' ');
       const phraseNorm = normalize(phrase);
 
       let bestScore = 0;
       let bestProduct = null;
       let bestOriginalIdx = null;
-
-      sortedProducts.forEach(([prodName, origIdx]) => {
-        const prodNorm = normalize(prodName);
+      
+      // Find best match for this phrase length
+      for (let idx = 0; idx < normalizedProducts.length; idx++) {
+        const prodNorm = normalizedProducts[idx];
         const score = similarityPercentage(phraseNorm, prodNorm);
         if (score > bestScore) {
           bestScore = score;
-          bestProduct = prodName;
-          bestOriginalIdx = origIdx;
+          bestProduct = sortedProducts[idx][0];
+          bestOriginalIdx = sortedProducts[idx][2];
         }
-      });
+      }
 
-      if (bestScore >= 80 || (bestScore > 50 && !matched)) {
-        potentialMatches.push({
-          start_pos: i,
-          end_pos: i + size - 1,
-          product: bestProduct,
-          original_idx: bestOriginalIdx,
-          score: bestScore
+      // Handle the match
+      if (bestScore >= similarityThreshold) {
+        const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
+        const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
+        
+        workingDb[bestOriginalIdx][1] += quantity;
+        parsedOrders.push({
+          product: bestProduct, 
+          qty: quantity, 
+          score: Math.round(bestScore * 100) / 100
         });
-
-        for (let j = 0; j < size; j++) {
-          usedPositions.add(i + j);
+        
+        // Remove the used number from available numbers
+        if (numberPosition !== null) {
+          usedNumberPositions.add(numberPosition);
         }
-
+        
         i += size;
         matched = true;
         break;
@@ -313,92 +305,47 @@ function parse(message, productsDb) {
     }
 
     if (!matched) {
+      // If no match found, find the best match to suggest
       const phrase = tokens[i];
       let bestMatch = null;
       let bestScore = 0;
       let bestOriginalIdx = null;
       const phraseNorm = normalize(phrase);
-
-      productNames.forEach((product, idx) => {
+      
+      for (let idx = 0; idx < productsDb.length; idx++) {
+        const [product] = productsDb[idx];
         const score = similarityPercentage(phraseNorm, normalize(product));
         if (score > bestScore) {
           bestScore = score;
           bestMatch = product;
           bestOriginalIdx = idx;
         }
-      });
-
-      if (bestMatch && bestScore > 50) {
-        potentialMatches.push({
-          start_pos: i,
-          end_pos: i,
-          product: bestMatch,
-          original_idx: bestOriginalIdx,
-          score: bestScore
-        });
-
-        usedPositions.add(i);
       }
-
+      
+      if (bestMatch && bestScore > 50) {
+        const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
+        const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
+        
+        workingDb[bestOriginalIdx][1] += quantity;
+        parsedOrders.push({
+          product: bestMatch,
+          qty: quantity,
+          score: Math.round(bestScore * 100) / 100
+        });
+        
+        // Remove the used number from available numbers
+        if (numberPosition !== null) {
+          usedNumberPositions.add(numberPosition);
+        }
+        
+        matched = true;
+      } else {
+        // Skip unrecognized token (equivalent to Python's print message)
+        console.log(`Skipping '${phrase}' - please rephrase your order.`);
+      }
       i++;
     }
   }
-
-  // Sort matches by priority
-  potentialMatches.sort((a, b) => {
-    const getPriority = (match) => {
-      const startPos = match.start_pos;
-
-      if (startPos > 0) {
-        const prevToken = tokens[startPos - 1];
-        if ((/^\d+$/.test(prevToken) || allNumberWords[prevToken]) && 
-            !usedNumberPositions.has(startPos - 1)) {
-          return 0;
-        }
-      }
-
-      const numbersBefore = numbersWithPositions
-        .filter(([pos, _]) => pos < startPos && !usedNumberPositions.has(pos));
-      if (numbersBefore.length > 0) return 1;
-
-      if (startPos + 1 < tokens.length) {
-        const nextToken = tokens[startPos + 1];
-        if ((/^\d+$/.test(nextToken) || allNumberWords[nextToken]) && 
-            !usedNumberPositions.has(startPos + 1)) {
-          return 2;
-        }
-      }
-
-      const numbersAfter = numbersWithPositions
-        .filter(([pos, _]) => pos > startPos && !usedNumberPositions.has(pos));
-      if (numbersAfter.length > 0) return 3;
-
-      return 4;
-    };
-
-    return getPriority(a) - getPriority(b);
-  });
-
-  // Process matches
-  potentialMatches.forEach(match => {
-    const [quantity, numberPosition] = findAssociatedNumber(
-      match.start_pos,
-      tokens,
-      numbersWithPositions,
-      usedNumberPositions
-    );
-
-    workingDb[match.original_idx][1] += quantity;
-    parsedOrders.push({
-      product: match.product,
-      qty: quantity,
-      score: Math.round(match.score * 100) / 100
-    });
-
-    if (numberPosition !== null) {
-      usedNumberPositions.add(numberPosition);
-    }
-  });
 
   return { parsedOrders, updatedDb: workingDb };
 }

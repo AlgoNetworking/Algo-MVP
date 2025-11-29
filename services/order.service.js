@@ -124,7 +124,7 @@ class OrderSession {
   }
 
   checkCancelCommand(message) {
-    const cancelCommands = ['cancelar', 'não', 'nao', 'n'];
+    const cancelCommands = ['cancelar', 'não', 'nao'];
     return cancelCommands.some(cmd => message.toLowerCase().includes(cmd));
   }
 
