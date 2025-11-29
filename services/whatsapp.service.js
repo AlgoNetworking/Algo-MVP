@@ -20,7 +20,7 @@ class WhatsAppService {
     console.log('📱 WhatsApp Service initialized');
   }
 
-  async connect() {
+  async connect(users) {
     if (this.isRunning) {
       throw new Error('WhatsApp client already running');
     }
@@ -28,6 +28,8 @@ class WhatsAppService {
     try {
       this.disabledUsers.clear();
       console.log('🔄 Cleared disabled users list for fresh connection');
+
+      this.clientUsers = users;
 
       this.client = new Client({
         authStrategy: new LocalAuth({
@@ -110,16 +112,14 @@ class WhatsAppService {
       const formattedSenderPhone = this.formatPhoneNumber(message.from); 
       const fromUser = this.findUserInfo(formattedSenderPhone);
       console.log(fromUser.isChatBot);
-      if(fromUser.isChatBot) {
-        if(!(message.from === 'status@broadcast' || message.fromMe || chat.isGroup)) {
-          await this.handleMessage(message);
+      if(!(message.from === 'status@broadcast' || message.fromMe || chat.isGroup)) {
+        await this.handleMessage(message);
 
-          if (this.io) {
-            this.io.emit('user-answered-status-update', {
-              phone: formattedSenderPhone
-            });
-            console.log('test');
-          }
+        if (this.io) {
+          this.io.emit('user-answered-status-update', {
+            phone: formattedSenderPhone
+          });
+          console.log('test');
         }
       }
     });
@@ -238,7 +238,6 @@ class WhatsAppService {
       throw new Error('Bot not running');
     }
 
-    this.clientUsers = users;
     const results = [];
 
     for (const user of users) {
@@ -305,15 +304,56 @@ class WhatsAppService {
   }
 
   generateInitialMessage(userName) {
+    const user = userName ? ' ' + userName : '';
     const messages = [
-      `Opa${userName ? ' ' + userName : ''}! Estamos no aguardo do seu pedido!`,
-      `Olá${userName ? ' ' + userName : ''}! Estamos no aguardo do seu pedido!`,
-      `Oi${userName ? ' ' + userName : ''}! Estamos no aguardo do seu pedido!`,
-      `Opa${userName ? ' ' + userName : ''}! Já estamos no aguardo do seu pedido!`,
-      `Olá${userName ? ' ' + userName : ''}! Já estamos no aguardo do seu pedido!`,
-      `Oi${userName ? ' ' + userName : ''}! Já estamos no aguardo do seu pedido!`
+      `Opa${user}! Estamos no aguardo do seu pedido!`, 
+      `Olá${user}! Estamos no aguardo do seu pedido!`,
+      `Oi${user}! Estamos no aguardo do seu pedido!`,
+      `Opa${user}! Já estamos no aguardo do seu pedido!`,
+      `Olá${user}! Já estamos no aguardo do seu pedido!`,
+      `Oi${user}! Já estamos no aguardo do seu pedido!`,
+      `Opa${user}! Já estamos no aguardo do pedido!`,
+      `Olá${user}! Já estamos no aguardo do pedido!`,
+      `Oi${user}! Já estamos no aguardo do pedido!`,
+      `Opa${user}! Estamos aguardando o pedido!`,
+      `Olá${user}! Estamos aguardando o pedido!`,
+      `Oi${user}! Estamos aguardando o pedido!`,
+      `Opa${user}! Já estamos aguardando o pedido!`,
+      `Olá${user}! Já estamos aguardando o pedido!`,
+      `Oi${user}! Já estamos aguardando o pedido!`,
+      // "nós" section
+      `Opa${user}! Nós estamos no aguardo do seu pedido!`, 
+      `Olá${user}! Nós estamos no aguardo do seu pedido!`,
+      `Oi${user}! Nós estamos no aguardo do seu pedido!`,
+      `Opa${user}! Nós já estamos no aguardo do seu pedido!`,
+      `Olá${user}! Nós já estamos no aguardo do seu pedido!`,
+      `Oi${user}! Nós já estamos no aguardo do seu pedido!`,
+      `Opa${user}! Nós já estamos no aguardo do pedido!`,
+      `Olá${user}! Nós já estamos no aguardo do pedido!`,
+      `Oi${user}! Nós já estamos no aguardo do pedido!`,
+      `Opa${user}! Nós estamos aguardando o pedido!`,
+      `Olá${user}! Nós estamos aguardando o pedido!`,
+      `Oi${user}! Nós estamos aguardando o pedido!`,
+      `Opa${user}! Nós já estamos aguardando o pedido!`,
+      `Olá${user}! Nós já estamos aguardando o pedido!`,
+      `Oi${user}! Nós já estamos aguardando o pedido!`
     ];
-    return messages[Math.floor(Math.random() * messages.length)];
+
+    const products = [
+      ['abacaxi', 0], ['abacaxi com hortelã', 0], ['açaí', 0], ['acerola', 0],
+      ['ameixa', 0], ['cajá', 0], ['cajú', 0], ['goiaba', 0], ['graviola', 0],
+      ['manga', 0], ['maracujá', 0], ['morango', 0], ['seriguela', 0], ['tamarindo', 0],
+      ['caixa de ovos', 0], ['ovo', 0], ['queijo', 0]
+    ]
+
+    const idx1 = Math.floor(Math.random() * products.length);
+    const idx2 = Math.floor(Math.random() * products.length);
+    const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
+
+    const example = `${Math.floor(Math.random() * 11)} ${products[idx1][0]} e ${Math.floor(Math.random() * 11)} ${products[differentIdx][0]}`;
+    const warning = `\n\n (Isto é uma mensagem automática, digite naturalmente como: ${example})`;
+
+    return messages[Math.floor(Math.random() * messages.length)] + warning;
   }
 
   startPolling() {

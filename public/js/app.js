@@ -76,16 +76,22 @@ function setupTabs() {
 async function connectWhatsApp() {
   try {
     addLog('📱 Conectando WhatsApp...');
-    const response = await fetch('/api/whatsapp/connect', { method: 'POST' });
-    const data = await response.json();
 
     // 🔄 Reset ALL clients when reconnecting WhatsApp
     for(client of clients) {
       client.answered = false;
       client.isChatBot = true; // Reset bot functionality for everyone
     }
+    
     saveClients(); // Save the changes
     renderClients(); // Update the UI
+
+     const response = await fetch('/api/whatsapp/connect', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: clients })
+    });
+    const data = await response.json();
     
     if (data.success) {
       addLog('✅ WhatsApp conectando...');

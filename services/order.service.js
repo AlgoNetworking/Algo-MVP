@@ -124,7 +124,7 @@ class OrderSession {
   }
 
   checkCancelCommand(message) {
-    const cancelCommands = ['cancelar', 'não', 'nao'];
+    const cancelCommands = ['cancelar', 'não', 'nao', 'n'];
     return cancelCommands.some(cmd => message.toLowerCase().includes(cmd));
   }
 
@@ -173,7 +173,7 @@ class OrderService {
       session.waitingForOption = true;
       return {
         success: true,
-        message: `Perdão, mas o nosso bot ainda não entende mensagens que não sejam de texto. \n\nVocê quer pedir (digite 1) ou falar com uma pessoa (digite 2)?`,
+        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê quer realizar um pedido (digite 1) ou falar com uma pessoa (digite 2)?`,
         isChatBot: true
       };
     }
@@ -185,7 +185,7 @@ class OrderService {
       const greeting = name !== 'Cliente sem nome' ? `Olá ${name}!` : 'Olá!';
       return {
         success: true,
-        message: `${greeting}\n\nVocê quer pedir (digite 1) ou falar com uma pessoa (digite 2)?`,
+        message: `${greeting} Isso é uma mensagem automática.\n\nVocê quer realizar um pedido (digite 1) ou falar com uma pessoa (digite 2)?`,
         isChatBot: true
       };
     }

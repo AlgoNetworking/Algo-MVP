@@ -5,7 +5,9 @@ const whatsappService = require('../services/whatsapp.service');
 // Connect WhatsApp
 router.post('/connect', async (req, res) => {
   try {
-    const result = await whatsappService.connect();
+    const { users } = req.body;
+
+    const result = await whatsappService.connect(users);
     res.json(result);
   } catch (error) {
     console.error('Error connecting WhatsApp:', error);
