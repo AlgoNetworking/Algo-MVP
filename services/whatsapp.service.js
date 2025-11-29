@@ -138,6 +138,34 @@ class WhatsAppService {
       const messageBody = message.body;
       const phoneNumber = this.formatPhoneNumber(sender);
 
+      // 🔒 CRITICAL: Skip processing if user previously chose to talk to a person
+      if (this.disabledUsers.has(sender)) {
+          console.log(`⏸️ Skipping message from ${phoneNumber} - user previously chose to talk to person`);
+          return;
+      }
+
+      // 🚨 NEW: Skip messages that were sent before the bot started
+      // More robust approach with additional checks
+      const messageTimestamp = message.timestamp * 1000; // Convert to milliseconds
+      const currentTime = Date.now();
+      const botStartTime = this.botStartTime || currentTime;
+      
+      // Additional safety margin of 5 seconds to account for timing differences
+      const safetyMargin = 5000; // 5 seconds
+      
+      if (messageTimestamp < (botStartTime - safetyMargin)) {
+          console.log(`⏪ Skipping old message from ${phoneNumber} - sent ${Math.round((botStartTime - messageTimestamp) / 1000)}s before bot started`);
+          console.log(`   Message time: ${new Date(messageTimestamp).toISOString()}`);
+          console.log(`   Bot start: ${new Date(botStartTime).toISOString()}`);
+          return;
+      }
+
+      // Also skip messages with future timestamps (more than 30 seconds in future)
+      if (messageTimestamp > (currentTime + 30000)) {
+          console.log(`⏩ Skipping future message from ${phoneNumber} - timestamp in future`);
+          return;
+      }
+
       console.log(`📩 Message from ${phoneNumber}: Type: ${message.type}, Body: ${messageBody}`);
 
 
