@@ -640,6 +640,7 @@ socket.on('bot-status', (data) => {
     updateConnectionStatus(data.isConnected);
 });
 
+// alterei umas coisas aqui pra quando o usuario reiniciar a pagina
 function updateConnectionStatus(isConnected) {
     const statusBadge = document.getElementById('connectionStatus');
     

@@ -3,6 +3,7 @@ const qrcode = require('qrcode');
 const { v4: uuidv4 } = require('uuid');
 const orderService = require('./order.service');
 const { format } = require('mathjs');
+const productsConfig = require('../utils/products-config');
 
 class WhatsAppService {
   constructor() {
@@ -375,18 +376,13 @@ class WhatsAppService {
       `Oi${user}! Nós já estamos aguardando o pedido!`
     ];
 
-    const products = [
-      ['abacaxi', 0], ['abacaxi com hortelã', 0], ['açaí', 0], ['acerola', 0],
-      ['ameixa', 0], ['cajá', 0], ['cajú', 0], ['goiaba', 0], ['graviola', 0],
-      ['manga', 0], ['maracujá', 0], ['morango', 0], ['seriguela', 0], ['tamarindo', 0],
-      ['caixa de ovos', 0], ['ovo', 0], ['queijo', 0]
-    ]
+    const products = productsConfig.PRODUCTS;
 
     const idx1 = Math.floor(Math.random() * products.length);
     const idx2 = Math.floor(Math.random() * products.length);
     const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
 
-    const example = `${Math.floor(Math.random() * 11)} ${products[idx1][0]} e ${Math.floor(Math.random() * 11)} ${products[differentIdx][0]}`;
+    const example = `${Math.floor(Math.random() * 11)} ${products[idx1]} e ${Math.floor(Math.random() * 11)} ${products[differentIdx]}`;
     const warning = `\n\n(Isto é uma mensagem automática, digite naturalmente como: ${example})`;
 
     return messages[Math.floor(Math.random() * messages.length)] + warning;

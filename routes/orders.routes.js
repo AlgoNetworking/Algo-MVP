@@ -4,6 +4,8 @@ const databaseService = require('../services/database.service');
 const orderService = require('../services/order.service');
 const orderParser = require('../utils/order-parser');
 const ExcelJS = require('exceljs');
+const productsConfig = require('../utils/products-config');
+
 
 // Get product totals
 router.get('/totals', async (req, res) => {
@@ -85,12 +87,7 @@ router.post('/manual-order', async (req, res) => {
     }
 
     // Parse the order
-    const emptyDb = [
-      ['abacaxi', 0], ['abacaxi com hortelã', 0], ['açaí', 0], ['acerola', 0],
-      ['ameixa', 0], ['cajá', 0], ['cajú', 0], ['goiaba', 0], ['graviola', 0],
-      ['manga', 0], ['maracujá', 0], ['morango', 0], ['seriguela', 0], ['tamarindo', 0],
-      ['caixa de ovos', 0], ['ovo', 0], ['queijo', 0]
-    ];
+    const emptyDb = productsConfig.getEmptyProductsDb();
 
     const { parsedOrders } = orderParser.parse(message, emptyDb);
 

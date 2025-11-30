@@ -339,9 +339,6 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         }
         
         matched = true;
-      } else {
-        // Skip unrecognized token (equivalent to Python's print message)
-        console.log(`Skipping '${phrase}' - please rephrase your order.`);
       }
       i++;
     }

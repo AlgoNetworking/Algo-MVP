@@ -1,5 +1,6 @@
 const databaseService = require('./database.service');
 const orderParser = require('../utils/order-parser');
+const productsConfig = require('../utils/products-config');
 
 class OrderSession {
   constructor(sessionId) {
@@ -17,12 +18,7 @@ class OrderSession {
   }
 
   getEmptyProducts() {
-    return [
-      ['abacaxi', 0], ['abacaxi com hortelã', 0], ['açaí', 0], ['acerola', 0],
-      ['ameixa', 0], ['cajá', 0], ['cajú', 0], ['goiaba', 0], ['graviola', 0],
-      ['manga', 0], ['maracujá', 0], ['morango', 0], ['seriguela', 0], ['tamarindo', 0],
-      ['caixa de ovos', 0], ['ovo', 0], ['queijo', 0]
-    ];
+    return productsConfig.getEmptyProductsDb(); // Update this line
   }
 
   hasItems() {

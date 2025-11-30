@@ -1,18 +1,14 @@
 const path = require('path');
 const fs = require('fs');
 const math = require('mathjs');
+const productsConfig = require('../utils/products-config');
 
 // Determine database type from environment
 const isProduction = process.env.DATABASE_URL !== undefined;
 
 let db;
 
-const PRODUCTS = [
-  'abacaxi', 'abacaxi com hortelã', 'açaí', 'acerola',
-  'ameixa', 'cajá', 'cajú', 'goiaba', 'graviola',
-  'manga', 'maracujá', 'morango', 'seriguela', 'tamarindo',
-  'caixa de ovos', 'ovo', 'queijo'
-];
+const PRODUCTS = productsConfig.PRODUCTS;
 
 class DatabaseService {
   async initialize() {
