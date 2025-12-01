@@ -382,7 +382,7 @@ class WhatsAppService {
     const idx2 = Math.floor(Math.random() * products.length);
     const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
 
-    const example = `${Math.floor(Math.random() * 11)} ${products[idx1]} e ${Math.floor(Math.random() * 11)} ${products[differentIdx]}`;
+    const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx]}`;
     const warning = `\n\n(Isto é uma mensagem automática, digite naturalmente como: ${example})`;
 
     return messages[Math.floor(Math.random() * messages.length)] + warning;

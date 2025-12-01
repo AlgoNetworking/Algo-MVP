@@ -4,6 +4,7 @@ const socket = io();
 // Global variables
 let autoRefreshInterval = null;
 let autoRefreshUserInterval = null;
+let isSendingMessages = false; // novo
 let clients = [
     {
       "phone": "+55 85 8976-4552",
@@ -135,6 +136,8 @@ async function sendBulkMessages() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ users: clients })
         });
+
+        isSendingMessages = true;
         
         const data = await response.json();
         if (data.success) {
@@ -618,6 +621,7 @@ socket.on('bulk-message-progress', (data) => {
 socket.on('bulk-messages-complete', (data) => {
     addLog('✅ Envio de mensagens concluído!');
     document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
+    isSendingMessages = false;
     if(document.getElementById('connectBtn').disabled) {
         document.getElementById('sendBulkBtn').disabled = false;
     }
@@ -648,6 +652,16 @@ function updateConnectionStatus(isConnected) {
         statusBadge.textContent = 'Conectado';
         statusBadge.classList.remove('offline');
         statusBadge.classList.add('online');
+        document.getElementById('connectBtn').disabled = true;
+        document.getElementById('disconnectBtn').disabled = false;
+        if(isSendingMessages) {
+            document.getElementById('sendBulkBtn').textContent = '📤 Enviando...';
+            document.getElementById('sendBulkBtn').disabled = true;
+        }
+        else{
+            document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
+            document.getElementById('sendBulkBtn').disabled = false;
+        }
     } else {
         statusBadge.textContent = 'Desconectado';
         statusBadge.classList.remove('online');
