@@ -4,7 +4,6 @@ const socket = io();
 // Global variables
 let autoRefreshInterval = null;
 let autoRefreshUserInterval = null;
-let isSendingMessages = false; // novo
 let clients = [
     {
       "phone": "+55 85 8976-4552",
@@ -136,8 +135,6 @@ async function sendBulkMessages() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ users: clients })
         });
-
-        isSendingMessages = true;
         
         const data = await response.json();
         if (data.success) {
@@ -621,14 +618,8 @@ socket.on('bulk-message-progress', (data) => {
 socket.on('bulk-messages-complete', (data) => {
     addLog('✅ Envio de mensagens concluído!');
     document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
-    isSendingMessages = false;
-    if(document.getElementById('connectBtn').disabled) {
-        document.getElementById('sendBulkBtn').disabled = false;
-    }
-    else{
-        document.getElementById('sendBulkBtn').disabled = true;
-    }
-    console.log(document.getElementById('connectBtn').disabled);
+    
+    // The button state will be updated by the next status check
     const successful = data.results.filter(r => r.status === 'sent').length;
     if(successful == 1) {
         addLog(`Envio concluído!\n${successful} mensagem enviada com sucesso!`);
@@ -641,12 +632,13 @@ socket.on('bulk-messages-complete', (data) => {
 
 socket.on('bot-status', (data) => {
     document.getElementById('sessionCount').textContent = data.sessions.length;
-    updateConnectionStatus(data.isConnected);
+    updateConnectionStatus(data.isConnected, data.isSendingMessages, data.sendingProgress);
 });
 
 // alterei umas coisas aqui pra quando o usuario reiniciar a pagina
-function updateConnectionStatus(isConnected) {
+function updateConnectionStatus(isConnected, isSendingMessages = false, sendingProgress = null) {
     const statusBadge = document.getElementById('connectionStatus');
+    const sendBulkBtn = document.getElementById('sendBulkBtn');
     
     if (isConnected) {
         statusBadge.textContent = 'Conectado';
@@ -654,18 +646,26 @@ function updateConnectionStatus(isConnected) {
         statusBadge.classList.add('online');
         document.getElementById('connectBtn').disabled = true;
         document.getElementById('disconnectBtn').disabled = false;
-        if(isSendingMessages) {
-            document.getElementById('sendBulkBtn').textContent = '📤 Enviando...';
-            document.getElementById('sendBulkBtn').disabled = true;
-        }
-        else{
-            document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
-            document.getElementById('sendBulkBtn').disabled = false;
+        
+        if (isSendingMessages) {
+            sendBulkBtn.textContent = '📤 Enviando...';
+            sendBulkBtn.disabled = true;
+            // Optional: Show progress
+            if (sendingProgress) {
+                sendBulkBtn.textContent = `📤 Enviando... (${sendingProgress.sent}/${sendingProgress.total})`;
+            }
+        } else {
+            sendBulkBtn.textContent = '📤 Enviar Mensagens em Massa';
+            sendBulkBtn.disabled = false;
         }
     } else {
         statusBadge.textContent = 'Desconectado';
         statusBadge.classList.remove('online');
         statusBadge.classList.add('offline');
+        document.getElementById('connectBtn').disabled = false;
+        document.getElementById('disconnectBtn').disabled = true;
+        sendBulkBtn.textContent = '📤 Enviar Mensagens em Massa';
+        sendBulkBtn.disabled = true;
     }
 }
 
@@ -696,8 +696,20 @@ setInterval(() => {
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                updateConnectionStatus(data.isConnected);
-                document.getElementById('sessionCount').textContent = data.sessions.length;
+                // Also get sending status
+                fetch('/api/whatsapp/sending-status')
+                    .then(r => r.json())
+                    .then(sendingData => {
+                        if (sendingData.success) {
+                            updateConnectionStatus(
+                                data.isConnected, 
+                                sendingData.isSendingMessages,
+                                sendingData.progress
+                            );
+                            document.getElementById('sessionCount').textContent = data.sessions.length;
+                        }
+                    })
+                    .catch(() => {});
             }
         })
         .catch(() => {});

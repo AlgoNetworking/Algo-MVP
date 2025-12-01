@@ -70,6 +70,23 @@ router.post('/send-bulk', async (req, res) => {
   }
 });
 
+// Add this route to get sending status
+router.get('/sending-status', (req, res) => {
+  try {
+    const status = whatsappService.getSendingStatus();
+    res.json({
+      success: true,
+      ...status
+    });
+  } catch (error) {
+    console.error('Error getting sending status:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
 // Get connection status
 router.get('/status', (req, res) => {
   try {

@@ -55,9 +55,12 @@ io.on('connection', (socket) => {
   console.log('🔌 Client connected:', socket.id);
   
   // Send initial status
+  const sendingStatus = whatsappService.getSendingStatus();
   socket.emit('bot-status', {
     isConnected: whatsappService.isConnected(),
-    sessions: whatsappService.getActiveSessions()
+    sessions: whatsappService.getActiveSessions(),
+    isSendingMessages: sendingStatus.isSendingMessages, // Add this
+    sendingProgress: sendingStatus.progress // Add this
   });
 
   socket.on('disconnect', () => {

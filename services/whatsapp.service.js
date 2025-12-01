@@ -14,6 +14,8 @@ class WhatsAppService {
     this.pollingInterval = null;
     this.clientUsers = [];
     this.disabledUsers = new Set(); // 🔒 NEW: Track users who disabled bot
+    this.isSendingMessages = false; // Add this
+    this.bulkMessageProgress = null; // Add this to track progress
   }
 
   initialize(io) {
@@ -275,6 +277,13 @@ class WhatsAppService {
       throw new Error('Bot not running');
     }
 
+    this.isSendingMessages = true; // Set sending state
+    this.bulkMessageProgress = {
+      total: users.length,
+      sent: 0,
+      failed: 0
+    };
+
     const results = [];
 
     for (const user of users) {
@@ -282,15 +291,17 @@ class WhatsAppService {
         try {
           if (user.answered) {
             results.push({ phone: user.phone, status: 'skipped', reason: 'Already answered' });
+            this.bulkMessageProgress.sent++; // Count skipped as sent for progress
             continue;
           }
-          console.log(user.phone);
+
           const phoneId = user.phone.replace(/[+\-\s]/g, '') + '@c.us';
           
           // Verify number exists
           const numberId = await this.client.getNumberId(phoneId);
           if (!numberId) {
             results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
+            this.bulkMessageProgress.failed++;
             continue;
           }
 
@@ -298,8 +309,6 @@ class WhatsAppService {
           if (!this.userSessions.has(phoneId)) {
             const sessionId = uuidv4();
             this.userSessions.set(phoneId, sessionId);
-            
-            // Initialize session in order service
             await orderService.startSession(sessionId);
           }
 
@@ -308,36 +317,47 @@ class WhatsAppService {
           await this.sendMessage(phoneId, message);
 
           results.push({ phone: user.phone, status: 'sent' });
+          this.bulkMessageProgress.sent++;
 
           // Emit progress
           if (this.io) {
             this.io.emit('bulk-message-progress', {
               phone: user.phone,
               name: user.name,
-              // status: 'sent'
+              progress: this.bulkMessageProgress
             });
           }
+
           // Random delay between 18-30 seconds
           const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
           await new Promise(resolve => setTimeout(resolve, delay));
-          
 
         } catch (error) {
           console.error(`❌ Error sending to ${user.phone}:`, error);
           results.push({ phone: user.phone, status: 'failed', reason: error.message });
+          this.bulkMessageProgress.failed++;
         }
-      }
-      else {
+      } else {
         console.log("Envio de mensagens interrompido pelo desligamento do bot.");
         break;
       }
     }
+
+    this.isSendingMessages = false; // Reset sending state
+    this.bulkMessageProgress = null;
 
     if (this.io) {
       this.io.emit('bulk-messages-complete', { results });
     }
 
     return results;
+  }
+
+  getSendingStatus() {
+    return {
+      isSendingMessages: this.isSendingMessages,
+      progress: this.bulkMessageProgress
+    };
   }
 
   generateInitialMessage(userName) {
