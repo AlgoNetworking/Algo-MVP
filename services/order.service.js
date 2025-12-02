@@ -171,7 +171,7 @@ class OrderService {
       session.waitingForOption = true;
       return {
         success: true,
-        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê quer realizar um pedido (digite 1), falar com uma pessoa (digite 2) ou ver a lista de produtos (digite 3)?`,
+        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê deseja:\nrealizar um pedido (digite 1);\nfalar com uma pessoa (digite 2);\nver a lista de produtos (digite 3) ou\n(digite 4) saber mais sobre o programa e como usá-lo?`,
         isChatBot: true
       };
     }
@@ -183,7 +183,7 @@ class OrderService {
       const greeting = name !== 'Cliente sem nome' ? `Olá ${name}!` : 'Olá!';
       return {
         success: true,
-        message: `${greeting} Isso é uma mensagem automática.\n\nVocê quer realizar um pedido (digite 1), falar com uma pessoa (digite 2) ou ver a lista de produtos (digite 3)?`,
+        message: `${greeting} Isso é uma mensagem automática.\n\nVocê deseja:\nrealizar um pedido (digite *1*);\nfalar com uma pessoa (digite *2*);\nver a lista de produtos (digite *3*) ou\nsaber mais sobre o programa e como usá-lo (digite *4*)?`,
         isChatBot: true
       };
     }
@@ -215,16 +215,40 @@ class OrderService {
         for (const item of session.currentDb) {
           productList += `- ${item[0][0]} \n`;
         }
-        productList += '\nE agora? Você deseja realizar um pedido (digite 1) ou tirar uma dúvida com uma pessoa (digite 2)?'
+        productList += '\nE agora? Você deseja:\nrealizar um pedido (digite 1);\ntirar uma dúvida com uma pessoa (digite 2);\nver novamente a lista de produtos (digite 3) ou\nsaber mais sobre o programa e como usá-lo (digite 4)?'
         return {
           success: true,
           message: productList,
           isChatBot: true
         }
-      } else {
+      } else if (messageLower === '4') {
+
+        const products = productsConfig.PRODUCTS;
+    
+        const idx1 = Math.floor(Math.random() * products.length);
+        const idx2 = Math.floor(Math.random() * products.length);
+        const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
+    
+        const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0]}`;
+
+        session.waitingForOption = true;
+        session.state = 'option';
+        let info = 'Ok, aqui temos instruções de como utilizar o programa e mais sobre ele!\n\n';
+        info += 'O programa oferece quatro opções iniciais: *1* para realizar um pedido, *2* para falar com uma pessoa real, *3* para ver a lista de produtos e *4* para ler a mensagem que você está lendo agora.\n\n';
+        info += `Para realizar um pedido, basta digitar mensagens de texto de forma natural, como: ${example}. Pois o programa consegue entender mensagens em linguagem natural.\n\n`;
+        info += 'O programa foi feito por Guilherme Moura Mororó e amigos para originalmente ajudar a empresa de seus avós. No entanto, ainda está em fase de testes e pode ser adicionado ao seu negócio gratuitamente. Basta contatar o número (+55 85 7400-2430) e recebrá mais informações sobre o produto.'
+        '\nE agora? Você deseja:\nrealizar um pedido (digite 1);\ntirar uma dúvida com uma pessoa (digite 2);\nler a lista de produtos (digite 3) ou\nsaber mais sobre o programa e como usá-lo novamente(digite 4)?'
+        return {
+          success: true,
+          message: info,
+          isChatBot: true
+        }
+      } 
+      
+      else {
         return {
           success: false,
-          message: 'Por favor, escolha uma opção: (1) para pedir, (2) para falar com uma pessoa ou (3) para ver a lista de produtos.',
+          message: 'Por favor, escolha uma opção:\n(1) para pedir;\n(2) para falar com uma pessoa;\n(3) para ver a lista de produtos ou\n(4) para saber mais sobre o programa e como usá-lo',
           isChatBot: true
         };
       }
