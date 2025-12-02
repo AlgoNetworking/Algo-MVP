@@ -4,6 +4,8 @@ const socket = io();
 // Global variables
 let autoRefreshInterval = null;
 let autoRefreshUserInterval = null;
+let clients = [];
+/*
 let clients = [
     {
       "phone": "+55 85 8976-4552",
@@ -28,6 +30,7 @@ let clients = [
       "isChatBot": true
     },
 ];
+*/
 
 // Load clients from localStorage
 function loadClients() {

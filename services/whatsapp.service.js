@@ -143,9 +143,10 @@ class WhatsAppService {
 
       // 🔒 CRITICAL: Skip processing if user previously chose to talk to a person
       if (this.disabledUsers.has(sender)) {
-        if(message.body === 'sair') {
+        if(messageBody === 'sair') {
           console.log(`✅ Enabling bot for user: ${phoneNumber}`);
           this.disabledUsers.delete(sender);
+          return;
         }
         else {
           console.log(`⏸️ Skipping message from ${phoneNumber} - user previously chose to talk to person`);
@@ -159,8 +160,8 @@ class WhatsAppService {
       const currentTime = Date.now();
       const botStartTime = this.botStartTime || currentTime;
       
-      // Additional safety margin of 5 seconds to account for timing differences
-      const safetyMargin = 10000; // 5 seconds
+      // Additional safety margin of 10 seconds to account for timing differences
+      const safetyMargin = 10000; // 10 seconds
       
       if (messageTimestamp < (botStartTime - safetyMargin)) {
           console.log(`⏪ Skipping old message from ${phoneNumber} - sent ${Math.round((botStartTime - messageTimestamp) / 1000)}s before bot started`);
@@ -177,12 +178,13 @@ class WhatsAppService {
 
       console.log(`📩 Message from ${phoneNumber}: Type: ${message.type}, Body: ${messageBody}`);
 
-
+      /*
       // 🔒 CRITICAL: Skip processing if user previously chose to talk to a person
       if (this.disabledUsers.has(sender)) {
         console.log(`⏸️ Skipping message from ${phoneNumber} - user previously chose to talk to person`);
         return; // Don't process the message at all
       }
+      */
 
       // Find user info
       const userInfo = this.findUserInfo(phoneNumber);
