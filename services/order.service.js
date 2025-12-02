@@ -233,7 +233,7 @@ class OrderService {
     // Handle confirmation
     if (session.state === 'confirming') {
       const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima','sim', 's'];
-      const denyWords = ['nao', 'não', 'n'];
+      const denyWords = ['nao', 'não', 'n', 'cancelar'];
 
       if (confirmWords.some(w => messageLower.split(' ').includes(w))) {
         session.cancelTimer();

@@ -205,6 +205,26 @@ function findAssociatedNumber(productPosition, allTokens, numbersWithPositions) 
   return [1, null];
 }
 
+function buildAkaLookup(productsDb) {
+  const akaLookup = new Map();
+
+  productsDb.forEach(([product, _], index) => {
+    const [mainName, akas] = product;
+
+    const normalizedMain = normalize(mainName);
+    akaLookup.set(normalizedMain, { mainProduct: mainName, index, score: 100 });
+
+    if (akas && akas.length > 0) {
+      akas.forEach(aka => {
+        const normalizedAka = normalize(aka);
+        akaLookup.set(normalizedAka, { mainProduct: mainName, index, score: 100 });
+      });
+    }
+  });
+
+  return akaLookup;
+}
+
 function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [1, 80]) {
   let normalized = normalize(message);
   normalized = separateNumbersAndWords(normalized);
@@ -212,22 +232,28 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
   normalized = normalized.replace(/\s+/g, ' ').trim();
 
   const tokens = normalized.split(' ');
-  const workingDb = productsDb.map(([product, qty]) => [product[0], qty]);
+  const workingDb = productsDb.map(([product, qty]) => [product, qty]);
   const parsedOrders = [];
 
   const numbersWithPositions = extractNumbersAndPositions(tokens);
-  
-  // Sort products by word count (longest first) to prioritize multi-word matches
+
+  const akaLookup = buildAkaLookup(productsDb);
+
   const sortedProducts = productsDb.map(([product, qty], index) => [product[0], qty, index])
     .sort((a, b) => b[0].split(' ').length - a[0].split(' ').length);
-  
+
   const normalizedProducts = sortedProducts.map(([product]) => normalize(product));
   const maxProdWords = Math.max(...productsDb.map(([p]) => p[0].split(' ').length));
 
-  // Precompute the set of words that appear in any product name
   const productWords = new Set();
   productsDb.forEach(([product]) => {
-    product[0].split(' ').forEach(word => productWords.add(normalize(word)));
+    const [name, akas] = product;
+    name.split(' ').forEach(word => productWords.add(normalize(word)));
+    if (akas) {
+      akas.forEach(aka => {
+        aka.split(' ').forEach(word => productWords.add(normalize(word)));
+      });
+    }
   });
 
   const usedNumberPositions = new Set();
@@ -236,24 +262,21 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
   while (i < tokens.length) {
     const token = tokens[i];
 
-    // Skip filler words and numbers only if they are not part of a product name
     const fillerWords = new Set(['quero', 'manda']);
-    if ((fillerWords.has(token) && !productWords.has(token)) || 
-        /^\d+$/.test(token) || 
-        allNumberWords[token]) {
+    if ((fillerWords.has(token) && !productWords.has(token)) ||
+      /^\d+$/.test(token) ||
+      allNumberWords[token]) {
       i++;
       continue;
     }
 
     let matched = false;
-    
-    // Try different phrase lengths (longest first) - prioritize multi-word products
+
     for (let size = Math.min(maxProdWords, 4); size > 0; size--) {
       if (i + size > tokens.length) continue;
-      
+
       const phraseTokens = tokens.slice(i, i + size);
-      
-      // Skip if any token in the phrase is a number or filler word (unless part of product)
+
       let skipPhrase = false;
       for (const t of phraseTokens) {
         if (/^\d+$/.test(t) || allNumberWords[t] || (fillerWords.has(t) && !productWords.has(t))) {
@@ -262,15 +285,46 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         }
       }
       if (skipPhrase) continue;
-      
+
       const phrase = phraseTokens.join(' ');
       const phraseNorm = normalize(phrase);
+
+      const akaMatch = akaLookup.get(phraseNorm);
+
+      if (akaMatch) {
+        const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
+        const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
+
+        let originalIndex = -1;
+        for (let idx = 0; idx < productsDb.length; idx++) {
+          if (productsDb[idx][0][0] === akaMatch.mainProduct) {
+            originalIndex = idx;
+            break;
+          }
+        }
+
+        if (originalIndex !== -1) {
+          workingDb[originalIndex][1] += quantity;
+          parsedOrders.push({
+            product: akaMatch.mainProduct,
+            qty: quantity,
+            score: 100.0
+          });
+
+          if (numberPosition !== null) {
+            usedNumberPositions.add(numberPosition);
+          }
+
+          i += size;
+          matched = true;
+          break;
+        }
+      }
 
       let bestScore = 0;
       let bestProduct = null;
       let bestOriginalIdx = null;
-      
-      // Find best match for this phrase length
+
       for (let idx = 0; idx < normalizedProducts.length; idx++) {
         const prodNorm = normalizedProducts[idx];
         const score = similarityPercentage(phraseNorm, prodNorm);
@@ -281,23 +335,21 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         }
       }
 
-      // Handle the match
       if (bestScore >= similarityThreshold) {
         const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
         const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
-        
+
         workingDb[bestOriginalIdx][1] += quantity;
         parsedOrders.push({
-          product: bestProduct, 
-          qty: quantity, 
+          product: bestProduct,
+          qty: quantity,
           score: Math.round(bestScore * 100) / 100
         });
-        
-        // Remove the used number from available numbers
+
         if (numberPosition !== null) {
           usedNumberPositions.add(numberPosition);
         }
-        
+
         i += size;
         matched = true;
         break;
@@ -305,39 +357,49 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
     }
 
     if (!matched) {
-      // If no match found, find the best match to suggest
       const phrase = tokens[i];
       let bestMatch = null;
       let bestScore = 0;
       let bestOriginalIdx = null;
       const phraseNorm = normalize(phrase);
-      
-      for (let idx = 0; idx < productsDb.length; idx++) {
-        const [product] = productsDb[idx][0];
-        const score = similarityPercentage(phraseNorm, normalize(product));
-        if (score > bestScore) {
-          bestScore = score;
-          bestMatch = product;
-          bestOriginalIdx = idx;
+
+      const singleWordAkaMatch = akaLookup.get(phraseNorm);
+      if (singleWordAkaMatch) {
+        for (let idx = 0; idx < productsDb.length; idx++) {
+          if (productsDb[idx][0][0] === singleWordAkaMatch.mainProduct) {
+            bestOriginalIdx = idx;
+            bestMatch = singleWordAkaMatch.mainProduct;
+            bestScore = 100;
+            break;
+          }
+        }
+      } else {
+        for (let idx = 0; idx < productsDb.length; idx++) {
+          const [product] = productsDb[idx][0];
+          const score = similarityPercentage(phraseNorm, normalize(product));
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = product;
+            bestOriginalIdx = idx;
+          }
         }
       }
-      
+
       if (bestMatch && bestScore > 50) {
         const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
         const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
-        
+
         workingDb[bestOriginalIdx][1] += quantity;
         parsedOrders.push({
           product: bestMatch,
           qty: quantity,
           score: Math.round(bestScore * 100) / 100
         });
-        
-        // Remove the used number from available numbers
+
         if (numberPosition !== null) {
           usedNumberPositions.add(numberPosition);
         }
-        
+
         matched = true;
       }
       i++;
@@ -350,5 +412,6 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
 module.exports = {
   parse,
   normalize,
-  similarityPercentage
+  similarityPercentage,
+  buildAkaLookup
 };
