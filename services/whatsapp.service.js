@@ -143,8 +143,14 @@ class WhatsAppService {
 
       // 🔒 CRITICAL: Skip processing if user previously chose to talk to a person
       if (this.disabledUsers.has(sender)) {
+        if(message.body === 'sair') {
+          console.log(`✅ Enabling bot for user: ${phoneNumber}`);
+          this.disabledUsers.delete(sender);
+        }
+        else {
           console.log(`⏸️ Skipping message from ${phoneNumber} - user previously chose to talk to person`);
           return;
+        }
       }
 
       // 🚨 NEW: Skip messages that were sent before the bot started
@@ -154,7 +160,7 @@ class WhatsAppService {
       const botStartTime = this.botStartTime || currentTime;
       
       // Additional safety margin of 5 seconds to account for timing differences
-      const safetyMargin = 5000; // 5 seconds
+      const safetyMargin = 10000; // 5 seconds
       
       if (messageTimestamp < (botStartTime - safetyMargin)) {
           console.log(`⏪ Skipping old message from ${phoneNumber} - sent ${Math.round((botStartTime - messageTimestamp) / 1000)}s before bot started`);
@@ -219,6 +225,7 @@ class WhatsAppService {
       }
 
       // Emit to connected clients
+      /*
       if (this.io) {
         this.io.emit('message-received', {
           from: phoneNumber,
@@ -226,6 +233,7 @@ class WhatsAppService {
           timestamp: new Date()
         });
       }
+      */
 
     } catch (error) {
       console.error('❌ Error handling message:', error);
@@ -402,7 +410,7 @@ class WhatsAppService {
     const idx2 = Math.floor(Math.random() * products.length);
     const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
 
-    const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx]}`;
+    const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0]}`;
     const warning = `\n\n(Isto é uma mensagem automática, digite naturalmente como: ${example})`;
 
     return messages[Math.floor(Math.random() * messages.length)] + warning;

@@ -212,22 +212,22 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
   normalized = normalized.replace(/\s+/g, ' ').trim();
 
   const tokens = normalized.split(' ');
-  const workingDb = productsDb.map(([product, qty]) => [product, qty]);
+  const workingDb = productsDb.map(([product, qty]) => [product[0], qty]);
   const parsedOrders = [];
 
   const numbersWithPositions = extractNumbersAndPositions(tokens);
   
   // Sort products by word count (longest first) to prioritize multi-word matches
-  const sortedProducts = productsDb.map(([product, qty], index) => [product, qty, index])
+  const sortedProducts = productsDb.map(([product, qty], index) => [product[0], qty, index])
     .sort((a, b) => b[0].split(' ').length - a[0].split(' ').length);
   
   const normalizedProducts = sortedProducts.map(([product]) => normalize(product));
-  const maxProdWords = Math.max(...productsDb.map(([p]) => p.split(' ').length));
+  const maxProdWords = Math.max(...productsDb.map(([p]) => p[0].split(' ').length));
 
   // Precompute the set of words that appear in any product name
   const productWords = new Set();
   productsDb.forEach(([product]) => {
-    product.split(' ').forEach(word => productWords.add(normalize(word)));
+    product[0].split(' ').forEach(word => productWords.add(normalize(word)));
   });
 
   const usedNumberPositions = new Set();
@@ -313,7 +313,7 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
       const phraseNorm = normalize(phrase);
       
       for (let idx = 0; idx < productsDb.length; idx++) {
-        const [product] = productsDb[idx];
+        const [product] = productsDb[idx][0];
         const score = similarityPercentage(phraseNorm, normalize(product));
         if (score > bestScore) {
           bestScore = score;

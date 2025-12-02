@@ -89,7 +89,7 @@ class DatabaseService {
         await db.query(
           `INSERT INTO product_totals (product, total_quantity) 
            VALUES ($1, 0)`,
-          [product]
+          [product[0]]
         );
       }
       
@@ -136,7 +136,7 @@ class DatabaseService {
       );
 
       for (const product of PRODUCTS) {
-        stmt.run(product);
+        stmt.run(product[0]);
       }
       
       console.log('✅ SQLite tables created successfully');

@@ -88,7 +88,8 @@ class OrderSession {
       const parsedOrders = [];
       for (const [product, qty] of this.currentDb) {
         if (qty > 0) {
-          parsedOrders.push({ product, qty, score: 100.0 });
+          const productName = product[0];
+          parsedOrders.push({ productName, qty, score: 100.0 });
         }
       }
 
@@ -112,7 +113,8 @@ class OrderSession {
     let summary = '📋 **RESUMO DO SEU PEDIDO:**\n';
     for (const [product, qty] of this.currentDb) {
       if (qty > 0) {
-        summary += `• ${product}: ${qty}\n`;
+        const productName = product[0];
+        summary += `• ${productName}: ${qty}\n`;
       }
     }
     summary += '\n⚠️ **Confirma o pedido?** (responda com \'confirmar\' ou \'nao\')';
@@ -169,7 +171,7 @@ class OrderService {
       session.waitingForOption = true;
       return {
         success: true,
-        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê quer realizar um pedido (digite 1) ou falar com uma pessoa (digite 2)?`,
+        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê quer realizar um pedido (digite 1), falar com uma pessoa (digite 2) ou ver a lista de produtos (digite 3)?`,
         isChatBot: true
       };
     }
@@ -181,7 +183,7 @@ class OrderService {
       const greeting = name !== 'Cliente sem nome' ? `Olá ${name}!` : 'Olá!';
       return {
         success: true,
-        message: `${greeting} Isso é uma mensagem automática.\n\nVocê quer realizar um pedido (digite 1) ou falar com uma pessoa (digite 2)?`,
+        message: `${greeting} Isso é uma mensagem automática.\n\nVocê quer realizar um pedido (digite 1), falar com uma pessoa (digite 2) ou ver a lista de produtos (digite 3)?`,
         isChatBot: true
       };
     }
@@ -194,7 +196,7 @@ class OrderService {
         session.startInactivityTimer();
         return {
           success: true,
-          message: 'Ótimo! Digite seus pedidos. Ex: \'2 mangas e 3 queijos\'',
+          message: 'Ótimo! Digite seus pedidos. Exemplo: \'2 mangas e 3 queijos\'',
           isChatBot: true
         };
       } else if (messageLower === '2') {
@@ -202,13 +204,27 @@ class OrderService {
         session.state = 'waiting_for_next';
         return {
           success: true,
-          message: 'Ok, assim que podermos terá uma resposta!',
+          message: 'Ok, assim que podermos terá uma resposta!\n\n(digite \"sair\" caso queira voltar a conversar com o bot)',
           isChatBot: false
         };
+      } else if (messageLower === '3') {
+        const okay = name !== 'Cliente sem nome' ? `Certo, ${name}. Aqui` : 'Certo, aqui';
+        session.waitingForOption = true;
+        session.state = 'option';
+        let productList = `${okay} está nossa lista de produtos!\n\n`;
+        for (const item of session.currentDb) {
+          productList += `- ${item[0][0]} \n`;
+        }
+        productList += '\nE agora? Você deseja realizar um pedido (digite 1) ou tirar uma dúvida com uma pessoa (digite 2)?'
+        return {
+          success: true,
+          message: productList,
+          isChatBot: true
+        }
       } else {
         return {
           success: false,
-          message: 'Por favor, escolha uma opção: 1 para pedir ou 2 para falar com uma pessoa.',
+          message: 'Por favor, escolha uma opção: (1) para pedir, (2) para falar com uma pessoa ou (3) para ver a lista de produtos.',
           isChatBot: true
         };
       }
@@ -216,7 +232,7 @@ class OrderService {
 
     // Handle confirmation
     if (session.state === 'confirming') {
-      const confirmWords = ['confirmar', 'sim', 's'];
+      const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima','sim', 's'];
       const denyWords = ['nao', 'não', 'n'];
 
       if (confirmWords.some(w => messageLower.split(' ').includes(w))) {
@@ -235,7 +251,8 @@ class OrderService {
           const parsedOrders = [];
           for (const [product, qty] of session.currentDb) {
             if (qty > 0) {
-              parsedOrders.push({ product, qty, score: 100.0 });
+              const productName = product[0];
+              parsedOrders.push({ productName, qty, score: 100.0 });
             }
           }
 

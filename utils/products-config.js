@@ -1,9 +1,9 @@
 module.exports = {
   PRODUCTS: [
-    'abacaxi', 'abacaxi com hortelã', 'açaí', 'acerola',
-    'ameixa', 'cajá', 'caju', 'goiaba', 'graviola',
-    'manga', 'maracujá', 'morango', 'seriguela', 'tamarindo',
-    'caixa de ovos', 'ovo', 'queijo'
+    ['abacaxi',[],true], ['abacaxi com hortelã',[], true], ['açaí',[], true], ['acerola',[], true],
+    ['ameixa',[], true], ['cajá',[], true], ['caju',[], true], ['goiaba',[], true], ['graviola',[], true],
+    ['manga',[], true], ['maracujá',[], true], ['morango',[], true], ['seriguela',[], true], ['tamarindo',[], true],
+    ['caixa de ovos',['ovo', 'ovos'], true], ['queijo',[], true]
   ],
   
   getEmptyProductsDb() {
