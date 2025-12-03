@@ -559,6 +559,199 @@ tr:hover {
     padding: 30px;
 }
 
+/* Modal Dialog System */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.3s ease;
+}
+
+.modal {
+    background: white;
+    border-radius: 15px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    overflow: hidden;
+    animation: slideIn 0.3s ease;
+}
+
+.modal-header {
+    background: #F0B513;
+    color: white;
+    padding: 20px;
+    text-align: center;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.5em;
+}
+
+.modal-body {
+    padding: 30px;
+    font-size: 1.1em;
+    line-height: 1.5;
+    color: #2c3e50;
+}
+
+.modal-footer {
+    padding: 20px;
+    background: #f8f9fa;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    border-top: 2px solid #e9ecef;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideIn {
+    from { transform: translateY(-20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* Inline Edit Forms */
+.edit-form {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 10px;
+    padding: 20px;
+    margin: 15px 0;
+    animation: slideDown 0.3s ease;
+}
+
+.edit-form .form-group {
+    margin-bottom: 15px;
+}
+
+.edit-form label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.edit-form input,
+.edit-form select {
+    width: 100%;
+    padding: 10px;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+}
+
+.edit-form-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 20px;
+}
+
+@keyframes slideDown {
+    from { transform: translateY(-10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* Client Card with Edit Form */
+.client-card.editing {
+    border-color: #9DB044;
+    background: #f9fbe7;
+}
+
+.client-card.editing + .edit-form {
+    margin-top: -10px;
+}
+
+/* Product Toggle Button */
+.toggle-btn {
+    position: relative;
+    width: 60px;
+    height: 30px;
+    background: #bdc3c7;
+    border-radius: 15px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.toggle-btn.active {
+    background: #27ae60;
+}
+
+.toggle-btn::after {
+    content: '';
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    background: white;
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.3s;
+}
+
+.toggle-btn.active::after {
+    transform: translateX(30px);
+}
+
+.toggle-btn .toggle-text {
+    display: none;
+}
+
+.toggle-status {
+    font-size: 0.85em;
+    font-weight: 600;
+    margin-left: 10px;
+}
+
+/* Add Client Button */
+.add-client-form {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+    animation: slideDown 0.3s ease;
+}
+
+/* Manual Order Form improvements */
+#manualOrderForm .form-group {
+    margin-bottom: 15px;
+}
+
+#manualOrderForm textarea {
+    min-height: 100px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .modal {
+        width: 95%;
+        margin: 10px;
+    }
+    
+    .edit-form-actions {
+        flex-direction: column;
+    }
+    
+    .edit-form-actions button {
+        width: 100%;
+    }
+}
+
 @media (max-width: 768px) {
     .grid-2 {
         grid-template-columns: 1fr;

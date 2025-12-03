@@ -27,16 +27,16 @@ router.post('/', async (req, res) => {
   try {
     const { phone, name, type = 'normal' } = req.body;
 
-    if (!phone || !name) {
+    if (!phone) {
       return res.status(400).json({
         success: false,
-        message: 'Phone and name are required'
+        message: 'Phone is required'
       });
     }
 
     await databaseService.addClient({
       phone,
-      name,
+      name: name || 'Cliente sem nome',
       type,
       answered: false,
       isChatBot: true
@@ -71,7 +71,7 @@ router.put('/:phone', async (req, res) => {
 
     await databaseService.addClient({
       phone,
-      name: name || client.name,
+      name: name || client.name || 'Cliente sem nome',
       type: type || client.order_type,
       answered: answered !== undefined ? answered : client.answered,
       isChatBot: client.is_chatbot

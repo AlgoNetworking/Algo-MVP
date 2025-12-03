@@ -9,6 +9,11 @@ let products = [];
 let notifications = [];
 let notificationBadge = null;
 let notificationsContainer = null;
+
+// Modal system variables
+let modalResolve = null;
+let currentEditingIndex = -1;
+let currentEditingType = null; // 'client' or 'product'
 /*
 let clients = [
     {
@@ -76,10 +81,11 @@ function removeNotification(notificationId) {
     }
 }
 
-function clearAllNotifications() {
+async function clearAllNotifications() {
     if (notifications.length === 0) return;
     
-    if (confirm(`Limpar todas as ${notifications.length} notificações?`)) {
+    const confirmed = await confirmAction('Limpar Notificações', `Limpar todas as ${notifications.length} notificações?`);
+    if (confirmed) {
         notifications = [];
         renderNotifications();
         updateNotificationBadge();
@@ -138,6 +144,77 @@ function updateNotificationBadge() {
 
 function dismissNotification(notificationId) {
     removeNotification(notificationId);
+}
+
+// Modal Dialog System
+function initializeModal() {
+    const overlay = document.getElementById('modalOverlay');
+    const cancelBtn = document.getElementById('modalCancelBtn');
+    const confirmBtn = document.getElementById('modalConfirmBtn');
+    
+    cancelBtn.addEventListener('click', () => {
+        overlay.style.display = 'none';
+        if (modalResolve) modalResolve(false);
+    });
+    
+    confirmBtn.addEventListener('click', () => {
+        overlay.style.display = 'none';
+        if (modalResolve) modalResolve(true);
+    });
+    
+    // Close modal when clicking outside
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            overlay.style.display = 'none';
+            if (modalResolve) modalResolve(false);
+        }
+    });
+}
+
+// Custom confirm dialog
+function customConfirm(title, message) {
+    return new Promise((resolve) => {
+        document.getElementById('modalTitle').textContent = title;
+        document.getElementById('modalMessage').textContent = message;
+        document.getElementById('modalOverlay').style.display = 'flex';
+        modalResolve = resolve;
+    });
+}
+
+// Replace all confirm dialogs
+async function confirmAction(title, message) {
+    return await customConfirm(title, message);
+}
+
+// Alert replacement
+function customAlert(title, message) {
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalMessage').textContent = message;
+    const modalFooter = document.querySelector('.modal-footer');
+    modalFooter.style.display = 'none';
+    
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('modalOverlay');
+        overlay.style.display = 'flex';
+        
+        const closeModal = () => {
+            overlay.style.display = 'none';
+            modalFooter.style.display = 'flex';
+            overlay.removeEventListener('click', handleOutsideClick);
+            resolve();
+        };
+        
+        const handleOutsideClick = (e) => {
+            if (e.target === overlay) {
+                closeModal();
+            }
+        };
+        
+        overlay.addEventListener('click', handleOutsideClick);
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+    });
 }
 
 // Load clients from database
@@ -238,7 +315,7 @@ async function connectWhatsApp() {
     saveClient(); // Save the changes
     renderClients(); // Update the UI
 
-     const response = await fetch('/api/whatsapp/connect', { 
+    const response = await fetch('/api/whatsapp/connect', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ users: clients })
@@ -249,9 +326,11 @@ async function connectWhatsApp() {
       addLog('✅ WhatsApp conectando...');
     } else {
       addLog('❌ Erro: ' + data.message, 'error');
+      customAlert('Erro', data.message);
     }
   } catch (error) {
     addLog('❌ Erro de conexão: ' + error.message, 'error');
+    customAlert('Erro de Conexão', error.message);
   }
 }
 
@@ -271,11 +350,12 @@ async function disconnectWhatsApp() {
 
 async function sendBulkMessages() {
     if (clients.length === 0) {
-        alert('Nenhum cliente cadastrado!');
+        customAlert('Aviso', 'Nenhum cliente cadastrado!');
         return;
     }
 
-    if (!confirm(`Enviar mensagens para ${clients.length} clientes?`)) return;
+    const confirmed = await confirmAction('Enviar Mensagens', `Enviar mensagens para ${clients.length} clientes?`);
+    if (!confirmed) return;
 
     try {
         document.getElementById('sendBulkBtn').textContent = '📤 Enviando...';
@@ -319,7 +399,8 @@ async function downloadExcel() {
 }
 
 async function clearDatabase() {
-    if (!confirm('⚠️ Limpar TODOS os dados do banco?')) return;
+    const confirmed = await confirmAction('⚠️ Confirmar', 'Limpar TODOS os dados do banco?');
+    if (!confirmed) return;
     
     try {
         const response = await fetch('/api/orders/clear-totals', { method: 'POST' });
@@ -484,7 +565,8 @@ async function confirmOrder(orderId) {
 }
 
 async function cancelOrder(orderId) {
-    if (!confirm('Cancelar este pedido?')) return;
+    const confirmed = await confirmAction('Cancelar Pedido', 'Cancelar este pedido?');
+    if (!confirmed) return;
     
     try {
         const response = await fetch('/api/orders/cancel-order', {
@@ -505,7 +587,8 @@ async function cancelOrder(orderId) {
 }
 
 async function clearUserOrders() {
-    if (!confirm('⚠️ Limpar TODOS os pedidos de usuário?')) return;
+    const confirmed = await confirmAction('⚠️ Confirmar', 'Limpar TODOS os pedidos de usuário?');
+    if (!confirmed) return;
     
     try {
         const response = await fetch('/api/orders/clear-user-orders', { method: 'POST' });
@@ -569,14 +652,14 @@ document.getElementById('manualOrderForm').addEventListener('submit', async (e) 
             document.getElementById('manualOrderForm').reset();
             refreshUserOrders();
             refreshOrders();
-            alert(`Pedido adicionado!\n${data.total_quantity} itens para ${data.client_name}`);
+            customAlert('Sucesso!', `Pedido adicionado!\n${data.total_quantity} itens para ${data.client_name}`);
         } else {
             addLog(`❌ ${data.message}`, 'error');
-            alert('Erro: ' + data.message);
+            customAlert('Erro', data.message);
         }
     } catch (error) {
         addLog('❌ Erro: ' + error.message, 'error');
-        alert('Erro de conexão');
+        customAlert('Erro de Conexão', 'Não foi possível conectar ao servidor.');
     }
 });
 
@@ -584,15 +667,17 @@ document.getElementById('manualOrderForm').addEventListener('submit', async (e) 
 function renderClients() {
     const container = document.getElementById('clientsList');
     
-    if (clients.length === 0) {
+    if (clients.length === 0 && !container.querySelector('.add-client-form')) {
         container.innerHTML = '<div class="empty-state">Nenhum cliente cadastrado</div>';
         return;
     }
     
     let html = '';
     clients.forEach((client, index) => {
+        const isEditing = currentEditingIndex === index && currentEditingType === 'client';
+        
         html += `
-            <div class="client-card">
+            <div class="client-card ${isEditing ? 'editing' : ''}">
                 <div class="client-info">
                     <div class="client-name">${client.name}</div>
                     <div class="client-phone">${client.phone} • Tipo: ${client.type}</div>
@@ -601,12 +686,43 @@ function renderClients() {
                     </div>
                 </div>
                 <div class="client-actions">
-                    <button class="btn btn-sm btn-primary" onclick="editClient(${index})">✏️ Editar</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteClient(${index})">🗑️ Deletar</button>
-                    ${!client.answered ? `<button class="btn btn-sm btn-success" onclick="markAsAnswered(${index})">✅ Respondeu</button>` : ''}
+                    <button class="btn btn-sm btn-primary" onclick="editClient(${index})" ${isEditing ? 'disabled' : ''}>
+                        ${isEditing ? '✏️ Editando...' : '✏️ Editar'}
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteClient(${index})" ${isEditing ? 'disabled' : ''}>
+                        🗑️ Deletar
+                    </button>
+                    ${!client.answered ? `<button class="btn btn-sm btn-success" onclick="markAsAnswered(${index})" ${isEditing ? 'disabled' : ''}>✅ Respondeu</button>` : ''}
                 </div>
             </div>
         `;
+        
+        if (isEditing) {
+            html += `
+                <div class="edit-form" id="editClientForm-${index}">
+                    <div class="form-group">
+                        <label for="editClientPhone-${index}">Telefone*:</label>
+                        <input type="text" id="editClientPhone-${index}" value="${client.phone}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editClientName-${index}">Nome:</label>
+                        <input type="text" id="editClientName-${index}" value="${client.name}" placeholder="Cliente sem nome">
+                    </div>
+                    <div class="form-group">
+                        <label for="editClientType-${index}">Tipo de Pedido:</label>
+                        <select id="editClientType-${index}">
+                            <option value="normal" ${client.type === 'normal' ? 'selected' : ''}>Normal</option>
+                            <option value="quilo" ${client.type === 'quilo' ? 'selected' : ''}>Quilo</option>
+                            <option value="dosado" ${client.type === 'dosado' ? 'selected' : ''}>Dosado</option>
+                        </select>
+                    </div>
+                    <div class="edit-form-actions">
+                        <button class="btn btn-sm btn-danger" onclick="cancelEditClient()">Cancelar</button>
+                        <button class="btn btn-sm btn-success" onclick="saveClientEdit(${index})">Salvar Alterações</button>
+                    </div>
+                </div>
+            `;
+        }
     });
     
     container.innerHTML = html;
@@ -623,25 +739,52 @@ function renderProducts() {
     
     let html = '';
     products.forEach((product, index) => {
+        const isEditing = currentEditingIndex === index && currentEditingType === 'product';
+        
         html += `
-            <div class="product-card">
+            <div class="product-card ${isEditing ? 'editing' : ''}">
                 <div class="product-info">
                     <div class="product-name">${product.name}</div>
                     <div class="product-akas">AKAs: ${Array.isArray(product.akas) ? product.akas.join(', ') : product.akas}</div>
-                    <div style="font-size: 0.85em; color: ${product.enabled ? '#27ae60' : '#e74c3c'};">
-                        ${product.enabled ? '✅ Ativo' : '⏸️ Desativado'}
+                    <div style="display: flex; align-items: center; margin-top: 5px;">
+                        <button class="toggle-btn ${product.enabled ? 'active' : ''}" onclick="toggleProduct(${index}, ${!product.enabled})" 
+                                title="${product.enabled ? 'Desativar' : 'Ativar'}">
+                        </button>
+                        <span class="toggle-status" style="color: ${product.enabled ? '#27ae60' : '#e74c3c'}">
+                            ${product.enabled ? '✅ Ativo' : '⏸️ Desativado'}
+                        </span>
                     </div>
                 </div>
                 <div class="product-actions">
-                    <button class="btn btn-sm btn-primary" onclick="editProduct(${index})">✏️ Editar</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteProduct(${index})">🗑️ Deletar</button>
-                    <button class="btn btn-sm ${product.enabled ? 'btn-warning' : 'btn-success'}" 
-                            onclick="toggleProduct(${index}, ${!product.enabled})">
-                        ${product.enabled ? '⏸️ Desativar' : '✅ Ativar'}
+                    <button class="btn btn-sm btn-primary" onclick="editProduct(${index})" ${isEditing ? 'disabled' : ''}>
+                        ${isEditing ? '✏️ Editando...' : '✏️ Editar'}
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteProduct(${index})" ${isEditing ? 'disabled' : ''}>
+                        🗑️ Deletar
                     </button>
                 </div>
             </div>
         `;
+        
+        if (isEditing) {
+            html += `
+                <div class="edit-form" id="editProductForm-${index}">
+                    <div class="form-group">
+                        <label for="editProductName-${index}">Nome do Produto*:</label>
+                        <input type="text" id="editProductName-${index}" value="${product.name}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="editProductAkas-${index}">AKAs (separados por vírgula):</label>
+                        <input type="text" id="editProductAkas-${index}" 
+                               value="${Array.isArray(product.akas) ? product.akas.join(', ') : product.akas}">
+                    </div>
+                    <div class="edit-form-actions">
+                        <button class="btn btn-sm btn-danger" onclick="cancelEditProduct()">Cancelar</button>
+                        <button class="btn btn-sm btn-success" onclick="saveProductEdit(${index})">Salvar Alterações</button>
+                    </div>
+                </div>
+            `;
+        }
     });
     
     container.innerHTML = html;
@@ -649,45 +792,112 @@ function renderProducts() {
 
 // Update client functions to use database
 function addClient() {
-    const phone = prompt('Telefone do cliente (ex: +55 85 99999-9999):');
-    if (!phone) return;
+    const container = document.getElementById('clientsList');
     
-    const name = prompt('Nome do cliente:');
-    if (!name) return;
+    // Remove any existing add form
+    const existingForm = container.querySelector('.add-client-form');
+    if (existingForm) {
+        existingForm.remove();
+        return;
+    }
     
-    const type = prompt('Tipo de pedido (normal/quilo/dosado):', 'normal');
-    if (!type) return;
+    const addForm = document.createElement('div');
+    addForm.className = 'add-client-form';
+    addForm.innerHTML = `
+        <h3 style="margin-bottom: 15px; color: #2c3e50;">➕ Adicionar Novo Cliente</h3>
+        <div class="form-group">
+            <label for="newClientPhone">Telefone*:</label>
+            <input type="text" id="newClientPhone" placeholder="+55 85 99999-9999" required>
+        </div>
+        <div class="form-group">
+            <label for="newClientName">Nome:</label>
+            <input type="text" id="newClientName" placeholder="Deixe em branco para 'Cliente sem nome'">
+        </div>
+        <div class="form-group">
+            <label for="newClientType">Tipo de Pedido:</label>
+            <select id="newClientType">
+                <option value="normal">Normal</option>
+                <option value="quilo">Quilo</option>
+                <option value="dosado">Dosado</option>
+            </select>
+        </div>
+        <div class="edit-form-actions">
+            <button class="btn btn-sm btn-danger" onclick="cancelAddClient()">Cancelar</button>
+            <button class="btn btn-sm btn-success" onclick="saveNewClient()">Salvar Cliente</button>
+        </div>
+    `;
     
-    saveClient({
-        phone: phone.trim(),
-        name: name.trim(),
-        type: type.toLowerCase().trim()
+    container.prepend(addForm);
+    document.getElementById('newClientPhone').focus();
+}
+
+function cancelAddClient() {
+    const form = document.querySelector('.add-client-form');
+    if (form) form.remove();
+}
+
+async function saveNewClient() {
+    const phone = document.getElementById('newClientPhone').value.trim();
+    const name = document.getElementById('newClientName').value.trim();
+    const type = document.getElementById('newClientType').value;
+    
+    if (!phone) {
+        customAlert('Erro', 'O telefone é obrigatório!');
+        return;
+    }
+    
+    await saveClient({
+        phone: phone,
+        name: name || 'Cliente sem nome',
+        type: type
     });
+    
+    cancelAddClient();
 }
 
 function editClient(index) {
-    const client = clients[index];
-    
-    const phone = prompt('Telefone:', client.phone);
-    if (phone === null) return;
-    
-    const name = prompt('Nome:', client.name);
-    if (name === null) return;
-    
-    const type = prompt('Tipo (normal/quilo/dosado):', client.type);
-    if (type === null) return;
-    
-    saveClient({
-        phone: phone.trim(),
-        name: name.trim(),
-        type: type.toLowerCase().trim()
-    }, true);
+    if (currentEditingIndex !== -1) {
+        cancelEditClient();
+    }
+    currentEditingIndex = index;
+    currentEditingType = 'client';
+    renderClients();
+}
+
+function cancelEditClient() {
+    currentEditingIndex = -1;
+    currentEditingType = null;
+    renderClients();
 }
 
 async function deleteClient(index) {
-    if (!confirm(`Deletar ${clients[index].name}?`)) return;
+    const confirmed = await confirmAction('Deletar Cliente', `Deletar ${clients[index].name}?`);
+    if (!confirmed) return;
     
     await deleteClientFromDb(clients[index].phone);
+}
+
+async function saveClientEdit(index) {
+    const phone = document.getElementById(`editClientPhone-${index}`).value.trim();
+    const name = document.getElementById(`editClientName-${index}`).value.trim();
+    const type = document.getElementById(`editClientType-${index}`).value;
+    
+    if (!phone) {
+        customAlert('Erro', 'O telefone é obrigatório!');
+        return;
+    }
+    
+    const success = await saveClient({
+        phone: phone,
+        name: name || 'Cliente sem nome',
+        type: type
+    }, true);
+    
+    if (success) {
+        currentEditingIndex = -1;
+        currentEditingType = null;
+        renderClients();
+    }
 }
 
 // Delete client from database
@@ -831,49 +1041,118 @@ async function toggleProductEnabled(id, enabled) {
 }
 
 function addProduct() {
-    const name = prompt('Nome do produto:');
-    if (!name) return;
+    const container = document.getElementById('productsList');
     
-    const akasInput = prompt('AKAs (separados por vírgula, opcional):');
+    // Remove any existing add form
+    const existingForm = container.querySelector('.add-product-form');
+    if (existingForm) {
+        existingForm.remove();
+        return;
+    }
+    
+    const addForm = document.createElement('div');
+    addForm.className = 'add-product-form';
+    addForm.innerHTML = `
+        <h3 style="margin-bottom: 15px; color: #2c3e50;">➕ Adicionar Novo Produto</h3>
+        <div class="form-group">
+            <label for="newProductName">Nome do Produto*:</label>
+            <input type="text" id="newProductName" placeholder="Nome do produto" required>
+        </div>
+        <div class="form-group">
+            <label for="newProductAkas">AKAs (separados por vírgula, opcional):</label>
+            <input type="text" id="newProductAkas" placeholder="sinônimos, variações">
+        </div>
+        <div class="form-group">
+            <label style="display: flex; align-items: center;">
+                <input type="checkbox" id="newProductEnabled" checked style="margin-right: 10px;">
+                Produto Ativo
+            </label>
+        </div>
+        <div class="edit-form-actions">
+            <button class="btn btn-sm btn-danger" onclick="cancelAddProduct()">Cancelar</button>
+            <button class="btn btn-sm btn-success" onclick="saveNewProduct()">Salvar Produto</button>
+        </div>
+    `;
+    
+    container.prepend(addForm);
+    document.getElementById('newProductName').focus();
+}
+
+function cancelAddProduct() {
+    const form = document.querySelector('.add-product-form');
+    if (form) form.remove();
+}
+
+async function saveNewProduct() {
+    const name = document.getElementById('newProductName').value.trim();
+    const akasInput = document.getElementById('newProductAkas').value.trim();
     const akas = akasInput ? akasInput.split(',').map(a => a.trim()).filter(a => a) : [];
+    const enabled = document.getElementById('newProductEnabled').checked;
     
-    const enabled = confirm('Produto ativo? (OK para Sim, Cancelar para Não)');
+    if (!name) {
+        customAlert('Erro', 'O nome do produto é obrigatório!');
+        return;
+    }
     
-    saveProduct({
-        name: name.trim(),
-        akas,
-        enabled
+    await saveProduct({
+        name: name,
+        akas: akas,
+        enabled: enabled
     });
+    
+    cancelAddProduct();
 }
 
 function editProduct(index) {
-    const product = products[index];
-    
-    const name = prompt('Nome do produto:', product.name);
-    if (name === null) return;
-    
-    const currentAkas = Array.isArray(product.akas) ? product.akas.join(', ') : product.akas;
-    const akasInput = prompt('AKAs (separados por vírgula):', currentAkas);
-    const akas = akasInput ? akasInput.split(',').map(a => a.trim()).filter(a => a) : [];
-    
-    const enabled = confirm('Produto ativo? (OK para Sim, Cancelar para Não)', product.enabled);
-    
-    saveProduct({
-        id: product.id,
-        name: name.trim(),
-        akas,
-        enabled
-    }, true);
+    if (currentEditingIndex !== -1) {
+        cancelEditProduct();
+    }
+    currentEditingIndex = index;
+    currentEditingType = 'product';
+    renderProducts();
 }
 
+function cancelEditProduct() {
+    currentEditingIndex = -1;
+    currentEditingType = null;
+    renderProducts();
+}
+
+async function saveProductEdit(index) {
+    const name = document.getElementById(`editProductName-${index}`).value.trim();
+    const akasInput = document.getElementById(`editProductAkas-${index}`).value.trim();
+    const akas = akasInput ? akasInput.split(',').map(a => a.trim()).filter(a => a) : [];
+    
+    if (!name) {
+        customAlert('Erro', 'O nome do produto é obrigatório!');
+        return;
+    }
+    
+    const success = await saveProduct({
+        id: products[index].id,
+        name: name,
+        akas: akas,
+        enabled: products[index].enabled
+    }, true);
+    
+    if (success) {
+        currentEditingIndex = -1;
+        currentEditingType = null;
+        renderProducts();
+    }
+}
+
+
 async function deleteProduct(index) {
-    if (!confirm(`Deletar "${products[index].name}"?`)) return;
+    const confirmed = await confirmAction('Deletar Produto', `Deletar "${products[index].name}"?`);
+    if (!confirmed) return;
     
     await deleteProductFromDb(products[index].id);
 }
 
 async function toggleProduct(index, enabled) {
     await toggleProductEnabled(products[index].id, enabled);
+    renderProducts();
 }
 
 function formatPhoneNumberForDisplay(phone) {
@@ -1053,8 +1332,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
     loadClients();
     renderClients();
-    loadProducts(); // Load products
-    initializeNotifications(); // Add this line
+    loadProducts();
+    initializeNotifications();
+    initializeModal(); // Add this line
     
     // Setup button event listeners
     document.getElementById('connectBtn').addEventListener('click', connectWhatsApp);
