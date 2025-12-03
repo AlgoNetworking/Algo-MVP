@@ -5,6 +5,7 @@ const socket = io();
 let autoRefreshInterval = null;
 let autoRefreshUserInterval = null;
 let clients = [];
+let products = [];
 /*
 let clients = [
     {
@@ -32,17 +33,58 @@ let clients = [
 ];
 */
 
-// Load clients from localStorage
-function loadClients() {
-    const stored = localStorage.getItem('whatsapp-bot-clients');
-    if (stored) {
-        clients = JSON.parse(stored);
+// Load clients from database
+async function loadClients() {
+    try {
+        const response = await fetch('/api/clients');
+        const data = await response.json();
+        if (data.success) {
+            clients = data.clients;
+            renderClients();
+        }
+    } catch (error) {
+        console.error('Error loading clients:', error);
     }
 }
 
-// Save clients to localStorage
-function saveClients() {
-    localStorage.setItem('whatsapp-bot-clients', JSON.stringify(clients));
+// Load products from database
+async function loadProducts() {
+    try {
+        const response = await fetch('/api/products');
+        const data = await response.json();
+        if (data.success) {
+            products = data.products;
+            renderProducts();
+        }
+    } catch (error) {
+        console.error('Error loading products:', error);
+    }
+}
+
+// Save client to database
+async function saveClient(client, isUpdate = false) {
+    try {
+        const url = isUpdate ? `/api/clients/${encodeURIComponent(client.phone)}` : '/api/clients';
+        const method = isUpdate ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(client)
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            await loadClients();
+            addLog(`✅ Cliente ${isUpdate ? 'atualizado' : 'adicionado'}: ${client.name}`);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error saving client:', error);
+        addLog(`❌ Erro ao salvar cliente: ${error.message}`, 'error');
+        return false;
+    }
 }
 
 // Add log entry
@@ -86,7 +128,7 @@ async function connectWhatsApp() {
       client.isChatBot = true; // Reset bot functionality for everyone
     }
     
-    saveClients(); // Save the changes
+    saveClient(); // Save the changes
     renderClients(); // Update the UI
 
      const response = await fetch('/api/whatsapp/connect', { 
@@ -461,6 +503,42 @@ function renderClients() {
     container.innerHTML = html;
 }
 
+// Product rendering and management
+function renderProducts() {
+    const container = document.getElementById('productsList');
+    
+    if (products.length === 0) {
+        container.innerHTML = '<div class="empty-state">Nenhum produto cadastrado</div>';
+        return;
+    }
+    
+    let html = '';
+    products.forEach((product, index) => {
+        html += `
+            <div class="product-card">
+                <div class="product-info">
+                    <div class="product-name">${product.name}</div>
+                    <div class="product-akas">AKAs: ${Array.isArray(product.akas) ? product.akas.join(', ') : product.akas}</div>
+                    <div style="font-size: 0.85em; color: ${product.enabled ? '#27ae60' : '#e74c3c'};">
+                        ${product.enabled ? '✅ Ativo' : '⏸️ Desativado'}
+                    </div>
+                </div>
+                <div class="product-actions">
+                    <button class="btn btn-sm btn-primary" onclick="editProduct(${index})">✏️ Editar</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteProduct(${index})">🗑️ Deletar</button>
+                    <button class="btn btn-sm ${product.enabled ? 'btn-warning' : 'btn-success'}" 
+                            onclick="toggleProduct(${index}, ${!product.enabled})">
+                        ${product.enabled ? '⏸️ Desativar' : '✅ Ativar'}
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+// Update client functions to use database
 function addClient() {
     const phone = prompt('Telefone do cliente (ex: +55 85 99999-9999):');
     if (!phone) return;
@@ -471,17 +549,11 @@ function addClient() {
     const type = prompt('Tipo de pedido (normal/quilo/dosado):', 'normal');
     if (!type) return;
     
-    clients.push({
+    saveClient({
         phone: phone.trim(),
         name: name.trim(),
-        type: type.toLowerCase().trim(),
-        answered: false,
-        isChatBot: true
+        type: type.toLowerCase().trim()
     });
-    
-    saveClients();
-    renderClients();
-    addLog(`✅ Cliente ${name} adicionado`);
 }
 
 function editClient(index) {
@@ -496,45 +568,205 @@ function editClient(index) {
     const type = prompt('Tipo (normal/quilo/dosado):', client.type);
     if (type === null) return;
     
-    clients[index] = {
-        ...client,
+    saveClient({
         phone: phone.trim(),
         name: name.trim(),
         type: type.toLowerCase().trim()
-    };
-    
-    saveClients();
-    renderClients();
-    addLog(`✅ Cliente ${name} atualizado`);
+    }, true);
 }
 
-function deleteClient(index) {
+async function deleteClient(index) {
     if (!confirm(`Deletar ${clients[index].name}?`)) return;
     
-    const name = clients[index].name;
-    clients.splice(index, 1);
-    saveClients();
-    renderClients();
-    addLog(`🗑️ Cliente ${name} removido`);
+    await deleteClientFromDb(clients[index].phone);
 }
 
-function markAsAnswered(index) {
-    if(clients[index].answered === false) {
-        clients[index].answered = true;
-        saveClients();
-        renderClients();
-        addLog(`✅ ${clients[index].name} marcado como respondido`);
+// Delete client from database
+async function deleteClientFromDb(phone) {
+    try {
+        const response = await fetch(`/api/clients/${encodeURIComponent(phone)}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            await loadClients();
+            addLog('🗑️ Cliente removido');
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error deleting client:', error);
+        addLog(`❌ Erro ao deletar cliente: ${error.message}`, 'error');
+        return false;
     }
 }
 
-function disableChatBot(index) {
-    addLog('testando 3');
-    clients[index].isChatBot = false;
-    saveClients();
-    renderClients();
-    addLog(`✅ O bot foi desativado para ${clients[index].name} `);
-    
+async function markAsAnswered(index) {
+    if (clients[index].answered === false) {
+        await updateClientAnsweredStatus(clients[index].phone, true);
+    }
 }
+
+// Update client answered status
+async function updateClientAnsweredStatus(phone, answered) {
+    try {
+        const response = await fetch(`/api/clients/${encodeURIComponent(phone)}/answered`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ answered })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            await loadClients();
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error updating client status:', error);
+        return false;
+    }
+}
+
+async function disableChatBot(index) {
+    await updateClientChatBotStatus(clients[index].phone, false);
+    addLog(`✅ O bot foi desativado para ${clients[index].name}`);
+}
+
+// Update client chatbot status
+async function updateClientChatBotStatus(phone, isChatBot) {
+    try {
+        const response = await fetch(`/api/clients/${encodeURIComponent(phone)}/chatbot`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isChatBot })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            await loadClients();
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error updating client chatbot status:', error);
+        return false;
+    }
+}
+
+// Product management functions
+async function saveProduct(product, isUpdate = false) {
+    try {
+        const url = isUpdate ? `/api/products/${product.id}` : '/api/products';
+        const method = isUpdate ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(product)
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            await loadProducts();
+            addLog(`✅ Produto ${isUpdate ? 'atualizado' : 'adicionado'}: ${product.name}`);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error saving product:', error);
+        addLog(`❌ Erro ao salvar produto: ${error.message}`, 'error');
+        return false;
+    }
+}
+
+async function deleteProductFromDb(id) {
+    try {
+        const response = await fetch(`/api/products/${id}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            await loadProducts();
+            addLog('🗑️ Produto removido');
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error deleting product:', error);
+        addLog(`❌ Erro ao deletar produto: ${error.message}`, 'error');
+        return false;
+    }
+}
+
+async function toggleProductEnabled(id, enabled) {
+    try {
+        const response = await fetch(`/api/products/${id}/toggle`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            await loadProducts();
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error toggling product:', error);
+        return false;
+    }
+}
+
+function addProduct() {
+    const name = prompt('Nome do produto:');
+    if (!name) return;
+    
+    const akasInput = prompt('AKAs (separados por vírgula, opcional):');
+    const akas = akasInput ? akasInput.split(',').map(a => a.trim()).filter(a => a) : [];
+    
+    const enabled = confirm('Produto ativo? (OK para Sim, Cancelar para Não)');
+    
+    saveProduct({
+        name: name.trim(),
+        akas,
+        enabled
+    });
+}
+
+function editProduct(index) {
+    const product = products[index];
+    
+    const name = prompt('Nome do produto:', product.name);
+    if (name === null) return;
+    
+    const currentAkas = Array.isArray(product.akas) ? product.akas.join(', ') : product.akas;
+    const akasInput = prompt('AKAs (separados por vírgula):', currentAkas);
+    const akas = akasInput ? akasInput.split(',').map(a => a.trim()).filter(a => a) : [];
+    
+    const enabled = confirm('Produto ativo? (OK para Sim, Cancelar para Não)', product.enabled);
+    
+    saveProduct({
+        id: product.id,
+        name: name.trim(),
+        akas,
+        enabled
+    }, true);
+}
+
+async function deleteProduct(index) {
+    if (!confirm(`Deletar "${products[index].name}"?`)) return;
+    
+    await deleteProductFromDb(products[index].id);
+}
+
+async function toggleProduct(index, enabled) {
+    await toggleProductEnabled(products[index].id, enabled);
+}
+
 
 // Socket.IO event handlers
 socket.on('connect', () => {
@@ -678,6 +910,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
     loadClients();
     renderClients();
+    loadProducts(); // Load products
     
     // Setup button event listeners
     document.getElementById('connectBtn').addEventListener('click', connectWhatsApp);

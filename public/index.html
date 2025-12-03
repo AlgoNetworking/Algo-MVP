@@ -22,6 +22,7 @@
             <button class="tab" data-tab="database">Pedidos do Banco</button>
             <button class="tab" data-tab="user-orders">Pedidos por Usuário</button>
             <button class="tab" data-tab="clients">Gerenciar Clientes</button>
+            <button class="tab" data-tab="products">Gerenciar Produtos</button>
         </div>
 
         <!-- Bot Controls Tab -->
@@ -159,6 +160,16 @@
                 <div id="clientsList" class="clients-list"></div>
             </div>
         </div>
+
+                <!-- Products Tab -->
+        <div id="products" class="tab-content">
+            <div class="panel">
+                <h2>📦 Gerenciar Produtos</h2>
+                <button class="btn btn-primary" onclick="addProduct()">➕ Adicionar Produto</button>
+                <div id="productsList" class="products-list"></div>
+            </div>
+        </div>
+
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>

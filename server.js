@@ -10,6 +10,8 @@ const whatsappService = require('./services/whatsapp.service');
 const orderRoutes = require('./routes/orders.routes');
 const whatsappRoutes = require('./routes/whatsapp.routes');
 const databaseService = require('./services/database.service');
+const clientsRoutes = require('./routes/clients.routes');
+const productsRoutes = require('./routes/products.routes');
 
 const app = express();
 const server = http.createServer(app);
@@ -29,12 +31,20 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Initialize database
 databaseService.initialize();
 
+// Load products config
+const productsConfig = require('./utils/products-config');
+productsConfig.loadProducts().then(() => {
+  console.log('✅ Products config loaded');
+});
+
 // Initialize WhatsApp service with Socket.IO
 whatsappService.initialize(io);
 
 // API Routes
 app.use('/api/orders', orderRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/clients', clientsRoutes);
+app.use('/api/products', productsRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

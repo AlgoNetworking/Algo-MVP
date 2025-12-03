@@ -58,6 +58,32 @@ class DatabaseService {
         console.log('ℹ️  No views to remove or error removing views:', error.message);
       }
 
+      // Create clients table
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS clients (
+          id SERIAL PRIMARY KEY,
+          phone VARCHAR(20) UNIQUE NOT NULL,
+          name VARCHAR(100) NOT NULL,
+          order_type VARCHAR(20) DEFAULT 'normal',
+          answered BOOLEAN DEFAULT FALSE,
+          is_chatbot BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Create products table
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS products (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) UNIQUE NOT NULL,
+          akas JSONB DEFAULT '[]',
+          enabled BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
       // Create product_totals table
       await db.query(`
         CREATE TABLE IF NOT EXISTS product_totals (
@@ -82,14 +108,47 @@ class DatabaseService {
         )
       `);
 
-      // Clear any existing data and initialize products
+      // Insert default products if table is empty
+      const productsResult = await db.query('SELECT COUNT(*) FROM products');
+      if (parseInt(productsResult.rows[0].count) === 0) {
+        const defaultProducts = [
+          ['abacaxi', '[]', true],
+          ['abacaxi com hortelã', '[]', true],
+          ['açaí', '[]', true],
+          ['acerola', '[]', true],
+          ['ameixa', '[]', true],
+          ['cajá', '[]', true],
+          ['caju', '[]', true],
+          ['goiaba', '[]', true],
+          ['graviola', '[]', true],
+          ['manga', '[]', true],
+          ['maracujá', '[]', true],
+          ['morango', '[]', true],
+          ['seriguela', '[]', true],
+          ['tamarindo', '[]', true],
+          ['caixa de ovos', '["ovo", "ovos"]', true],
+          ['queijo', '[]', true]
+        ];
+
+        for (const [name, akas, enabled] of defaultProducts) {
+          await db.query(
+            `INSERT INTO products (name, akas, enabled) 
+            VALUES ($1, $2::jsonb, $3)`,
+            [name, akas, enabled]
+          );
+        }
+        console.log('✅ Default products inserted');
+      }
+
+      // Clear any existing data and initialize product totals
       await db.query('DELETE FROM product_totals');
       
-      for (const product of PRODUCTS) {
+      const products = await this.getAllProducts();
+      for (const product of products) {
         await db.query(
           `INSERT INTO product_totals (product, total_quantity) 
-           VALUES ($1, 0)`,
-          [product[0]]
+          VALUES ($1, 0)`,
+          [product.name]
         );
       }
       
@@ -104,6 +163,32 @@ class DatabaseService {
     try {
       console.log('🔄 Creating SQLite tables...');
       
+      // Create clients table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS clients (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          phone TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          order_type TEXT DEFAULT 'normal',
+          answered INTEGER DEFAULT 0,
+          is_chatbot INTEGER DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Create products table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS products (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT UNIQUE NOT NULL,
+          akas TEXT DEFAULT '[]',
+          enabled INTEGER DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
       // Create product_totals table
       db.exec(`
         CREATE TABLE IF NOT EXISTS product_totals (
@@ -128,15 +213,50 @@ class DatabaseService {
         )
       `);
 
-      // Clear any existing data and initialize products
+      // Insert default products if table is empty
+      const countStmt = db.prepare('SELECT COUNT(*) as count FROM products');
+      const count = countStmt.get().count;
+      
+      if (count === 0) {
+        const defaultProducts = [
+          ['abacaxi', '[]', 1],
+          ['abacaxi com hortelã', '[]', 1],
+          ['açaí', '[]', 1],
+          ['acerola', '[]', 1],
+          ['ameixa', '[]', 1],
+          ['cajá', '[]', 1],
+          ['caju', '[]', 1],
+          ['goiaba', '[]', 1],
+          ['graviola', '[]', 1],
+          ['manga', '[]', 1],
+          ['maracujá', '[]', 1],
+          ['morango', '[]', 1],
+          ['seriguela', '[]', 1],
+          ['tamarindo', '[]', 1],
+          ['caixa de ovos', '["ovo", "ovos"]', 1],
+          ['queijo', '[]', 1]
+        ];
+
+        const insertStmt = db.prepare(
+          'INSERT INTO products (name, akas, enabled) VALUES (?, ?, ?)'
+        );
+
+        for (const [name, akas, enabled] of defaultProducts) {
+          insertStmt.run(name, akas, enabled);
+        }
+        console.log('✅ Default products inserted');
+      }
+
+      // Clear any existing data and initialize product totals
       db.exec('DELETE FROM product_totals');
       
+      const products = this.getAllProducts();
       const stmt = db.prepare(
         'INSERT INTO product_totals (product, total_quantity) VALUES (?, 0)'
       );
 
-      for (const product of PRODUCTS) {
-        stmt.run(product[0]);
+      for (const product of products) {
+        stmt.run(product.name);
       }
       
       console.log('✅ SQLite tables created successfully');
@@ -411,6 +531,221 @@ class DatabaseService {
       await db.end();
     } else {
       db.close();
+    }
+  }
+
+  // Clients methods
+  async getAllClients() {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'SELECT * FROM clients ORDER BY name'
+        );
+        return result.rows;
+      } else {
+        const stmt = db.prepare('SELECT * FROM clients ORDER BY name');
+        return stmt.all();
+      }
+    } catch (error) {
+      console.error('❌ Error getting clients:', error);
+      throw error;
+    }
+  }
+
+  async addClient(client) {
+    try {
+      if (isProduction) {
+        await db.query(
+          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (phone) DO UPDATE SET
+          name = EXCLUDED.name,
+          order_type = EXCLUDED.order_type,
+          answered = EXCLUDED.answered,
+          is_chatbot = EXCLUDED.is_chatbot,
+          updated_at = CURRENT_TIMESTAMP`,
+          [client.phone, client.name, client.type, client.answered, client.isChatBot]
+        );
+      } else {
+        const stmt = db.prepare(
+          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT (phone) DO UPDATE SET
+          name = excluded.name,
+          order_type = excluded.order_type,
+          answered = excluded.answered,
+          is_chatbot = excluded.is_chatbot,
+          updated_at = CURRENT_TIMESTAMP`
+        );
+        stmt.run(client.phone, client.name, client.type, client.answered, client.isChatBot);
+      }
+    } catch (error) {
+      console.error('❌ Error adding client:', error);
+      throw error;
+    }
+  }
+
+  async deleteClient(phone) {
+    try {
+      if (isProduction) {
+        await db.query('DELETE FROM clients WHERE phone = $1', [phone]);
+      } else {
+        const stmt = db.prepare('DELETE FROM clients WHERE phone = ?');
+        stmt.run(phone);
+      }
+    } catch (error) {
+      console.error('❌ Error deleting client:', error);
+      throw error;
+    }
+  }
+
+  async updateClientAnsweredStatus(phone, answered) {
+    try {
+      if (isProduction) {
+        await db.query(
+          'UPDATE clients SET answered = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2',
+          [answered, phone]
+        );
+      } else {
+        const stmt = db.prepare(
+          'UPDATE clients SET answered = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?'
+        );
+        stmt.run(answered, phone);
+      }
+    } catch (error) {
+      console.error('❌ Error updating client status:', error);
+      throw error;
+    }
+  }
+
+  async updateClientChatBotStatus(phone, isChatBot) {
+    try {
+      if (isProduction) {
+        await db.query(
+          'UPDATE clients SET is_chatbot = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2',
+          [isChatBot, phone]
+        );
+      } else {
+        const stmt = db.prepare(
+          'UPDATE clients SET is_chatbot = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?'
+        );
+        stmt.run(isChatBot, phone);
+      }
+    } catch (error) {
+      console.error('❌ Error updating client chatbot status:', error);
+      throw error;
+    }
+  }
+
+  // Products methods
+  async getAllProducts() {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'SELECT * FROM products ORDER BY name'
+        );
+        return result.rows.map(row => ({
+          id: row.id,
+          name: row.name,
+          akas: row.akas || [],
+          enabled: row.enabled
+        }));
+      } else {
+        const stmt = db.prepare('SELECT * FROM products ORDER BY name');
+        const rows = stmt.all();
+        return rows.map(row => ({
+          id: row.id,
+          name: row.name,
+          akas: JSON.parse(row.akas || '[]'),
+          enabled: row.enabled
+        }));
+      }
+    } catch (error) {
+      console.error('❌ Error getting products:', error);
+      throw error;
+    }
+  }
+
+  async addProduct(product) {
+    try {
+      if (isProduction) {
+        await db.query(
+          `INSERT INTO products (name, akas, enabled)
+          VALUES ($1, $2, $3)`,
+          [product.name, JSON.stringify(product.akas || []), product.enabled || true]
+        );
+      } else {
+        const stmt = db.prepare(
+          `INSERT INTO products (name, akas, enabled)
+          VALUES (?, ?, ?)`
+        );
+        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled || true);
+      }
+    } catch (error) {
+      console.error('❌ Error adding product:', error);
+      throw error;
+    }
+  }
+
+  async updateProduct(id, product) {
+    try {
+      if (isProduction) {
+        await db.query(
+          `UPDATE products SET 
+            name = $1,
+            akas = $2,
+            enabled = $3,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $4`,
+          [product.name, JSON.stringify(product.akas || []), product.enabled, id]
+        );
+      } else {
+        const stmt = db.prepare(
+          `UPDATE products SET 
+            name = ?,
+            akas = ?,
+            enabled = ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?`
+        );
+        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled, id);
+      }
+    } catch (error) {
+      console.error('❌ Error updating product:', error);
+      throw error;
+    }
+  }
+
+  async deleteProduct(id) {
+    try {
+      if (isProduction) {
+        await db.query('DELETE FROM products WHERE id = $1', [id]);
+      } else {
+        const stmt = db.prepare('DELETE FROM products WHERE id = ?');
+        stmt.run(id);
+      }
+    } catch (error) {
+      console.error('❌ Error deleting product:', error);
+      throw error;
+    }
+  }
+
+  async toggleProductEnabled(id, enabled) {
+    try {
+      if (isProduction) {
+        await db.query(
+          'UPDATE products SET enabled = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+          [enabled, id]
+        );
+      } else {
+        const stmt = db.prepare(
+          'UPDATE products SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        );
+        stmt.run(enabled, id);
+      }
+    } catch (error) {
+      console.error('❌ Error toggling product:', error);
+      throw error;
     }
   }
 }

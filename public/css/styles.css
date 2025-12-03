@@ -424,6 +424,38 @@ tr:hover {
     gap: 10px;
 }
 
+.product-card {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 2px solid #e9ecef;
+}
+
+.product-info {
+    flex: 1;
+}
+
+.product-name {
+    font-weight: bold;
+    color: #2c3e50;
+    font-size: 1.1em;
+}
+
+.product-akas {
+    color: #7f8c8d;
+    font-size: 0.9em;
+    margin: 5px 0;
+}
+
+.product-actions {
+    display: flex;
+    gap: 10px;
+}
+
 .empty-state {
     text-align: center;
     padding: 40px;

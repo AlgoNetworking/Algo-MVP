@@ -23,16 +23,35 @@ class WhatsAppService {
     console.log('📱 WhatsApp Service initialized');
   }
 
-  async connect(users) {
-    if (this.isRunning) {
-      throw new Error('WhatsApp client already running');
-    }
+  async connect(users = null) {
+  if (this.isRunning) {
+    throw new Error('WhatsApp client already running');
+  }
 
-    try {
-      this.disabledUsers.clear();
-      console.log('🔄 Cleared disabled users list for fresh connection');
+  try {
+    this.disabledUsers.clear();
+    console.log('🔄 Cleared disabled users list for fresh connection');
 
+    // If no users provided, fetch from database
+    if (!users) {
+      try {
+        const databaseService = require('./database.service');
+        const dbClients = await databaseService.getAllClients();
+        this.clientUsers = dbClients.map(client => ({
+          phone: client.phone,
+          name: client.name,
+          type: client.order_type,
+          answered: client.answered,
+          isChatBot: client.is_chatbot
+        }));
+        console.log(`📋 Loaded ${this.clientUsers.length} clients from database`);
+      } catch (error) {
+        console.error('❌ Error loading clients from database:', error);
+        this.clientUsers = users || [];
+      }
+    } else {
       this.clientUsers = users;
+    }
 
       this.client = new Client({
         authStrategy: new LocalAuth({
