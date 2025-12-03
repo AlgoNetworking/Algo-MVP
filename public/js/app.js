@@ -6,6 +6,9 @@ let autoRefreshInterval = null;
 let autoRefreshUserInterval = null;
 let clients = [];
 let products = [];
+let notifications = [];
+let notificationBadge = null;
+let notificationsContainer = null;
 /*
 let clients = [
     {
@@ -32,6 +35,110 @@ let clients = [
     },
 ];
 */
+
+function initializeNotifications() {
+    notificationBadge = document.getElementById('notificationBadge');
+    notificationsContainer = document.getElementById('notificationsContainer');
+    
+    document.getElementById('clearAllNotificationsBtn').addEventListener('click', clearAllNotifications);
+}
+
+// Notification functions
+function addNotification(phone, name) {
+    // Check if notification already exists for this phone
+    const existingIndex = notifications.findIndex(n => n.phone === phone);
+    
+    if (existingIndex === -1) {
+        const notification = {
+            id: Date.now() + Math.random(),
+            phone: phone,
+            name: name,
+            message: "O cliente escolheu conversar com uma pessoa, no aguardo do atendimento",
+            timestamp: new Date().toISOString(),
+            read: false
+        };
+        
+        notifications.push(notification);
+        renderNotifications();
+        updateNotificationBadge();
+        
+        // Also show a log message
+        addLog(`🔔 Nova notificação: ${name} escolheu falar com pessoa`);
+    }
+}
+
+function removeNotification(notificationId) {
+    const index = notifications.findIndex(n => n.id === notificationId);
+    if (index !== -1) {
+        notifications.splice(index, 1);
+        renderNotifications();
+        updateNotificationBadge();
+    }
+}
+
+function clearAllNotifications() {
+    if (notifications.length === 0) return;
+    
+    if (confirm(`Limpar todas as ${notifications.length} notificações?`)) {
+        notifications = [];
+        renderNotifications();
+        updateNotificationBadge();
+        addLog('🗑️ Todas as notificações foram limpas');
+    }
+}
+
+function renderNotifications() {
+    if (!notificationsContainer) return;
+    
+    if (notifications.length === 0) {
+        notificationsContainer.innerHTML = '<div class="empty-state">Nenhuma notificação</div>';
+        return;
+    }
+    
+    let html = '';
+    notifications.forEach(notification => {
+        const time = new Date(notification.timestamp).toLocaleTimeString();
+        
+        html += `
+            <div class="notification-box" data-id="${notification.id}">
+                <div class="notification-header">
+                    <span class="notification-client-name">${notification.name}</span>
+                    <span class="notification-client-phone">${notification.phone}</span>
+                </div>
+                <div class="notification-message">
+                    ${notification.message}
+                </div>
+                <div class="notification-time">
+                    📅 Recebido em: ${time}
+                </div>
+                <div class="notification-actions">
+                    <button class="notification-ok-btn" onclick="dismissNotification(${notification.id})">
+                        OK
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    
+    notificationsContainer.innerHTML = html;
+}
+
+function updateNotificationBadge() {
+    if (!notificationBadge) return;
+    
+    const unreadCount = notifications.length;
+    
+    if (unreadCount > 0) {
+        notificationBadge.textContent = unreadCount;
+        notificationBadge.style.display = 'flex';
+    } else {
+        notificationBadge.style.display = 'none';
+    }
+}
+
+function dismissNotification(notificationId) {
+    removeNotification(notificationId);
+}
 
 // Load clients from database
 async function loadClients() {
@@ -330,11 +437,13 @@ function renderUserOrders(orders) {
         const parsedOrders = typeof order.parsed_orders === 'string' 
             ? JSON.parse(order.parsed_orders) 
             : order.parsed_orders;
+
+        const phoneNumber = `+${order.phone_number.slice(0, 2)} ${order.phone_number.slice(2, 4)} ${order.phone_number.slice(4, 8)}-${order.phone_number.slice(8, 12)}`;
             
         html += `
             <div class="order-box ${order.status}">
                 <div class="order-header">
-                    <span>${order.name} (${order.phone_number})</span>
+                    <span>${order.name} (${phoneNumber})</span>
                     <span>${new Date(order.created_at).toLocaleString()}</span>
                 </div>
                 <div class="order-items">
@@ -767,6 +876,19 @@ async function toggleProduct(index, enabled) {
     await toggleProductEnabled(products[index].id, enabled);
 }
 
+function formatPhoneNumberForDisplay(phone) {
+    // Convert from whatsapp format (5585999999999@c.us) to display format
+    const cleanPhone = phone.replace('@c.us', '');
+    
+    if (cleanPhone.length === 13) { // Brazil format with country code
+        return `+${cleanPhone.slice(0, 2)} ${cleanPhone.slice(2, 4)} ${cleanPhone.slice(4, 8)}-${cleanPhone.slice(8, 12)}`;
+    } else if (cleanPhone.length === 11) { // Brazil format without +
+        return `${cleanPhone.slice(0, 2)} ${cleanPhone.slice(2, 7)}-${cleanPhone.slice(7, 11)}`;
+    }
+    
+    return phone;
+}
+
 
 // Socket.IO event handlers
 socket.on('connect', () => {
@@ -828,16 +950,37 @@ socket.on('user-answered-status-update', (data) => {
     }
     addLog(data.phone + "test");
 });
-/*
+
 socket.on('disable-bot', (data) => {
-    const clientDisableBotIndex = clients.findIndex(c => c.phone === data.phone);
+    // Create notification when user chooses option 2
+    const formattedPhone = formatPhoneNumberForDisplay(data.phone);
+    const user = clients.find(c => c.phone === formattedPhone);
+    
+    if (user) {
+        addNotification(formattedPhone, user.name);
+    } else {
+        // Try to find user without formatting
+        const unformattedUser = clients.find(c => {
+            const normalizedPhone = c.phone.replace(/[+\-\s]/g, '');
+            const normalizedDataPhone = data.phone.replace(/[+\-\s]/g, '');
+            return normalizedPhone.includes(normalizedDataPhone) || 
+                   normalizedDataPhone.includes(normalizedPhone);
+        });
+        
+        if (unformattedUser) {
+            addNotification(unformattedUser.phone, unformattedUser.name);
+        } else {
+            addNotification(data.phone, 'Cliente sem Nome');
+        }
+    }
+    
+    // Update client chatbot status
+    const clientDisableBotIndex = clients.findIndex(c => c.phone === formattedPhone);
     if (clientDisableBotIndex !== -1) {
         disableChatBot(clientDisableBotIndex);
-        addLog(clients[clientDisableBotIndex].isChatBot);
     }
-    addLog('testando bip bop...');
 });
-*/
+
 
 socket.on('bulk-message-progress', (data) => {
     addLog(`📤 Enviado para ${data.name} (${data.phone})`);
@@ -911,6 +1054,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadClients();
     renderClients();
     loadProducts(); // Load products
+    initializeNotifications(); // Add this line
     
     // Setup button event listeners
     document.getElementById('connectBtn').addEventListener('click', connectWhatsApp);

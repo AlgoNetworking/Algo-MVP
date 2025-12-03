@@ -23,6 +23,9 @@
             <button class="tab" data-tab="user-orders">Pedidos por Usuário</button>
             <button class="tab" data-tab="clients">Gerenciar Clientes</button>
             <button class="tab" data-tab="products">Gerenciar Produtos</button>
+            <button class="tab" data-tab="notifications">🔔 Notificações
+                <span id="notificationBadge" class="notification-badge" style="display: none;">0</span>
+            </button>
         </div>
 
         <!-- Bot Controls Tab -->
@@ -161,7 +164,7 @@
             </div>
         </div>
 
-                <!-- Products Tab -->
+        <!-- Products Tab -->
         <div id="products" class="tab-content">
             <div class="panel">
                 <h2>📦 Gerenciar Produtos</h2>
@@ -170,6 +173,20 @@
             </div>
         </div>
 
+        <!-- Notifications Tab -->
+        <div id="notifications" class="tab-content">
+            <div class="panel">
+                <h2>🔔 Notificações Pendentes</h2>
+                <div class="controls-inline">
+                    <button id="clearAllNotificationsBtn" class="btn btn-sm btn-warning">
+                        🗑️ Limpar Todas
+                    </button>
+                </div>
+                <div id="notificationsContainer" class="notifications-container">
+                    <div class="empty-state">Nenhuma notificação</div>
+                </div>
+            </div>
+        </div>        
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>

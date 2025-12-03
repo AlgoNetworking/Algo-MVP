@@ -463,6 +463,102 @@ tr:hover {
     font-style: italic;
 }
 
+/* Notification Tab Styling */
+.tab .notification-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background-color: #e74c3c;
+    color: white;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.tab {
+    position: relative;
+    padding-right: 30px !important;
+}
+
+.notifications-container {
+    margin-top: 20px;
+}
+
+.notification-box {
+    background-color: #fff3cd;
+    border: 2px solid #f39c12;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 15px;
+    position: relative;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+}
+
+.notification-header {
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #856404;
+    border-bottom: 1px solid #ffeaa7;
+    padding-bottom: 5px;
+}
+
+.notification-client-name {
+    font-size: 1.2em;
+    color: #2c3e50;
+}
+
+.notification-client-phone {
+    color: #7f8c8d;
+    font-size: 0.9em;
+    margin-left: 10px;
+}
+
+.notification-message {
+    background-color: #fff8e1;
+    padding: 15px;
+    border-radius: 5px;
+    margin: 10px 0;
+    border-left: 4px solid #f39c12;
+    font-style: italic;
+}
+
+.notification-time {
+    color: #7f8c8d;
+    font-size: 0.85em;
+    margin-top: 5px;
+}
+
+.notification-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 15px;
+}
+
+.notification-ok-btn {
+    background-color: #27ae60;
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background-color 0.3s;
+}
+
+.notification-ok-btn:hover {
+    background-color: #229954;
+}
+
+/* Make sure the tab content has proper spacing */
+#notifications.tab-content {
+    padding: 30px;
+}
+
 @media (max-width: 768px) {
     .grid-2 {
         grid-template-columns: 1fr;
