@@ -63,7 +63,10 @@ class ProductsConfig {
   }
 
   getEmptyProductsDb() {
-    return this.PRODUCTS.map(product => [product, 0]);
+    return this.PRODUCTS.map(product => {
+      // product is [name, akas, enabled]
+      return [product, 0];
+    });
   }
 
   getProductByAka(akaName) {

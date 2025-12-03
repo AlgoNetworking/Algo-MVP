@@ -390,7 +390,7 @@ class WhatsAppService {
   }
 
   generateInitialMessage(userName) {
-    const user = userName ? ' ' + userName : '';
+    const user = userName !== 'Cliente sem nome' ? ' ' + userName : '';
     const messages = [
       `Opa${user}! Estamos no aguardo do seu pedido!`, 
       `Olá${user}! Estamos no aguardo do seu pedido!`,

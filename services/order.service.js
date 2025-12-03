@@ -171,7 +171,7 @@ class OrderService {
       session.waitingForOption = true;
       return {
         success: true,
-        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê deseja:\nrealizar um pedido (digite "*1*");\nfalar com uma pessoa (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
+        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê deseja:\nrealizar um pedido (digite "*1*");\ntirar dúvida com uma pessoa (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
         isChatBot: true
       };
     }
@@ -183,7 +183,7 @@ class OrderService {
       const greeting = name !== 'Cliente sem nome' ? `Olá ${name}!` : 'Olá!';
       return {
         success: true,
-        message: `${greeting} Isso é uma mensagem automática.\n\nVocê deseja:\nrealizar um pedido (digite "*1*");\nfalar com uma pessoa (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
+        message: `${greeting} Isso é uma mensagem automática.\n\nVocê deseja:\nrealizar um pedido (digite "*1*");\ntirar dúvida com uma pessoa (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
         isChatBot: true
       };
     }
@@ -234,7 +234,7 @@ class OrderService {
         session.waitingForOption = true;
         session.state = 'option';
         let info = 'Ok, aqui temos instruções de como utilizar o programa e mais sobre ele!\n\n';
-        info += 'O programa oferece quatro opções quando está no menu inicial: "*1*" para realizar um pedido, "*2*" para falar com uma pessoa real, "*3*" para ver a lista de produtos e "*4*" para ler a mensagem que você está lendo agora.\n\n';
+        info += 'O programa oferece quatro opções quando está no menu inicial: "*1*" para realizar um pedido, "*2*" para tirar uma dúvida com uma pessoa, "*3*" para ver a lista de produtos e "*4*" para ler a mensagem que você está lendo agora.\n\n';
         info += `Para realizar um pedido, basta digitar mensagens de texto de forma natural, como: ${example}. Pois o programa consegue entender mensagens em linguagem natural.\n\n`;
         info += 'O programa foi feito por Guilherme Moura Mororó e amigos para originalmente ajudar a empresa de seus avós. No entanto, ainda está em fase de testes e pode ser adicionado ao seu negócio gratuitamente. Basta contatar o número (+55 85 7400-2430) e recebrá mais informações sobre o produto.\n\n'
         info += 'E agora? Você deseja:\nrealizar um pedido (digite "*1*");\ntirar uma dúvida com uma pessoa (digite "*2*");\nler a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo novamente(digite "*4*")?'
@@ -248,7 +248,7 @@ class OrderService {
       else {
         return {
           success: false,
-          message: 'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com uma pessoa;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo',
+          message: 'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para tirar uma dúvida com uma pessoa;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo',
           isChatBot: true
         };
       }
@@ -260,6 +260,25 @@ class OrderService {
       const denyWords = ['nao', 'não', 'n', 'cancelar'];
 
       if (confirmWords.some(w => messageLower.split(' ').includes(w))) {
+        // Before confirming, check again for disabled products in any new items
+        const { disabledProductsFound } = orderParser.parse(message, session.currentDb);
+        
+        if (disabledProductsFound.length > 0) {
+          let errorMessage = '❌ **ATENÇÃO:**\n\n';
+          errorMessage += 'Os seguintes produtos no seu pedido estão temporariamente fora de estoque:\n';
+          disabledProductsFound.forEach(item => {
+            errorMessage += `• ${item.qty}x ${item.product}\n`;
+          });
+          errorMessage += '\nPor favor, cancele este pedido e faça um novo sem estes itens.';
+          
+          return {
+            success: false,
+            message: errorMessage,
+            isChatBot: true
+          };
+        }
+        
+        // Rest of the confirmation logic remains the same...
         session.cancelTimer();
         const confirmedOrder = session.getCurrentOrders();
 
@@ -349,8 +368,32 @@ class OrderService {
           return { success: false, message: '❌ Lista vazia. Adicione itens primeiro.', isChatBot: true };
         }
       } else {
-        const { parsedOrders, updatedDb } = orderParser.parse(message, session.currentDb);
+        const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb);
         session.currentDb = updatedDb;
+        
+        if (disabledProductsFound.length > 0) {
+          // Build error message for disabled products
+          let errorMessage = disabledProductsFound.length > 1 
+          ? '❌ **PRODUTOS INDISPONÍVEIS:**\n\n' 
+          : '❌ **PRODUTO INDISPONÍVEL**\n\n';
+
+          errorMessage += disabledProductsFound.length > 1 
+          ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
+          : 'O seguinte produto está temporariamente fora de estoque\n';
+
+          disabledProductsFound.forEach(item => {
+            errorMessage += `• ${item.product}\n`;
+          });
+          errorMessage += disabledProductsFound.length > 1 
+          ? '\nPor favor, remova estes itens do seu pedido e tente novamente.'
+          : '\nPor favor, remova este item do seu pedido e tente novamente.';
+          
+          return {
+            success: false,
+            message: errorMessage,
+            isChatBot: true
+          };
+        }
         
         if (parsedOrders.length > 0) {
           session.startInactivityTimer();

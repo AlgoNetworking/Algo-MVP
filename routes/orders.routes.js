@@ -89,7 +89,14 @@ router.post('/manual-order', async (req, res) => {
     // Parse the order
     const emptyDb = productsConfig.getEmptyProductsDb();
 
-    const { parsedOrders } = orderParser.parse(message, emptyDb);
+    const { parsedOrders, disabledProductsFound } = orderParser.parse(message, emptyDb);
+
+    if (disabledProductsFound.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Os seguintes produtos estão temporariamente fora de estoque: ${disabledProductsFound.map(item => `${item.qty}x ${item.product}`).join(', ')}`
+      });
+    }
 
     if (parsedOrders.length === 0) {
       return res.status(400).json({

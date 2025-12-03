@@ -209,21 +209,27 @@ function buildAkaLookup(productsDb) {
   const akaLookup = new Map();
 
   productsDb.forEach(([product, _], index) => {
-    const [mainName, akas] = product;
+    const [mainName, akas, enabled] = product;
+
+    // Only add to lookup if product is enabled
+    if (!enabled) {
+      return; // Skip disabled products
+    }
 
     const normalizedMain = normalize(mainName);
-    akaLookup.set(normalizedMain, { mainProduct: mainName, index, score: 100 });
+    akaLookup.set(normalizedMain, { mainProduct: mainName, index, score: 100, enabled: true });
 
     if (akas && akas.length > 0) {
       akas.forEach(aka => {
         const normalizedAka = normalize(aka);
-        akaLookup.set(normalizedAka, { mainProduct: mainName, index, score: 100 });
+        akaLookup.set(normalizedAka, { mainProduct: mainName, index, score: 100, enabled: true });
       });
     }
   });
 
   return akaLookup;
 }
+
 
 function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [1, 80]) {
   let normalized = normalize(message);
@@ -234,12 +240,14 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
   const tokens = normalized.split(' ');
   const workingDb = productsDb.map(([product, qty]) => [product, qty]);
   const parsedOrders = [];
+  const disabledProductsFound = []; // Track disabled products
 
   const numbersWithPositions = extractNumbersAndPositions(tokens);
 
   const akaLookup = buildAkaLookup(productsDb);
 
-  const sortedProducts = productsDb.map(([product, qty], index) => [product[0], qty, index])
+  // Include ALL products for matching (both enabled and disabled)
+  const sortedProducts = productsDb.map(([product, qty], index) => [product[0], product[1], product[2], qty, index])
     .sort((a, b) => b[0].split(' ').length - a[0].split(' ').length);
 
   const normalizedProducts = sortedProducts.map(([product]) => normalize(product));
@@ -296,14 +304,28 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
 
         let originalIndex = -1;
+        let productEnabled = true;
         for (let idx = 0; idx < productsDb.length; idx++) {
           if (productsDb[idx][0][0] === akaMatch.mainProduct) {
             originalIndex = idx;
+            productEnabled = productsDb[idx][0][2]; // Get enabled status
             break;
           }
         }
 
         if (originalIndex !== -1) {
+          if (!productEnabled) {
+            // Product is disabled - add to disabled list
+            disabledProductsFound.push({
+              product: akaMatch.mainProduct,
+              qty: quantity
+            });
+            i += size;
+            matched = true;
+            break;
+          }
+          
+          // Product is enabled - add to order
           workingDb[originalIndex][1] += quantity;
           parsedOrders.push({
             product: akaMatch.mainProduct,
@@ -321,17 +343,21 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         }
       }
 
+      // Find best match among ALL products
       let bestScore = 0;
       let bestProduct = null;
+      let bestProductEnabled = true;
       let bestOriginalIdx = null;
 
-      for (let idx = 0; idx < normalizedProducts.length; idx++) {
-        const prodNorm = normalizedProducts[idx];
+      for (let idx = 0; idx < sortedProducts.length; idx++) {
+        const [productName, _, enabled] = sortedProducts[idx];
+        const prodNorm = normalize(productName);
         const score = similarityPercentage(phraseNorm, prodNorm);
         if (score > bestScore) {
           bestScore = score;
-          bestProduct = sortedProducts[idx][0];
-          bestOriginalIdx = sortedProducts[idx][2];
+          bestProduct = productName;
+          bestProductEnabled = enabled;
+          bestOriginalIdx = sortedProducts[idx][4]; // Original index
         }
       }
 
@@ -339,6 +365,18 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
         const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
 
+        // Check if the best match is disabled
+        if (!bestProductEnabled) {
+          disabledProductsFound.push({
+            product: bestProduct,
+            qty: quantity
+          });
+          i += size;
+          matched = true;
+          break;
+        }
+
+        // Product is enabled - add to order
         workingDb[bestOriginalIdx][1] += quantity;
         parsedOrders.push({
           product: bestProduct,
@@ -360,6 +398,7 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
       const phrase = tokens[i];
       let bestMatch = null;
       let bestScore = 0;
+      let bestProductEnabled = true;
       let bestOriginalIdx = null;
       const phraseNorm = normalize(phrase);
 
@@ -369,18 +408,20 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
           if (productsDb[idx][0][0] === singleWordAkaMatch.mainProduct) {
             bestOriginalIdx = idx;
             bestMatch = singleWordAkaMatch.mainProduct;
+            bestProductEnabled = productsDb[idx][0][2];
             bestScore = 100;
             break;
           }
         }
       } else {
-        for (let idx = 0; idx < productsDb.length; idx++) {
-          const [product] = productsDb[idx][0];
-          const score = similarityPercentage(phraseNorm, normalize(product));
+        for (let idx = 0; idx < sortedProducts.length; idx++) {
+          const [productName, _, enabled] = sortedProducts[idx];
+          const score = similarityPercentage(phraseNorm, normalize(productName));
           if (score > bestScore) {
             bestScore = score;
-            bestMatch = product;
-            bestOriginalIdx = idx;
+            bestMatch = productName;
+            bestProductEnabled = enabled;
+            bestOriginalIdx = sortedProducts[idx][4];
           }
         }
       }
@@ -389,6 +430,18 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
         const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
 
+        // Check if the best match is disabled
+        if (!bestProductEnabled) {
+          disabledProductsFound.push({
+            product: bestMatch,
+            qty: quantity
+          });
+          i++;
+          matched = true;
+          continue;
+        }
+
+        // Product is enabled - add to order
         workingDb[bestOriginalIdx][1] += quantity;
         parsedOrders.push({
           product: bestMatch,
@@ -406,8 +459,9 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
     }
   }
 
-  return { parsedOrders, updatedDb: workingDb };
+  return { parsedOrders, updatedDb: workingDb, disabledProductsFound };
 }
+
 
 module.exports = {
   parse,
