@@ -15,6 +15,21 @@ class OrderSession {
     this.phoneNumber = null;
     this.name = null;
     this.orderType = null;
+    this.hasDisabledProducts = false; // Add this flag
+  }
+
+  hasEnabledItems() {
+    return this.currentDb.some(([product, qty]) => {
+      const [_, __, enabled] = product;
+      return enabled && qty > 0;
+    });
+  }
+
+  hasDisabledItems() {
+    return this.currentDb.some(([product, qty]) => {
+      const [_, __, enabled] = product;
+      return !enabled && qty > 0;
+    });
   }
 
   getEmptyProducts() {
@@ -40,7 +55,10 @@ class OrderSession {
 
   startInactivityTimer() {
     this.cancelTimer();
-    this.activeTimer = setTimeout(() => this.sendSummary(), 5000);
+    // Only start timer if there are enabled items
+    if (this.hasEnabledItems() && !this.hasDisabledItems()) {
+      this.activeTimer = setTimeout(() => this.sendSummary(), 5000);
+    }
   }
 
   cancelTimer() {
@@ -51,16 +69,30 @@ class OrderSession {
   }
 
   sendSummary() {
-    if (this.state === 'collecting' && this.hasItems()) {
+    if (this.state === 'collecting' && this.hasEnabledItems()) {
+      // Filter out disabled products before sending summary
+      const enabledItems = [];
+      const disabledItems = [];
+      
+      this.currentDb.forEach(([product, qty]) => {
+        const [mainName, akas, enabled] = product;
+        if (enabled && qty > 0) {
+          enabledItems.push([product, qty]);
+        } else if (!enabled && qty > 0) {
+          disabledItems.push({ product: mainName, qty });
+        }
+      });
+      
       this.state = 'confirming';
       this.reminderCount = 0;
-      const summary = this.buildSummary();
+      const summary = this.buildSummary(enabledItems); // Pass only enabled items
       this.messageQueue.push(summary);
       this.startReminderCycle();
     } else if (this.state === 'collecting') {
       this.startInactivityTimer();
     }
   }
+
 
   startReminderCycle() {
     this.reminderCount = 1;
@@ -83,13 +115,13 @@ class OrderSession {
     }
   }
 
-  async markAsPending() {
-    if (this.hasItems() && this.phoneNumber) {
+   async markAsPending() {
+    if (this.hasEnabledItems() && this.phoneNumber) {
       const parsedOrders = [];
       for (const [product, qty] of this.currentDb) {
-        if (qty > 0) {
-          const productName = product[0];
-          parsedOrders.push({ productName, qty, score: 100.0 });
+        const [mainName, akas, enabled] = product;
+        if (enabled && qty > 0) {
+          parsedOrders.push({ productName: mainName, qty, score: 100.0 });
         }
       }
 
@@ -109,12 +141,16 @@ class OrderSession {
     }
   }
 
-  buildSummary() {
+  buildSummary(items = null) {
     let summary = '📋 **RESUMO DO SEU PEDIDO:**\n';
-    for (const [product, qty] of this.currentDb) {
+    const itemsToShow = items || this.currentDb.filter(([_, qty]) => qty > 0);
+    
+    for (const [product, qty] of itemsToShow) {
       if (qty > 0) {
-        const productName = product[0];
-        summary += `• ${productName}: ${qty}\n`;
+        const [mainName, akas, enabled] = product;
+        if (enabled) { // Only show enabled products in summary
+          summary += `• ${mainName}: ${qty}\n`;
+        }
       }
     }
     summary += '\n⚠️ **Confirma o pedido?** (responda com \'confirmar\' ou \'nao\')';
@@ -260,16 +296,44 @@ class OrderService {
       const denyWords = ['nao', 'não', 'n', 'cancelar'];
 
       if (confirmWords.some(w => messageLower.split(' ').includes(w))) {
-        // Before confirming, check again for disabled products in any new items
+        // Before confirming, check for disabled products in any new items
         const { disabledProductsFound } = orderParser.parse(message, session.currentDb);
         
         if (disabledProductsFound.length > 0) {
-          let errorMessage = '❌ **ATENÇÃO:**\n\n';
-          errorMessage += 'Os seguintes produtos no seu pedido estão temporariamente fora de estoque:\n';
-          disabledProductsFound.forEach(item => {
-            errorMessage += `• ${item.qty}x ${item.product}\n`;
+          // Reset to collecting state
+          session.cancelTimer();
+          session.state = 'collecting';
+          
+          // Remove disabled products from current orders
+          const filteredDb = [];
+          const disabledRemoved = [];
+          
+          session.currentDb.forEach(([product, qty]) => {
+            const [mainName, akas, enabled] = product;
+            if (enabled && qty > 0) {
+              filteredDb.push([product, qty]);
+            } else if (!enabled && qty > 0) {
+              disabledRemoved.push({ product: mainName, qty });
+              filteredDb.push([product, 0]); // Reset quantity for disabled product
+            } else {
+              filteredDb.push([product, qty]);
+            }
           });
-          errorMessage += '\nPor favor, cancele este pedido e faça um novo sem estes itens.';
+          
+          session.currentDb = filteredDb;
+          
+          // Inform user about the disabled products
+          let errorMessage = '❌ **ATENÇÃO:**\n\n';
+          errorMessage += disabledProductsFound.length > 1 
+          ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
+          : 'O seguinte produto está temporariametne fora de estoque:\n';
+          disabledProductsFound.forEach(item => {
+            errorMessage += `• ${item.product}\n`;
+          });
+          errorMessage += '\nEstes itens foram removidos. Você pode:\n';
+          errorMessage += '1. Continuar adicionando outros produtos\n';
+          errorMessage += '2. Digitar "pronto" para enviar o pedido\n';
+          errorMessage += '3. Digitar "cancelar" para começar novamente';
           
           return {
             success: false,
@@ -278,7 +342,7 @@ class OrderService {
           };
         }
         
-        // Rest of the confirmation logic remains the same...
+        // Rest of confirmation logic remains the same...
         session.cancelTimer();
         const confirmedOrder = session.getCurrentOrders();
 
@@ -339,12 +403,37 @@ class OrderService {
 
       } else {
         // Try parsing as new items
-        const { parsedOrders, updatedDb } = orderParser.parse(message, session.currentDb);
+        const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb);
+        
+        if (disabledProductsFound.length > 0) {
+          // Reset to collecting state when disabled product is ordered
+          session.cancelTimer();
+          session.state = 'collecting';
+          session.currentDb = updatedDb;
+          
+          let errorMessage = '❌ **ATENÇÃO:**\n\n';
+          errorMessage += disabledProductsFound.length > 1 
+          ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
+          : 'O seguinte produto está temporariametne fora de estoque:\n';
+          disabledProductsFound.forEach(item => {
+            errorMessage += `• ${item.product}\n`;
+          });
+          errorMessage += '\nConfirmação interrompida. Você pode:\n';
+          errorMessage += '1. Continuar adicionando outros produtos\n';
+          errorMessage += '2. Digitar "pronto" para enviar o pedido sem estes itens\n';
+          errorMessage += '3. Digitar "cancelar" para começar novamente';
+          
+          return {
+            success: false,
+            message: errorMessage,
+            isChatBot: true,
+          };
+        }
         
         if (parsedOrders.length > 0) {
           session.currentDb = updatedDb;
           session.cancelTimer();
-          session.state = 'collecting';
+          session.state = 'collecting'; // Go back to collecting state
           session.reminderCount = 0;
           session.startInactivityTimer();
           return { success: true, isChatBot: true};
@@ -362,31 +451,80 @@ class OrderService {
     if (session.state === 'collecting') {
       if (['pronto', 'confirmar'].includes(messageLower)) {
         if (session.hasItems()) {
-          session.sendSummary();
-          return { success: true, message: '📋 Preparando seu resumo...', isChatBot: true };
+          // Check if there are any disabled products in current orders
+          const hasDisabledProducts = session.currentDb.some(([product, qty]) => {
+            const [_, __, enabled] = product;
+            return !enabled && qty > 0;
+          });
+          
+
+          // console.log(hasDisabledProducts); aparentemente isso aqui embaixo nunca vai ser usado
+          if (hasDisabledProducts) {
+            // Remove disabled products and keep only enabled ones
+            const filteredDb = [];
+            const disabledRemoved = [];
+            
+            session.currentDb.forEach(([product, qty]) => {
+              const [mainName, akas, enabled] = product;
+              if (enabled && qty > 0) {
+                filteredDb.push([product, qty]);
+              } else if (!enabled && qty > 0) {
+                disabledRemoved.push({ product: mainName, qty });
+              } else {
+                filteredDb.push([product, qty]);
+              }
+            });
+            
+            // Update the session with filtered products
+            session.currentDb = filteredDb;
+            
+            // Send summary with only enabled products
+            session.sendSummary();
+            
+            // Optionally notify about removed products
+            if (disabledRemoved.length > 0) {
+              // This message can be sent before the summary
+              return {
+                success: true,
+                message: `⚠️ **ATENÇÃO:** Os seguintes produtos estão fora de estoque e foram removidos do seu pedido:\n${
+                  disabledRemoved.map(item => `• ${item.qty}x ${item.product}`).join('\n')
+                }\n\n📋 Preparando resumo dos produtos disponíveis...`,
+                isChatBot: true
+              };
+            }
+            
+            return { success: true, message: '📋 Preparando seu resumo...', isChatBot: true };
+          } else {
+            // No disabled products, proceed normally
+            session.sendSummary();
+            return { success: true, message: '📋 Preparando seu resumo...', isChatBot: true };
+          }
         } else {
           return { success: false, message: '❌ Lista vazia. Adicione itens primeiro.', isChatBot: true };
         }
       } else {
         const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb);
-        session.currentDb = updatedDb;
         
+        // If disabled products found, don't start timer but keep the enabled ones
         if (disabledProductsFound.length > 0) {
-          // Build error message for disabled products
-          let errorMessage = disabledProductsFound.length > 1 
-          ? '❌ **PRODUTOS INDISPONÍVEIS:**\n\n' 
-          : '❌ **PRODUTO INDISPONÍVEL**\n\n';
-
+          // Keep the updatedDb (which includes disabled products)
+          session.currentDb = updatedDb;
+          
+          // Don't start the timer
+          session.cancelTimer();
+          
+          // Build informative message
+          let errorMessage = '❌ **ATENÇÃO:**\n\n';
           errorMessage += disabledProductsFound.length > 1 
           ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
-          : 'O seguinte produto está temporariamente fora de estoque\n';
-
+          : 'O seguinte produto está temporariametne fora de estoque:\n';
           disabledProductsFound.forEach(item => {
             errorMessage += `• ${item.product}\n`;
           });
-          errorMessage += disabledProductsFound.length > 1 
-          ? '\nPor favor, remova estes itens do seu pedido e tente novamente.'
-          : '\nPor favor, remova este item do seu pedido e tente novamente.';
+          errorMessage += '\nVocê pode:\n';
+          errorMessage += '1. Continuar adicionando outros produtos\n';
+          errorMessage += '2. Digitar "pronto" para enviar o pedido sem estes itens\n';
+          errorMessage += '3. Digitar "cancelar" para começar novamente';
           
           return {
             success: false,
@@ -396,7 +534,8 @@ class OrderService {
         }
         
         if (parsedOrders.length > 0) {
-          session.startInactivityTimer();
+          session.currentDb = updatedDb;
+          session.startInactivityTimer(); // Only start timer if no disabled products
           return { success: true, isChatBot: true };
         } else {
           session.startInactivityTimer();

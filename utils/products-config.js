@@ -93,6 +93,31 @@ class ProductsConfig {
     return null;
   }
 
+  // Add this method to the ProductsConfig class
+  getProductByAkaWithStatus(akaName) {
+    const normalizedAka = this.normalizeText(akaName);
+
+    for (const product of this.PRODUCTS) {
+      const [mainName, akas, enabled] = product;
+
+      // Check main name
+      if (this.normalizeText(mainName) === normalizedAka) {
+        return { mainProduct: mainName, score: 100, enabled };
+      }
+
+      // Check AKAs
+      if (akas && akas.length > 0) {
+        for (const aka of akas) {
+          if (this.normalizeText(aka) === normalizedAka) {
+            return { mainProduct: mainName, score: 100, enabled };
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
   normalizeText(text) {
     return text.toLowerCase()
       .normalize('NFD')

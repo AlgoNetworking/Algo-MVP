@@ -211,18 +211,24 @@ function buildAkaLookup(productsDb) {
   productsDb.forEach(([product, _], index) => {
     const [mainName, akas, enabled] = product;
 
-    // Only add to lookup if product is enabled
-    if (!enabled) {
-      return; // Skip disabled products
-    }
-
+    // Always add to lookup, regardless of enabled status
     const normalizedMain = normalize(mainName);
-    akaLookup.set(normalizedMain, { mainProduct: mainName, index, score: 100, enabled: true });
+    akaLookup.set(normalizedMain, { 
+      mainProduct: mainName, 
+      index, 
+      score: 100, 
+      enabled: enabled 
+    });
 
     if (akas && akas.length > 0) {
       akas.forEach(aka => {
         const normalizedAka = normalize(aka);
-        akaLookup.set(normalizedAka, { mainProduct: mainName, index, score: 100, enabled: true });
+        akaLookup.set(normalizedAka, { 
+          mainProduct: mainName, 
+          index, 
+          score: 100, 
+          enabled: enabled 
+        });
       });
     }
   });
@@ -314,26 +320,23 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         }
 
         if (originalIndex !== -1) {
+          // ALWAYS track disabled products, even if they're found
           if (!productEnabled) {
-            // Product is disabled - add to disabled list
             disabledProductsFound.push({
               product: akaMatch.mainProduct,
               qty: quantity
             });
-            i += size;
-            matched = true;
-            break;
+          } else {
+            // Only add to workingDb if product is enabled
+            workingDb[originalIndex][1] += quantity;
+            parsedOrders.push({
+              product: akaMatch.mainProduct,
+              qty: quantity,
+              score: 100.0
+            });
           }
-          
-          // Product is enabled - add to order
-          workingDb[originalIndex][1] += quantity;
-          parsedOrders.push({
-            product: akaMatch.mainProduct,
-            qty: quantity,
-            score: 100.0
-          });
 
-          if (numberPosition !== null) {
+          if (numberPosition !== null && productEnabled) {
             usedNumberPositions.add(numberPosition);
           }
 
