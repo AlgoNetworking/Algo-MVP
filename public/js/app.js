@@ -339,7 +339,7 @@ function renderUserOrders(orders) {
                 </div>
                 <div class="order-items">
                     ${parsedOrders.map(item => 
-                        `<span class="order-item-badge">${item.qty}x ${item.product}</span>`
+                        `<span class="order-item-badge">${item.qty}x ${item.productName}</span>`
                     ).join('')}
                 </div>
                 <div class="order-actions">

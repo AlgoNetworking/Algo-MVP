@@ -296,7 +296,9 @@ class OrderService {
 
         let response = '✅ **PEDIDO CONFIRMADO COM SUCESSO!**\n\n**Itens confirmados:**\n';
         for (const [product, qty] of Object.entries(confirmedOrder)) {
-          response += `• ${qty}x ${product}\n`;
+          const splittedProduct = product.split(',');
+          const productName = splittedProduct[0];
+          response += `• ${qty}x ${productName}\n`;
         }
         
         const thankYou = session.name !== 'Cliente sem nome' 
