@@ -7,6 +7,7 @@ router.post('/connect', async (req, res) => {
   try {
     const { users } = req.body;
 
+    // Users should already be filtered by folder from frontend
     const result = await whatsappService.connect(users);
     res.json(result);
   } catch (error) {

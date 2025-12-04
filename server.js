@@ -12,6 +12,7 @@ const whatsappRoutes = require('./routes/whatsapp.routes');
 const databaseService = require('./services/database.service');
 const clientsRoutes = require('./routes/clients.routes');
 const productsRoutes = require('./routes/products.routes');
+const foldersRoutes = require('./routes/folders.routes');
 
 const app = express();
 const server = http.createServer(app);
@@ -45,6 +46,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/clients', clientsRoutes);
 app.use('/api/products', productsRoutes);
+app.use('/api/folders', foldersRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

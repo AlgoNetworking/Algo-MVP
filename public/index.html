@@ -34,13 +34,23 @@
                 <div class="panel">
                     <h2>🎮 Controles do Bot</h2>
                     <div class="controls">
+                        <!-- Add folder selection -->
+                        <div class="form-group">
+                            <label for="folderSelect">📁 Selecionar Pasta para Mensagens:</label>
+                            <select id="folderSelect" class="form-control" onchange="updateSelectedFolder(this.value)">
+                                <option value="">-- Selecione uma pasta --</option>
+                                <!-- Folders will be populated by JavaScript -->
+                            </select>
+                            <small id="selectedFolderInfo" style="display: none; color: #27ae60; margin-top: 5px;"></small>
+                        </div>
+                        
                         <button id="connectBtn" class="btn btn-primary">
                             📱 Conectar WhatsApp
                         </button>
                         <button id="disconnectBtn" class="btn btn-danger" disabled>
                             🔌 Desconectar
                         </button>
-                        <button id="sendBulkBtn" class="btn btn-success" disabled>
+                        <button id="sendBulkBtn" class="btn btn-success" disabled onclick="sendBulkMessages()">
                             📤 Enviar Mensagens em Massa
                         </button>
                         <button id="downloadExcelBtn" class="btn btn-info">
@@ -159,7 +169,7 @@
         <div id="clients" class="tab-content">
             <div class="panel">
                 <h2>👥 Gerenciar Clientes</h2>
-                <button class="btn btn-primary" onclick="addClient()">➕ Adicionar Cliente</button>
+                <!-- <button class="btn btn-primary" onclick="addClient()">➕ Adicionar Cliente</button> -->
                 <div id="clientsList" class="clients-list"></div>
             </div>
         </div>

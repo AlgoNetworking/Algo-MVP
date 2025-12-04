@@ -24,34 +24,22 @@ class WhatsAppService {
   }
 
   async connect(users = null) {
-  if (this.isRunning) {
-    throw new Error('WhatsApp client already running');
-  }
-
-  try {
-    this.disabledUsers.clear();
-    console.log('🔄 Cleared disabled users list for fresh connection');
-
-    // If no users provided, fetch from database
-    if (!users) {
-      try {
-        const databaseService = require('./database.service');
-        const dbClients = await databaseService.getAllClients();
-        this.clientUsers = dbClients.map(client => ({
-          phone: client.phone,
-          name: client.name,
-          type: client.order_type,
-          answered: client.answered,
-          isChatBot: client.is_chatbot
-        }));
-        console.log(`📋 Loaded ${this.clientUsers.length} clients from database`);
-      } catch (error) {
-        console.error('❌ Error loading clients from database:', error);
-        this.clientUsers = users || [];
-      }
-    } else {
-      this.clientUsers = users;
+    if (this.isRunning) {
+      throw new Error('WhatsApp client already running');
     }
+
+    try {
+      this.disabledUsers.clear();
+      console.log('🔄 Cleared disabled users list for fresh connection');
+
+      // If users provided, use them (they should already be filtered by folder)
+      this.clientUsers = users || [];
+
+      if (this.clientUsers.length === 0) {
+        console.log('⚠️ No clients to connect with');
+      } else {
+        console.log(`📋 Loaded ${this.clientUsers.length} clients for WhatsApp connection`);
+      }
 
       this.client = new Client({
         authStrategy: new LocalAuth({
@@ -432,7 +420,8 @@ class WhatsAppService {
     const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
 
     const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0]}`;
-    const warning = `\n\n(Isto é uma mensagem automática, digite naturalmente como: ${example})`;
+    let warning = `\n\n(Isto é uma mensagem automática para a sua conveniência 😊, digite naturalmente como: ${example})`;
+    warning += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!';
 
     return messages[Math.floor(Math.random() * messages.length)] + warning;
   }

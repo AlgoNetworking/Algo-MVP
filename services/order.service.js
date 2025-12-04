@@ -230,9 +230,17 @@ class OrderService {
         session.waitingForOption = false;
         session.state = 'collecting';
         session.startInactivityTimer();
+
+        const products = productsConfig.PRODUCTS;
+        
+            const idx1 = Math.floor(Math.random() * products.length);
+            const idx2 = Math.floor(Math.random() * products.length);
+            const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
+        
+            const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0]}`;
         return {
           success: true,
-          message: 'Ótimo! Digite seus pedidos. Exemplo: \"2 mangas e 3 queijos\"',
+          message: `Ótimo! Digite seus pedidos. Exemplo: \"${example}\"\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!`,
           isChatBot: true
         };
       } else if (messageLower === '2') {

@@ -9,6 +9,10 @@ let products = [];
 let notifications = [];
 let notificationBadge = null;
 let notificationsContainer = null;
+let folders = [];
+let currentFolder = null;
+let folderClients = [];
+let folderHasUnsavedChanges = false;
 
 // Modal system variables
 let modalResolve = null;
@@ -40,6 +44,644 @@ let clients = [
     },
 ];
 */
+
+// Load folders from database
+async function loadFolders() {
+  try {
+    const response = await fetch('/api/folders');
+    const data = await response.json();
+    if (data.success) {
+      folders = data.folders;
+      renderFolders();
+    }
+  } catch (error) {
+    console.error('Error loading folders:', error);
+  }
+}
+
+// Load clients for a specific folder
+async function loadFolderClients(folderId) {
+  try {
+    const response = await fetch(`/api/clients?folderId=${folderId}`);
+    const data = await response.json();
+    if (data.success) {
+      folderClients = data.clients;
+      renderFolderClients();
+    }
+  } catch (error) {
+    console.error('Error loading folder clients:', error);
+  }
+}
+
+// Render folders list
+function renderFolders() {
+  const container = document.getElementById('clientsList');
+  
+  // Create folder dashboard
+  let html = `
+    <div class="folders-dashboard">
+      <h3 style="margin-bottom: 20px;">📁 Pastas de Clientes</h3>
+      <button class="btn btn-primary" onclick="showAddFolderForm()">
+        ➕ Nova Pasta
+      </button>
+      
+      <div class="folders-list" style="margin-top: 20px;">
+  `;
+  
+  if (folders.length === 0) {
+    html += `
+      <div class="empty-state" style="margin-top: 20px;">
+        Nenhuma pasta criada ainda. Crie uma pasta para adicionar clientes.
+      </div>
+    `;
+  } else {
+    folders.forEach(folder => {
+      html += `
+        <div class="folder-card" data-folder-id="${folder.id}">
+          <div class="folder-info">
+            <div class="folder-name">📁 ${folder.name}</div>
+            <div class="folder-date">
+              Criado em: ${new Date(folder.created_at).toLocaleDateString()}
+            </div>
+          </div>
+          <div class="folder-actions">
+            <button class="btn btn-sm btn-primary" onclick="openFolder(${folder.id})">
+              🔓 Acessar Pasta
+            </button>
+            <button class="btn btn-sm btn-warning" onclick="editFolder(${folder.id})">
+              ✏️ Editar Nome
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="deleteFolder(${folder.id})">
+              🗑️ Deletar
+            </button>
+          </div>
+        </div>
+      `;
+    });
+  }
+  
+  html += `
+      </div>
+    </div>
+  `;
+  
+  container.innerHTML = html;
+}
+
+// Render folder content (clients inside a folder)
+function renderFolderClients() {
+  if (!currentFolder) return;
+  
+  const container = document.getElementById('clientsList');
+  
+  let html = `
+    <div class="folder-view">
+      <div class="folder-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3>
+          📁 ${currentFolder.name} 
+          <span style="font-size: 14px; color: #7f8c8d;">
+            (${folderClients.length} cliente${folderClients.length !== 1 ? 's' : ''})
+          </span>
+        </h3>
+        <div>
+          <button class="btn btn-sm btn-info" onclick="showImportTxtForm()">
+            📄 Importar do TXT
+          </button>
+          <button class="btn btn-sm btn-primary" onclick="addFolderClient()">
+            ➕ Adicionar Cliente
+          </button>
+          <button class="btn btn-sm btn-danger" onclick="closeFolder()" ${folderHasUnsavedChanges ? 'disabled' : ''}>
+            ⬅️ Voltar
+          </button>
+        </div>
+      </div>
+      
+      <div class="unsaved-changes-warning" style="${folderHasUnsavedChanges ? '' : 'display: none;'} background-color: #fff3cd; border: 2px solid #f39c12; border-radius: 10px; padding: 15px; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: #856404; font-weight: bold;">⚠️ Você tem alterações não salvas!</span>
+          <div>
+            <button class="btn btn-sm btn-success" onclick="saveFolderChanges()" style="margin-right: 10px;">
+              💾 Salvar Alterações
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="cancelFolderChanges()">
+              ❌ Cancelar Alterações
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <div id="folderClientsContainer">
+  `;
+  
+  if (folderClients.length === 0) {
+    html += `
+      <div class="empty-state">
+        Nenhum cliente nesta pasta. Adicione um cliente para começar.
+      </div>
+    `;
+  } else {
+    folderClients.forEach((client, index) => {
+      const isEditing = currentEditingIndex === index && currentEditingType === 'folder-client';
+      
+      html += `
+        <div class="client-card ${isEditing ? 'editing' : ''}">
+          <div class="client-info">
+            <div class="client-name">${client.name}</div>
+            <div class="client-phone">${client.phone} • Tipo: ${client.type}</div>
+            <div style="font-size: 0.85em; color: ${client.answered ? '#27ae60' : '#e74c3c'};">
+              ${client.answered ? '✅ Respondeu' : '⏳ Pendente'}
+            </div>
+          </div>
+          <div class="client-actions">
+            <button class="btn btn-sm btn-primary" onclick="editFolderClient(${index})" ${isEditing ? 'disabled' : ''}>
+              ${isEditing ? '✏️ Editando...' : '✏️ Editar'}
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="deleteFolderClient(${index})" ${isEditing ? 'disabled' : ''}>
+              🗑️ Deletar
+            </button>
+            ${!client.answered ? `<button class="btn btn-sm btn-success" onclick="markFolderClientAsAnswered(${index})" ${isEditing ? 'disabled' : ''}>✅ Respondeu</button>` : ''}
+          </div>
+        </div>
+      `;
+      
+      if (isEditing) {
+        html += `
+          <div class="edit-form" id="editFolderClientForm-${index}">
+            <div class="form-group">
+              <label for="editFolderClientPhone-${index}">Telefone*:</label>
+              <input type="text" id="editFolderClientPhone-${index}" value="${client.phone}" required>
+            </div>
+            <div class="form-group">
+              <label for="editFolderClientName-${index}">Nome:</label>
+              <input type="text" id="editFolderClientName-${index}" value="${client.name}" placeholder="Cliente sem nome">
+            </div>
+            <div class="form-group">
+              <label for="editFolderClientType-${index}">Tipo de Pedido:</label>
+              <select id="editFolderClientType-${index}">
+                <option value="normal" ${client.type === 'normal' ? 'selected' : ''}>Normal</option>
+                <option value="quilo" ${client.type === 'quilo' ? 'selected' : ''}>Quilo</option>
+                <option value="dosado" ${client.type === 'dosado' ? 'selected' : ''}>Dosado</option>
+              </select>
+            </div>
+            <div class="edit-form-actions">
+              <button class="btn btn-sm btn-danger" onclick="cancelEditFolderClient()">Cancelar</button>
+              <button class="btn btn-sm btn-success" onclick="saveFolderClientEdit(${index})">Salvar Alterações</button>
+            </div>
+          </div>
+        `;
+      }
+    });
+  }
+  
+  html += `
+      </div>
+    </div>
+  `;
+  
+  container.innerHTML = html;
+}
+
+// Show add folder form
+function showAddFolderForm() {
+  const container = document.getElementById('clientsList');
+  const addForm = document.createElement('div');
+  addForm.className = 'add-folder-form';
+  addForm.style.cssText = 'background: #f8f9fa; border: 2px solid #e9ecef; border-radius: 10px; padding: 20px; margin-bottom: 20px; animation: slideDown 0.3s ease;';
+  
+  addForm.innerHTML = `
+    <h3 style="margin-bottom: 15px; color: #2c3e50;">➕ Criar Nova Pasta</h3>
+    <div class="form-group">
+      <label for="newFolderName">Nome da Pasta*:</label>
+      <input type="text" id="newFolderName" placeholder="Ex: Clientes VIP" required style="width: 100%; padding: 10px; border: 2px solid #e9ecef; border-radius: 8px; font-size: 14px; font-family: inherit;">
+    </div>
+    <div class="edit-form-actions" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+      <button class="btn btn-sm btn-danger" onclick="cancelAddFolder()">Cancelar</button>
+      <button class="btn btn-sm btn-success" onclick="saveNewFolder()">Criar Pasta</button>
+    </div>
+  `;
+  
+  container.querySelector('.folders-dashboard').appendChild(addForm);
+  document.getElementById('newFolderName').focus();
+}
+
+// Cancel add folder
+function cancelAddFolder() {
+  const form = document.querySelector('.add-folder-form');
+  if (form) form.remove();
+}
+
+// Save new folder
+async function saveNewFolder() {
+  const name = document.getElementById('newFolderName').value.trim();
+  
+  if (!name) {
+    customAlert('Erro', 'O nome da pasta é obrigatório!');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      addLog(`✅ Pasta criada: ${name}`);
+      await loadFolders();
+      cancelAddFolder();
+    } else {
+      customAlert('Erro', data.message);
+    }
+  } catch (error) {
+    console.error('Error creating folder:', error);
+    addLog(`❌ Erro ao criar pasta: ${error.message}`, 'error');
+  }
+}
+
+// Edit folder
+async function editFolder(folderId) {
+  const folder = folders.find(f => f.id === folderId);
+  if (!folder) return;
+  
+  const newName = prompt('Novo nome da pasta:', folder.name);
+  if (!newName || newName.trim() === '') return;
+  
+  try {
+    const response = await fetch(`/api/folders/${folderId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName.trim() })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      addLog(`✅ Pasta atualizada: ${newName}`);
+      await loadFolders();
+    } else {
+      customAlert('Erro', data.message);
+    }
+  } catch (error) {
+    console.error('Error updating folder:', error);
+    addLog(`❌ Erro ao atualizar pasta: ${error.message}`, 'error');
+  }
+}
+
+// Delete folder
+async function deleteFolder(folderId) {
+  const folder = folders.find(f => f.id === folderId);
+  if (!folder) return;
+  
+  const confirmed = await confirmAction('Deletar Pasta', `Deletar a pasta "${folder.name}" e todos os clientes dentro dela?`);
+  if (!confirmed) return;
+  
+  try {
+    const response = await fetch(`/api/folders/${folderId}`, {
+      method: 'DELETE'
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      addLog(`🗑️ Pasta deletada: ${folder.name}`);
+      if (currentFolder && currentFolder.id === folderId) {
+        currentFolder = null;
+        folderClients = [];
+      }
+      await loadFolders();
+    } else {
+      customAlert('Erro', data.message);
+    }
+  } catch (error) {
+    console.error('Error deleting folder:', error);
+    addLog(`❌ Erro ao deletar pasta: ${error.message}`, 'error');
+  }
+}
+
+// Open folder
+async function openFolder(folderId) {
+  if (folderHasUnsavedChanges) {
+    const confirmed = await confirmAction('Alterações não salvas', 'Você tem alterações não salvas. Deseja descartá-las e abrir outra pasta?');
+    if (!confirmed) return;
+    folderHasUnsavedChanges = false;
+  }
+  
+  try {
+    const response = await fetch(`/api/folders/${folderId}`);
+    const data = await response.json();
+    if (data.success) {
+      currentFolder = data.folder;
+      currentEditingIndex = -1;
+      currentEditingType = null;
+      await loadFolderClients(folderId);
+    }
+  } catch (error) {
+    console.error('Error opening folder:', error);
+    addLog(`❌ Erro ao abrir pasta: ${error.message}`, 'error');
+  }
+}
+
+// Close folder
+function closeFolder() {
+  if (folderHasUnsavedChanges) {
+    customAlert('Alterações não salvas', 'Você precisa salvar ou cancelar as alterações antes de fechar a pasta.');
+    return;
+  }
+  
+  currentFolder = null;
+  folderClients = [];
+  currentEditingIndex = -1;
+  currentEditingType = null;
+  renderFolders();
+}
+
+// Add folder client
+function addFolderClient() {
+  if (!currentFolder) return;
+  
+  const container = document.getElementById('folderClientsContainer');
+  
+  // Remove any existing add form
+  const existingForm = container.querySelector('.add-folder-client-form');
+  if (existingForm) {
+    existingForm.remove();
+    return;
+  }
+  
+  const addForm = document.createElement('div');
+  addForm.className = 'add-folder-client-form';
+  addForm.style.cssText = 'background: #f8f9fa; border: 2px solid #e9ecef; border-radius: 10px; padding: 20px; margin-bottom: 15px; animation: slideDown 0.3s ease;';
+  
+  addForm.innerHTML = `
+    <h4 style="margin-bottom: 15px; color: #2c3e50;">➕ Adicionar Cliente à Pasta</h4>
+    <div class="form-group">
+      <label for="newFolderClientPhone">Telefone*:</label>
+      <input type="text" id="newFolderClientPhone" placeholder="+55 85 99999-9999" required style="width: 100%; padding: 10px; border: 2px solid #e9ecef; border-radius: 8px; font-size: 14px; font-family: inherit;">
+    </div>
+    <div class="form-group">
+      <label for="newFolderClientName">Nome:</label>
+      <input type="text" id="newFolderClientName" placeholder="Deixe em branco para \'Cliente sem nome\'" style="width: 100%; padding: 10px; border: 2px solid #e9ecef; border-radius: 8px; font-size: 14px; font-family: inherit;">
+    </div>
+    <div class="form-group">
+      <label for="newFolderClientType">Tipo de Pedido:</label>
+      <select id="newFolderClientType" style="width: 100%; padding: 10px; border: 2px solid #e9ecef; border-radius: 8px; font-size: 14px; font-family: inherit;">
+        <option value="normal">Normal</option>
+        <option value="quilo">Quilo</option>
+        <option value="dosado">Dosado</option>
+      </select>
+    </div>
+    <div class="edit-form-actions" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+      <button class="btn btn-sm btn-danger" onclick="cancelAddFolderClient()">Cancelar</button>
+      <button class="btn btn-sm btn-success" onclick="saveNewFolderClient()">Salvar Cliente</button>
+    </div>
+  `;
+  
+  container.prepend(addForm);
+  document.getElementById('newFolderClientPhone').focus();
+}
+
+// Cancel add folder client
+function cancelAddFolderClient() {
+  const form = document.querySelector('.add-folder-client-form');
+  if (form) form.remove();
+}
+
+// Save new folder client
+async function saveNewFolderClient() {
+  if (!currentFolder) return;
+  
+  const phone = document.getElementById('newFolderClientPhone').value.trim();
+  const name = document.getElementById('newFolderClientName').value.trim();
+  const type = document.getElementById('newFolderClientType').value;
+  
+  if (!phone) {
+    customAlert('Erro', 'O telefone é obrigatório!');
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/clients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone,
+        name: name || 'Cliente sem nome',
+        type,
+        folderId: currentFolder.id
+      })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      addLog(`✅ Cliente adicionado à pasta: ${name || 'Cliente sem nome'}`);
+      folderHasUnsavedChanges = true;
+      await loadFolderClients(currentFolder.id);
+      cancelAddFolderClient();
+    } else {
+      customAlert('Erro', data.message);
+    }
+  } catch (error) {
+    console.error('Error adding folder client:', error);
+    addLog(`❌ Erro ao adicionar cliente: ${error.message}`, 'error');
+  }
+}
+
+// Edit folder client
+function editFolderClient(index) {
+  if (currentEditingIndex !== -1) {
+    cancelEditFolderClient();
+  }
+  currentEditingIndex = index;
+  currentEditingType = 'folder-client';
+  renderFolderClients();
+}
+
+// Cancel edit folder client
+function cancelEditFolderClient() {
+  currentEditingIndex = -1;
+  currentEditingType = null;
+  renderFolderClients();
+}
+
+// Save folder client edit
+async function saveFolderClientEdit(index) {
+  if (!currentFolder) return;
+  
+  const client = folderClients[index];
+  const phone = document.getElementById(`editFolderClientPhone-${index}`).value.trim();
+  const name = document.getElementById(`editFolderClientName-${index}`).value.trim();
+  const type = document.getElementById(`editFolderClientType-${index}`).value;
+  
+  if (!phone) {
+    customAlert('Erro', 'O telefone é obrigatório!');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`/api/clients/${client.phone}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone,
+        name: name || 'Cliente sem nome',
+        type,
+        folderId: currentFolder.id
+      })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      addLog(`✅ Cliente atualizado: ${name || 'Cliente sem nome'}`);
+      folderHasUnsavedChanges = true;
+      currentEditingIndex = -1;
+      currentEditingType = null;
+      await loadFolderClients(currentFolder.id);
+    } else {
+      customAlert('Erro', data.message);
+    }
+  } catch (error) {
+    console.error('Error updating folder client:', error);
+    addLog(`❌ Erro ao atualizar cliente: ${error.message}`, 'error');
+  }
+}
+
+// Delete folder client
+async function deleteFolderClient(index) {
+  if (!currentFolder) return;
+  
+  const client = folderClients[index];
+  const confirmed = await confirmAction('Deletar Cliente', `Deletar ${client.name}?`);
+  if (!confirmed) return;
+  
+  try {
+    const response = await fetch(`/api/clients/${encodeURIComponent(client.phone)}?folderId=${currentFolder.id}`, {
+      method: 'DELETE'
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      addLog(`🗑️ Cliente removido da pasta: ${client.name}`);
+      folderHasUnsavedChanges = true;
+      await loadFolderClients(currentFolder.id);
+    } else {
+      customAlert('Erro', data.message);
+    }
+  } catch (error) {
+    console.error('Error deleting folder client:', error);
+    addLog(`❌ Erro ao deletar cliente: ${error.message}`, 'error');
+  }
+}
+
+// Mark folder client as answered
+async function markFolderClientAsAnswered(index) {
+  if (!currentFolder) return;
+  
+  const client = folderClients[index];
+  if (client.answered === false) {
+    try {
+      const response = await fetch(`/api/clients/${encodeURIComponent(client.phone)}/answered`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          answered: true,
+          folderId: currentFolder.id 
+        })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        addLog(`✅ Cliente marcado como respondido: ${client.name}`);
+        folderHasUnsavedChanges = true;
+        await loadFolderClients(currentFolder.id);
+      }
+    } catch (error) {
+      console.error('Error updating folder client status:', error);
+    }
+  }
+}
+
+// Save all folder changes
+async function saveFolderChanges() {
+  if (!currentFolder) return;
+  
+  // In a real implementation, you might need to sync multiple changes
+  // For now, we'll just reset the unsaved changes flag
+  folderHasUnsavedChanges = false;
+  addLog(`✅ Alterações na pasta "${currentFolder.name}" salvas com sucesso!`);
+  renderFolderClients();
+}
+
+// Cancel folder changes
+async function cancelFolderChanges() {
+  if (!currentFolder) return;
+  
+  const confirmed = await confirmAction('Cancelar Alterações', 'Descartar todas as alterações não salvas?');
+  if (!confirmed) return;
+  
+  folderHasUnsavedChanges = false;
+  await loadFolderClients(currentFolder.id);
+  addLog(`❌ Alterações na pasta "${currentFolder.name}" descartadas.`);
+}
+
+// Update folder selection dropdown
+async function updateFolderSelect() {
+  try {
+    const response = await fetch('/api/folders');
+    const data = await response.json();
+    if (data.success) {
+      folders = data.folders;
+      const select = document.getElementById('folderSelect');
+      const info = document.getElementById('selectedFolderInfo');
+      
+      // Clear existing options except first
+      while (select.options.length > 1) {
+        select.remove(1);
+      }
+      
+      // Add folder options
+      folders.forEach(folder => {
+        const option = document.createElement('option');
+        option.value = folder.id;
+        option.textContent = folder.name;
+        select.appendChild(option);
+      });
+      
+      // Restore selected folder if exists
+      if (selectedFolderId) {
+        select.value = selectedFolderId;
+        info.textContent = `Selecionada: ${selectedFolderName}`;
+        info.style.display = 'block';
+      } else {
+        info.style.display = 'none';
+      }
+    }
+  } catch (error) {
+    console.error('Error loading folders for select:', error);
+  }
+}
+
+// Update selected folder
+function updateSelectedFolder(folderId) {
+  selectedFolderId = folderId;
+  const select = document.getElementById('folderSelect');
+  const info = document.getElementById('selectedFolderInfo');
+  
+  if (folderId) {
+    const folder = folders.find(f => f.id == folderId);
+    if (folder) {
+      selectedFolderName = folder.name;
+      info.textContent = `Selecionada: ${folder.name}`;
+      info.style.display = 'block';
+      addLog(`📁 Pasta selecionada: ${folder.name}`);
+    }
+  } else {
+    selectedFolderName = null;
+    info.style.display = 'none';
+    addLog('⚠️ Nenhuma pasta selecionada');
+  }
+}
+
+
 
 function initializeNotifications() {
     notificationBadge = document.getElementById('notificationBadge');
@@ -305,20 +947,44 @@ function setupTabs() {
 async function connectWhatsApp() {
   try {
     addLog('📱 Conectando WhatsApp...');
+    
+    // Get clients from selected folder
+    let selectedClients = [];
+    if (selectedFolderId) {
+      const response = await fetch(`/api/clients?folderId=${selectedFolderId}`);
+      const data = await response.json();
+      if (data.success) {
+        selectedClients = data.clients;
+        addLog(`📁 Usando pasta selecionada com ${selectedClients.length} clientes`);
+      }
+    } else {
+      // Fallback to all clients if no folder selected
+      const response = await fetch('/api/clients');
+      const data = await response.json();
+      if (data.success) {
+        selectedClients = data.clients;
+        addLog('⚠️ Nenhuma pasta selecionada, usando todos os clientes');
+      }
+    }
 
     // 🔄 Reset ALL clients when reconnecting WhatsApp
-    for(client of clients) {
+    for(let client of selectedClients) {
       client.answered = false;
       client.isChatBot = true; // Reset bot functionality for everyone
+      // Update client in database
+      await fetch(`/api/clients/${encodeURIComponent(client.phone)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(client)
+      });
     }
     
-    saveClient(); // Save the changes
-    renderClients(); // Update the UI
+    renderFolderClients(); // Update the UI
 
     const response = await fetch('/api/whatsapp/connect', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ users: clients })
+        body: JSON.stringify({ users: selectedClients })
     });
     const data = await response.json();
     
@@ -349,35 +1015,55 @@ async function disconnectWhatsApp() {
 }
 
 async function sendBulkMessages() {
-    if (clients.length === 0) {
-        customAlert('Aviso', 'Nenhum cliente cadastrado!');
-        return;
-    }
+  if (!selectedFolderId) {
+    customAlert('Aviso', 'Por favor, selecione uma pasta primeiro!');
+    return;
+  }
 
-    const confirmed = await confirmAction('Enviar Mensagens', `Enviar mensagens para ${clients.length} clientes?`);
-    if (!confirmed) return;
-
-    try {
-        document.getElementById('sendBulkBtn').textContent = '📤 Enviando...';
-        document.getElementById('sendBulkBtn').disabled = true;
-        
-        addLog('📤 Iniciando envio em massa...');
-        const response = await fetch('/api/whatsapp/send-bulk', {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ users: clients })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            addLog('✅ Envio em massa iniciado');
-        }
-    } catch (error) {
-        addLog('❌ Erro: ' + error.message, 'error');
-        document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens em Massa';
-        document.getElementById('sendBulkBtn').disabled = false;
+  // Load clients from selected folder
+  let clients = [];
+  try {
+    const response = await fetch(`/api/clients?folderId=${selectedFolderId}`);
+    const data = await response.json();
+    if (data.success) {
+      clients = data.clients;
     }
+  } catch (error) {
+    console.error('Error loading folder clients:', error);
+    customAlert('Erro', 'Não foi possível carregar os clientes da pasta selecionada.');
+    return;
+  }
+
+  if (clients.length === 0) {
+    customAlert('Aviso', 'Nenhum cliente na pasta selecionada!');
+    return;
+  }
+
+  const confirmed = await confirmAction('Enviar Mensagens', `Enviar mensagens para ${clients.length} clientes da pasta "${selectedFolderName}"?`);
+  if (!confirmed) return;
+
+  try {
+    document.getElementById('sendBulkBtn').textContent = '📤 Enviando...';
+    document.getElementById('sendBulkBtn').disabled = true;
+    
+    addLog(`📤 Iniciando envio em massa para pasta: ${selectedFolderName}...`);
+    const response = await fetch('/api/whatsapp/send-bulk', {
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ users: clients })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      addLog('✅ Envio em massa iniciado');
+    }
+  } catch (error) {
+    addLog('❌ Erro: ' + error.message, 'error');
+    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens em Massa';
+    document.getElementById('sendBulkBtn').disabled = false;
+  }
 }
+
 
 async function downloadExcel() {
     try {
@@ -1168,6 +1854,347 @@ function formatPhoneNumberForDisplay(phone) {
     return phone;
 }
 
+// Phone number normalization function
+function normalizePhoneNumber(phoneInput) {
+  if (!phoneInput || phoneInput.trim() === '') return null;
+  
+  // Remove all non-digit characters
+  let digits = phoneInput.replace(/\D/g, '');
+  
+  // Handle Brazil phone numbers
+  if (digits.startsWith('55')) {
+    // Already has country code
+    if (digits.length === 12) { // 55 + 2 area + 8 number
+      return `+${digits.substring(0, 2)} ${digits.substring(2, 4)} ${digits.substring(4, 8)}-${digits.substring(8, 12)}`;
+    } else if (digits.length === 13) { // 55 + 2 area + 9 number
+      return `+${digits.substring(0, 2)} ${digits.substring(2, 4)} ${digits.substring(4, 9)}-${digits.substring(9, 13)}`;
+    }
+  } else {
+    // Add Brazil country code
+    if (digits.length === 10) { // 2 area + 8 number
+      return `+55 ${digits.substring(0, 2)} ${digits.substring(2, 6)}-${digits.substring(6, 10)}`;
+    } else if (digits.length === 11) { // 2 area + 9 number
+      return `+55 ${digits.substring(0, 2)} ${digits.substring(2, 7)}-${digits.substring(7, 11)}`;
+    } else if (digits.length === 8) { // Just number (assume area code 85)
+      return `+55 85 ${digits.substring(0, 4)}-${digits.substring(4, 8)}`;
+    } else if (digits.length === 9) { // Just number (assume area code 85)
+      return `+55 85 ${digits.substring(0, 5)}-${digits.substring(5, 9)}`;
+    }
+  }
+  
+  // If we can't format properly, just return with country code
+  return `+55 ${digits}`;
+}
+
+// Show TXT import form
+function showImportTxtForm() {
+  if (!currentFolder) {
+    customAlert('Erro', 'Nenhuma pasta aberta.');
+    return;
+  }
+  
+  const container = document.getElementById('folderClientsContainer');
+  
+  // Remove any existing import form
+  const existingForm = container.querySelector('.import-txt-form');
+  if (existingForm) {
+    existingForm.remove();
+    return;
+  }
+  
+  const importForm = document.createElement('div');
+  importForm.className = 'import-txt-form';
+  importForm.style.cssText = 'background: #f8f9fa; border: 2px solid #e9ecef; border-radius: 10px; padding: 20px; margin-bottom: 20px; animation: slideDown 0.3s ease;';
+  
+  importForm.innerHTML = `
+    <h4 style="margin-bottom: 15px; color: #2c3e50;">📄 Importar Clientes do Arquivo TXT</h4>
+    
+    <div style="margin-bottom: 15px; padding: 15px; background: #e8f4fc; border-radius: 8px; border-left: 4px solid #3498db;">
+      <h5 style="margin-top: 0; color: #2c3e50;">📋 Formato do Arquivo:</h5>
+      <p style="margin: 5px 0; font-size: 0.9em; color: #2c3e50;">
+        <strong>Opção 1:</strong> Apenas números de telefone (um por linha)<br>
+        <em>Exemplo:</em><br>
+        +55 85 7400-2430<br>
+        558574002430<br>
+        8574002430
+      </p>
+      <p style="margin: 5px 0; font-size: 0.9em; color: #2c3e50;">
+        <strong>Opção 2:</strong> Telefone, Nome (separados por vírgula)<br>
+        <em>Exemplo:</em><br>
+        +55 85 7400-2430, Guilherme Moura<br>
+        558574002430, Nicolas Pinheiro
+      </p>
+      <p style="margin: 5px 0; font-size: 0.9em; color: #2c3e50;">
+        <strong>Opção 3:</strong> Telefone, Nome, Tipo (separados por vírgula)<br>
+        <em>Exemplo:</em><br>
+        +55 85 7400-2430, Guilherme Moura, normal<br>
+        558574002430, Nicolas Pinheiro, quilo<br>
+        8574002430, Carlos Sérgio, dosado
+      </p>
+      <p style="margin: 5px 0; font-size: 0.85em; color: #7f8c8d;">
+        <strong>Tipos válidos:</strong> normal, quilo, dosado (padrão: normal)<br>
+        <strong>Nome padrão:</strong> "Cliente sem nome" (se não especificado)
+      </p>
+    </div>
+    
+    <div class="form-group" style="margin-bottom: 15px;">
+      <label for="txtFileInput" style="display: block; margin-bottom: 5px; font-weight: 600; color: #2c3e50;">
+        Selecione o arquivo TXT:
+      </label>
+      <input type="file" id="txtFileInput" accept=".txt" style="width: 100%; padding: 8px; border: 2px solid #e9ecef; border-radius: 8px;">
+    </div>
+    
+    <div id="importPreview" style="display: none; margin-bottom: 15px; max-height: 200px; overflow-y: auto; border: 1px solid #e9ecef; border-radius: 8px; padding: 10px; background: white;">
+      <h5 style="margin-top: 0; color: #2c3e50;">Pré-visualização:</h5>
+      <div id="previewContent"></div>
+    </div>
+    
+    <div class="edit-form-actions" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+      <button class="btn btn-sm btn-danger" onclick="cancelImportTxt()">Cancelar</button>
+      <button class="btn btn-sm btn-success" id="importBtn" onclick="importFromTxt()" disabled>
+        Importar Clientes
+      </button>
+    </div>
+  `;
+  
+  container.prepend(importForm);
+  
+  // Add event listener for file selection
+  document.getElementById('txtFileInput').addEventListener('change', previewTxtFile);
+}
+
+// Preview TXT file contents
+function previewTxtFile(event) {
+  const file = event.target.files[0];
+  const importBtn = document.getElementById('importBtn');
+  const previewDiv = document.getElementById('importPreview');
+  const previewContent = document.getElementById('previewContent');
+  
+  if (!file) {
+    importBtn.disabled = true;
+    previewDiv.style.display = 'none';
+    return;
+  }
+  
+  // Check if it's a text file
+  if (!file.name.toLowerCase().endsWith('.txt')) {
+    customAlert('Erro', 'Por favor, selecione um arquivo .txt');
+    importBtn.disabled = true;
+    previewDiv.style.display = 'none';
+    return;
+  }
+  
+  const reader = new FileReader();
+  
+  reader.onload = function(e) {
+    const content = e.target.result;
+    const lines = content.split('\n').filter(line => line.trim() !== '');
+    
+    if (lines.length === 0) {
+      previewContent.innerHTML = '<p style="color: #e74c3c;">Arquivo vazio ou sem conteúdo válido.</p>';
+      importBtn.disabled = true;
+    } else {
+      let previewHtml = '<div style="font-size: 0.85em;">';
+      let validCount = 0;
+      
+      // Show first 10 lines as preview
+      for (let i = 0; i < Math.min(lines.length, 10); i++) {
+        const line = lines[i];
+        const parsed = parseTxtLine(line);
+        
+        if (parsed) {
+          validCount++;
+          previewHtml += `
+            <div style="margin-bottom: 5px; padding: 5px; border-bottom: 1px solid #f1f1f1;">
+              <strong>${parsed.phone}</strong><br>
+              <span style="color: #7f8c8d;">${parsed.name} • ${parsed.type}</span>
+            </div>
+          `;
+        }
+      }
+      
+      if (lines.length > 10) {
+        previewHtml += `<div style="color: #7f8c8d; font-style: italic;">... e mais ${lines.length - 10} linha(s)</div>`;
+      }
+      
+      previewHtml += '</div>';
+      previewContent.innerHTML = previewHtml;
+      
+      if (validCount > 0) {
+        importBtn.disabled = false;
+        importBtn.innerHTML = `Importar ${lines.length} Cliente(s)`;
+      } else {
+        importBtn.disabled = true;
+      }
+    }
+    
+    previewDiv.style.display = 'block';
+  };
+  
+  reader.onerror = function() {
+    customAlert('Erro', 'Não foi possível ler o arquivo.');
+    importBtn.disabled = true;
+    previewDiv.style.display = 'none';
+  };
+  
+  reader.readAsText(file);
+}
+
+// Parse a single line from TXT file
+function parseTxtLine(line) {
+  line = line.trim();
+  if (!line) return null;
+  
+  // Split by comma, but be careful with commas in names
+  const parts = line.split(',').map(part => part.trim());
+  
+  if (parts.length === 0) return null;
+  
+  // Extract phone (first part)
+  const phoneRaw = parts[0];
+  const phone = normalizePhoneNumber(phoneRaw);
+  
+  if (!phone) return null;
+  
+  // Extract name (second part if exists)
+  let name = 'Cliente sem nome';
+  if (parts.length >= 2 && parts[1] !== '') {
+    name = parts[1];
+  }
+  
+  // Extract order type (third part if exists)
+  let type = 'normal';
+  if (parts.length >= 3 && parts[2] !== '') {
+    const validTypes = ['normal', 'quilo', 'dosado'];
+    const inputType = parts[2].toLowerCase();
+    type = validTypes.includes(inputType) ? inputType : 'normal';
+  }
+  
+  return { phone, name, type };
+}
+
+// Cancel import
+function cancelImportTxt() {
+  const form = document.querySelector('.import-txt-form');
+  if (form) form.remove();
+}
+
+// Import from TXT file
+async function importFromTxt() {
+  if (!currentFolder) {
+    customAlert('Erro', 'Nenhuma pasta aberta.');
+    return;
+  }
+  
+  const fileInput = document.getElementById('txtFileInput');
+  if (!fileInput.files[0]) {
+    customAlert('Erro', 'Por favor, selecione um arquivo.');
+    return;
+  }
+  
+  const confirmed = await confirmAction(
+    'Importar Clientes', 
+    `Importar clientes do arquivo para a pasta "${currentFolder.name}"?`
+  );
+  
+  if (!confirmed) return;
+  
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+  
+  reader.onload = async function(e) {
+    const content = e.target.result;
+    const lines = content.split('\n').filter(line => line.trim() !== '');
+    
+    let successCount = 0;
+    let errorCount = 0;
+    let duplicateCount = 0;
+    const errors = [];
+    
+    addLog(`📄 Iniciando importação de ${lines.length} linha(s) do arquivo...`);
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const parsed = parseTxtLine(line);
+      
+      if (!parsed) {
+        errorCount++;
+        errors.push(`Linha ${i + 1}: Formato inválido - "${line.substring(0, 30)}..."`);
+        continue;
+      }
+      
+      try {
+        const response = await fetch('/api/clients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: parsed.phone,
+            name: parsed.name,
+            type: parsed.type,
+            folderId: currentFolder.id
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          successCount++;
+          // Show progress every 10 imports
+          if (successCount % 10 === 0) {
+            addLog(`✅ ${successCount} cliente(s) importado(s)...`);
+          }
+        } else {
+          if (data.message && data.message.includes('duplicate')) {
+            duplicateCount++;
+          } else {
+            errorCount++;
+            errors.push(`Linha ${i + 1}: ${data.message || 'Erro desconhecido'}`);
+          }
+        }
+      } catch (error) {
+        errorCount++;
+        errors.push(`Linha ${i + 1}: ${error.message}`);
+      }
+      
+      // Small delay to not overload the server
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    
+    // Show results
+    let resultMessage = `✅ Importação concluída!<br><br>`;
+    resultMessage += `✅ Sucesso: ${successCount} cliente(s)<br>`;
+    if (duplicateCount > 0) {
+      resultMessage += `⚠️ Duplicados: ${duplicateCount} cliente(s) (já existiam)<br>`;
+    }
+    if (errorCount > 0) {
+      resultMessage += `❌ Erros: ${errorCount} cliente(s)<br>`;
+    }
+    
+    if (errors.length > 0) {
+      resultMessage += `<br><strong>Detalhes dos erros:</strong><br>`;
+      resultMessage += errors.slice(0, 5).map(e => `• ${e}`).join('<br>');
+      if (errors.length > 5) {
+        resultMessage += `<br>• ... e mais ${errors.length - 5} erro(s)`;
+      }
+    }
+    
+    customAlert('Resultado da Importação', resultMessage);
+    
+    // Update the UI
+    folderHasUnsavedChanges = true;
+    await loadFolderClients(currentFolder.id);
+    cancelImportTxt();
+    
+    addLog(`📄 Importação finalizada: ${successCount} adicionado(s), ${duplicateCount} duplicado(s), ${errorCount} erro(s)`);
+  };
+  
+  reader.onerror = function() {
+    customAlert('Erro', 'Não foi possível ler o arquivo.');
+  };
+  
+  reader.readAsText(file);
+}
+
 
 // Socket.IO event handlers
 socket.on('connect', () => {
@@ -1328,26 +2355,27 @@ function updateConnectionStatus(isConnected, isSendingMessages = false, sendingP
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    addLog('🚀 Dashboard inicializado');
-    setupTabs();
-    loadClients();
-    renderClients();
-    loadProducts();
-    initializeNotifications();
-    initializeModal(); // Add this line
-    
-    // Setup button event listeners
-    document.getElementById('connectBtn').addEventListener('click', connectWhatsApp);
-    document.getElementById('disconnectBtn').addEventListener('click', disconnectWhatsApp);
-    document.getElementById('sendBulkBtn').addEventListener('click', sendBulkMessages);
-    document.getElementById('downloadExcelBtn').addEventListener('click', downloadExcel);
-    document.getElementById('clearDbBtn').addEventListener('click', clearDatabase);
-    
-    // Load initial data
-    setTimeout(() => {
-        refreshOrders();
-        refreshUserOrders();
-    }, 1000);
+  addLog('🚀 Dashboard inicializado');
+  setupTabs();
+  loadFolders(); // Load folders for the clients tab
+  updateFolderSelect(); // Load folders for the dropdown
+  loadProducts();
+  initializeNotifications();
+  initializeModal();
+  
+  // Setup button event listeners
+  document.getElementById('connectBtn').addEventListener('click', connectWhatsApp);
+  document.getElementById('disconnectBtn').addEventListener('click', disconnectWhatsApp);
+  // Remove the onclick from the HTML button and use event listener
+  document.getElementById('sendBulkBtn').addEventListener('click', sendBulkMessages);
+  document.getElementById('downloadExcelBtn').addEventListener('click', downloadExcel);
+  document.getElementById('clearDbBtn').addEventListener('click', clearDatabase);
+  
+  // Load initial data
+  setTimeout(() => {
+    refreshOrders();
+    refreshUserOrders();
+  }, 1000);
 });
 
 // Status updates

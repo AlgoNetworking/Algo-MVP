@@ -58,17 +58,29 @@ class DatabaseService {
         console.log('ℹ️  No views to remove or error removing views:', error.message);
       }
 
-      // Create clients table
+      // Create folders table FIRST
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS folders (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Create clients table (updated with folder_id)
       await db.query(`
         CREATE TABLE IF NOT EXISTS clients (
           id SERIAL PRIMARY KEY,
-          phone VARCHAR(20) UNIQUE NOT NULL,
+          phone VARCHAR(20) NOT NULL,
           name VARCHAR(100) NOT NULL,
           order_type VARCHAR(20) DEFAULT 'normal',
           answered BOOLEAN DEFAULT FALSE,
           is_chatbot BOOLEAN DEFAULT TRUE,
+          folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(phone, folder_id)
         )
       `);
 
@@ -138,6 +150,16 @@ class DatabaseService {
           );
         }
         console.log('✅ Default products inserted');
+      }
+
+      // Create a default folder if none exists
+      const foldersResult = await db.query('SELECT COUNT(*) FROM folders');
+      if (parseInt(foldersResult.rows[0].count) === 0) {
+        await db.query(
+          'INSERT INTO folders (name) VALUES ($1)',
+          ['Pasta Padrão']
+        );
+        console.log('✅ Default folder created');
       }
 
       // Clear any existing data and initialize product totals
@@ -534,17 +556,115 @@ class DatabaseService {
     }
   }
 
-  // Clients methods
-  async getAllClients() {
+  // Folders methods
+  async getAllFolders() {
     try {
       if (isProduction) {
         const result = await db.query(
-          'SELECT * FROM clients ORDER BY name'
+          'SELECT * FROM folders ORDER BY name'
         );
         return result.rows;
       } else {
-        const stmt = db.prepare('SELECT * FROM clients ORDER BY name');
+        const stmt = db.prepare('SELECT * FROM folders ORDER BY name');
         return stmt.all();
+      }
+    } catch (error) {
+      console.error('❌ Error getting folders:', error);
+      throw error;
+    }
+  }
+
+  async getFolderById(id) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'SELECT * FROM folders WHERE id = $1',
+          [id]
+        );
+        return result.rows[0] || null;
+      } else {
+        const stmt = db.prepare('SELECT * FROM folders WHERE id = ?');
+        return stmt.get(id) || null;
+      }
+    } catch (error) {
+      console.error('❌ Error getting folder:', error);
+      throw error;
+    }
+  }
+
+  async createFolder(name) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'INSERT INTO folders (name) VALUES ($1) RETURNING *',
+          [name]
+        );
+        return result.rows[0];
+      } else {
+        const stmt = db.prepare(
+          'INSERT INTO folders (name) VALUES (?) RETURNING *'
+        );
+        return stmt.get(name);
+      }
+    } catch (error) {
+      console.error('❌ Error creating folder:', error);
+      throw error;
+    }
+  }
+
+  async updateFolder(id, name) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'UPDATE folders SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+          [name, id]
+        );
+        return result.rows[0];
+      } else {
+        const stmt = db.prepare(
+          'UPDATE folders SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING *'
+        );
+        return stmt.get(name, id);
+      }
+    } catch (error) {
+      console.error('❌ Error updating folder:', error);
+      throw error;
+    }
+  }
+
+  async deleteFolder(id) {
+    try {
+      if (isProduction) {
+        await db.query('DELETE FROM folders WHERE id = $1', [id]);
+      } else {
+        const stmt = db.prepare('DELETE FROM folders WHERE id = ?');
+        stmt.run(id);
+      }
+    } catch (error) {
+      console.error('❌ Error deleting folder:', error);
+      throw error;
+    }
+  }
+
+  // Clients methods
+  async getAllClients(folderId = null) {
+    try {
+      let query = 'SELECT * FROM clients';
+      let params = [];
+      
+      if (folderId !== null) {
+        query += ' WHERE folder_id = $1';
+        params = [folderId];
+      }
+      
+      query += ' ORDER BY name';
+      
+      if (isProduction) {
+        const result = await db.query(query, params);
+        return result.rows;
+      } else {
+        const stmt = db.prepare(query);
+        return stmt.all(...params);
       }
     } catch (error) {
       console.error('❌ Error getting clients:', error);
@@ -554,50 +674,72 @@ class DatabaseService {
 
   async addClient(client) {
     try {
+      const { phone, name, type, answered, isChatBot, folderId } = client;
+      
       if (isProduction) {
         await db.query(
-          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot)
-          VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (phone) DO UPDATE SET
+          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot, folder_id)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (phone, folder_id) DO UPDATE SET
           name = EXCLUDED.name,
           order_type = EXCLUDED.order_type,
           answered = EXCLUDED.answered,
           is_chatbot = EXCLUDED.is_chatbot,
           updated_at = CURRENT_TIMESTAMP`,
-          [client.phone, client.name, client.type, client.answered, client.isChatBot]
+          [phone, name, type, answered, isChatBot, folderId]
         );
       } else {
         const stmt = db.prepare(
-          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot)
-          VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT (phone) DO UPDATE SET
+          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot, folder_id)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT (phone, folder_id) DO UPDATE SET
           name = excluded.name,
           order_type = excluded.order_type,
           answered = excluded.answered,
           is_chatbot = excluded.is_chatbot,
           updated_at = CURRENT_TIMESTAMP`
         );
-        stmt.run(client.phone, client.name, client.type, client.answered, client.isChatBot);
+        stmt.run(phone, name, type, answered, isChatBot, folderId);
       }
+      
+      return { success: true };
     } catch (error) {
       console.error('❌ Error adding client:', error);
-      throw error;
+      
+      // Provide user-friendly error messages
+      let message = error.message;
+      if (error.message.includes('unique constraint')) {
+        message = `Cliente com telefone ${client.phone} já existe nesta pasta`;
+      } else if (error.message.includes('foreign key constraint')) {
+        message = 'Pasta não encontrada';
+      }
+      
+      throw new Error(message);
     }
   }
 
-  async deleteClient(phone) {
-    try {
-      if (isProduction) {
+  async deleteClient(phone, folderId = null) {
+  try {
+    if (isProduction) {
+      if (folderId !== null) {
+        await db.query('DELETE FROM clients WHERE phone = $1 AND folder_id = $2', [phone, folderId]);
+      } else {
         await db.query('DELETE FROM clients WHERE phone = $1', [phone]);
+      }
+    } else {
+      if (folderId !== null) {
+        const stmt = db.prepare('DELETE FROM clients WHERE phone = ? AND folder_id = ?');
+        stmt.run(phone, folderId);
       } else {
         const stmt = db.prepare('DELETE FROM clients WHERE phone = ?');
         stmt.run(phone);
       }
-    } catch (error) {
-      console.error('❌ Error deleting client:', error);
-      throw error;
     }
+  } catch (error) {
+    console.error('❌ Error deleting client:', error);
+    throw error;
   }
+}
 
   async updateClientAnsweredStatus(phone, answered) {
     try {

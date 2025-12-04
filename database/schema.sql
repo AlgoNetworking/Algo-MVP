@@ -1,13 +1,23 @@
--- Clients table
+-- Folders table
+CREATE TABLE IF NOT EXISTS folders (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Clients table (modified to include folder_id)
 CREATE TABLE IF NOT EXISTS clients (
     id SERIAL PRIMARY KEY,
-    phone VARCHAR(20) UNIQUE NOT NULL,
+    phone VARCHAR(20) NOT NULL,
     name VARCHAR(100) NOT NULL,
     order_type VARCHAR(20) DEFAULT 'normal',
     answered BOOLEAN DEFAULT FALSE,
     is_chatbot BOOLEAN DEFAULT TRUE,
+    folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(phone, folder_id) -- Phone must be unique within a folder
 );
 
 -- Products table
