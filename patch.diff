@@ -1,0 +1,782 @@
+diff --git a/client/package.json b/client/package.json
+new file mode 100644
+--- /dev/null
++++ b/client/package.json
+@@ -0,0 +1,30 @@
++{
++  "name": "algo-auth-client",
++  "version": "1.0.0",
++  "private": true,
++  "scripts": {
++    "dev": "vite",
++    "build": "vite build",
++    "preview": "vite preview"
++  },
++  "dependencies": {
++    "react": "^18.2.0",
++    "react-dom": "^18.2.0",
++    "react-router-dom": "^6.22.1"
++  },
++  "devDependencies": {
++    "@vitejs/plugin-react": "^4.2.0",
++    "vite": "^5.2.0"
++  }
++}
+diff --git a/client/index.html b/client/index.html
+new file mode 100644
+--- /dev/null
++++ b/client/index.html
+@@ -0,0 +1,13 @@
++<!DOCTYPE html>
++<html lang="pt-br">
++  <head>
++    <meta charset="UTF-8" />
++    <title>Algo — Auth</title>
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++  </head>
++  <body>
++    <div id="root"></div>
++    <script type="module" src="/src/main.jsx"></script>
++  </body>
++</html>
+diff --git a/client/src/main.jsx b/client/src/main.jsx
+new file mode 100644
+--- /dev/null
++++ b/client/src/main.jsx
+@@ -0,0 +1,23 @@
++import React from "react";
++import { createRoot } from "react-dom/client";
++import { BrowserRouter } from "react-router-dom";
++import App from "./App";
++import "./index.css";
++
++createRoot(document.getElementById("root")).render(
++  <React.StrictMode>
++    <BrowserRouter>
++      <App />
++    </BrowserRouter>
++  </React.StrictMode>
++);
++
+diff --git a/client/src/index.css b/client/src/index.css
+new file mode 100644
+--- /dev/null
++++ b/client/src/index.css
+@@ -0,0 +1,140 @@
++:root{
++  --azul-escuro: #0a0f2c;
++  --azul: #1e3cff;
++  --branco: #ffffff;
++  --preto: #000000;
++}
++
++*{box-sizing:border-box}
++body{
++  margin:0;
++  font-family: Inter, Arial, sans-serif;
++  background: var(--azul-escuro);
++  color: var(--branco);
++}
++
++.center-page{
++  min-height:100vh;
++  display:flex;
++  align-items:center;
++  justify-content:center;
++  padding:24px;
++}
++
++.card{
++  width:360px;
++  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
++  border: 1px solid rgba(255,255,255,0.06);
++  padding:20px;
++  border-radius:12px;
++  box-shadow: 0 8px 30px rgba(0,0,0,0.4);
++}
++
++h1,h2,h3{margin:0 0 10px 0}
++
++input{
++  width:100%;
++  padding:12px;
++  border-radius:8px;
++  border:none;
++  outline:none;
++  margin-top:10px;
++  background:#ffffff;
++  color:#000000;
++  font-size:14px;
++}
++
++button.primary{
++  width:100%;
++  padding:12px;
++  border-radius:8px;
++  border:none;
++  background: var(--azul);
++  color: var(--branco);
++  font-weight:700;
++  font-size:15px;
++  cursor:pointer;
++  margin-top:12px;
++}
++
++button.ghost{
++  width:100%;
++  padding:10px;
++  border-radius:8px;
++  border:1px solid rgba(255,255,255,0.08);
++  background:transparent;
++  color:var(--branco);
++  margin-top:10px;
++  cursor:pointer;
++}
++
++.link{
++  color: var(--azul);
++  text-decoration: none;
++  cursor:pointer;
++  display:inline-block;
++  margin-top:10px;
++}
++
++.muted{ color: rgba(255,255,255,0.7); font-size:13px}
++
++/* Dashboard white-box */
++.dashboard{
++  min-height:100vh;
++  padding:28px;
++  background: linear-gradient(180deg,var(--branco),#f4f6fa);
++  color:#000;
++}
++
++.pill{padding:6px 10px;border-radius:999px;background:#e8f0ff;color:#0036ff;font-weight:600}
++
++/* small screens */
++@media (max-width:420px){
++  .card{ width:94%; padding:16px }
++}
+diff --git a/client/src/api.js b/client/src/api.js
+new file mode 100644
+--- /dev/null
++++ b/client/src/api.js
+@@ -0,0 +1,44 @@
++const API = "http://localhost:4000";
++
++export async function registerUser(nome, email, senha) {
++  const r = await fetch(`${API}/register`, {
++    method: "POST",
++    headers: { "Content-Type": "application/json" },
+diff --git a/client/package.json b/client/package.json
+new file mode 100644
+--- /dev/null
++++ b/client/package.json
+@@ -0,0 +1,30 @@
++{
++  "name": "algo-auth-client",
++  "version": "1.0.0",
++  "private": true,
++  "scripts": {
++    "dev": "vite",
++    "build": "vite build",
++    "preview": "vite preview"
++  },
++  "dependencies": {
++    "react": "^18.2.0",
++    "react-dom": "^18.2.0",
++    "react-router-dom": "^6.22.1"
++  },
++  "devDependencies": {
++    "@vitejs/plugin-react": "^4.2.0",
++    "vite": "^5.2.0"
++  }
++}
+diff --git a/client/index.html b/client/index.html
+new file mode 100644
+--- /dev/null
++++ b/client/index.html
+@@ -0,0 +1,13 @@
++<!DOCTYPE html>
++<html lang="pt-br">
++  <head>
++    <meta charset="UTF-8" />
++    <title>Algo — Auth</title>
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++  </head>
++  <body>
++    <div id="root"></div>
++    <script type="module" src="/src/main.jsx"></script>
++  </body>
++</html>
+diff --git a/client/src/main.jsx b/client/src/main.jsx
+new file mode 100644
+--- /dev/null
++++ b/client/src/main.jsx
+@@ -0,0 +1,23 @@
++import React from "react";
++import { createRoot } from "react-dom/client";
++import { BrowserRouter } from "react-router-dom";
++import App from "./App";
++import "./index.css";
++
++createRoot(document.getElementById("root")).render(
++  <React.StrictMode>
++    <BrowserRouter>
++      <App />
++    </BrowserRouter>
++  </React.StrictMode>
++);
++
+diff --git a/client/src/index.css b/client/src/index.css
+new file mode 100644
+--- /dev/null
++++ b/client/src/index.css
+@@ -0,0 +1,140 @@
++:root{
++  --azul-escuro: #0a0f2c;
++  --azul: #1e3cff;
++  --branco: #ffffff;
++  --preto: #000000;
++}
++
++*{box-sizing:border-box}
++body{
++  margin:0;
++  font-family: Inter, Arial, sans-serif;
++  background: var(--azul-escuro);
++  color: var(--branco);
++}
++
++.center-page{
++  min-height:100vh;
++  display:flex;
++  align-items:center;
++  justify-content:center;
++  padding:24px;
++}
++
++.card{
++  width:360px;
++  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
++  border: 1px solid rgba(255,255,255,0.06);
++  padding:20px;
++  border-radius:12px;
++  box-shadow: 0 8px 30px rgba(0,0,0,0.4);
++}
++
++h1,h2,h3{margin:0 0 10px 0}
++
++input{
++  width:100%;
++  padding:12px;
++  border-radius:8px;
++  border:none;
++  outline:none;
++  margin-top:10px;
++  background:#ffffff;
++  color:#000000;
++  font-size:14px;
++}
++
++button.primary{
++  width:100%;
++  padding:12px;
++  border-radius:8px;
++  border:none;
++  background: var(--azul);
++  color: var(--branco);
++  font-weight:700;
++  font-size:15px;
++  cursor:pointer;
++  margin-top:12px;
++}
++
++button.ghost{
++  width:100%;
++  padding:10px;
++  border-radius:8px;
++  border:1px solid rgba(255,255,255,0.08);
++  background:transparent;
++  color:var(--branco);
++  margin-top:10px;
++  cursor:pointer;
++}
++
++.link{
++  color: var(--azul);
++  text-decoration: none;
++  cursor:pointer;
++  display:inline-block;
++  margin-top:10px;
++}
++
++.muted{ color: rgba(255,255,255,0.7); font-size:13px}
++
++/* Dashboard white-box */
++.dashboard{
++  min-height:100vh;
++  padding:28px;
++  background: linear-gradient(180deg,var(--branco),#f4f6fa);
++  color:#000;
++}
++
++.pill{padding:6px 10px;border-radius:999px;background:#e8f0ff;color:#0036ff;font-weight:600}
++
++/* small screens */
++@media (max-width:420px){
++  .card{ width:94%; padding:16px }
++}
+diff --git a/client/src/api.js b/client/src/api.js
+new file mode 100644
+--- /dev/null
++++ b/client/src/api.js
+@@ -0,0 +1,44 @@
++const API = "http://localhost:4000";
++
++export async function registerUser(nome, email, senha) {
++  const r = await fetch(`${API}/register`, {
++    method: "POST",
++    headers: { "Content-Type": "application/json" },
++    body: JSON.stringify({ nome, email, senha })
++  });
++  return r.json();
++}
++
++export async function loginUser(email, senha) {
++  const r = await fetch(`${API}/login`, {
++    method: "POST",
++    headers: { "Content-Type": "application/json" },
++    body: JSON.stringify({ email, senha })
++  });
++  return r.json();
++}
++
++export async function getMe() {
++  const token = localStorage.getItem("token");
++  if (!token) return { erro: "token ausente" };
++  const r = await fetch(`${API}/me`, {
++    headers: { Authorization: `Bearer ${token}` }
++  });
++  return r.json();
++}
++
++export async function payAccount() {
++  const token = localStorage.getItem("token");
++  if (!token) return { erro: "token ausente" };
++  const r = await fetch(`${API}/pay`, {
++    method: "POST",
++    headers: { Authorization: `Bearer ${token}` }
++  });
++  return r.json();
++}
+diff --git a/client/src/App.jsx b/client/src/App.jsx
+new file mode 100644
+--- /dev/null
++++ b/client/src/App.jsx
+@@ -0,0 +1,80 @@
++import React, { useState } from "react";
++import { Routes, Route, Navigate } from "react-router-dom";
++import Login from "./pages/Login";
++import Register from "./pages/Register";
++import Payment from "./pages/Payment";
++import Dashboard from "./pages/Dashboard";
++
++function ProtectedRoute({ children }) {
++  const token = localStorage.getItem("token");
++  if (!token) return <Navigate to="/login" replace />;
++  return children;
++}
++
++export default function App() {
++  const [user, setUser] = useState(null);
++    setUser(userObj);
++  }
++
++  return (
++    <Routes>
++      <Route path="/" element={<Navigate to="/login" replace />} />
++        path="/payment"
++        element={
++          <ProtectedRoute>
++      />
++      <Route
++        path="/dashboard"
++        element={
++          <ProtectedRoute>
++            <Dashboard />
++    </Routes>
++  );
++}
+diff --git a/client/src/pages/Login.jsx b/client/src/pages/Login.jsx
+new file mode 100644
+--- /dev/null
++++ b/client/src/pages/Login.jsx
+@@ -0,0 +1,160 @@
++import React, { useState } from "react";
++import { useNavigate, Link } from "react-router-dom";
++import { loginUser } from "../api";
++
++export default function Login({ onLogin }) {
++  const nav = useNavigate();
++  const [email, setEmail] = useState("");
++  const [senha, setSenha] = useState("");
++  const [erro, setErro] = useState("");
++
++  async function handleSubmit(e) {
++    e.preventDefault();
++    setErro("");
++    const res = await loginUser(email, senha);
++    if (res.erro) {
++      setErro(res.erro);
++      return;
++    }
++    // save token and user
++    localStorage.setItem("token", res.token);
++    localStorage.setItem("user", JSON.stringify(res.user));
++    } else {
++      nav("/dashboard");
++    }
++    if (onLogin) onLogin(res.token, res.user);
++  }
++          <input placeholder="E-mail" value={email} onChange={(e)=>setEmail(e.target.value)} />
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/client/src/pages/Register.jsx b/client/src/pages/Register.jsx
+new file mode 100644
+--- /dev/null
++++ b/client/src/pages/Register.jsx
+@@ -0,0 +1,164 @@
++import React, { useState } from "react";
++import { useNavigate, Link } from "react-router-dom";
++import { registerUser } from "../api";
++
++export default function Register() {
++  const nav = useNavigate();
++  const [nome, setNome] = useState("");
++  const [email, setEmail] = useState("");
++  const [senha, setSenha] = useState("");
++  const [erro, setErro] = useState("");
++  const [ok, setOk] = useState(false);
++
++  async function handleSubmit(e) {
++    e.preventDefault();
++    setErro("");
++    const res = await registerUser(nome, email, senha);
++    if (res.erro) {
++      setErro(res.erro);
++      return;
++    }
++    setOk(true);
++    // after brief success, go to login
++    setTimeout(()=>nav("/login"), 900);
++  }
++
++  return (
++    <div className="center-page" style={{ background: "var(--azul-escuro)" }}>
++      <div className="card">
++        <h2 style={{ color: "var(--azul)" }}>Criar Conta — ALGO</h2>
++        <form onSubmit={handleSubmit}>
++          <input placeholder="Nome completo" value={nome} onChange={e=>setNome(e.target.value)} />
++          <input placeholder="E-mail" value={email} onChange={e=>setEmail(e.target.value)} />
++          <input type="password" placeholder="Senha" value={senha} onChange={e=>setSenha(e.target.value)} />
++          {erro && <div style={{ color: "tomato", marginTop: 8 }}>{erro}</div>}
++        </form>
++        <div style={{ marginTop: 12, textAlign: "center" }}>
++          <Link className="link" to="/register">Criar conta</Link>
++          {ok && <div style={{ color: "lightgreen", marginTop:8 }}>Conta criada! Redirecionando para login...</div>}
++          <button className="primary" type="submit">Registrar</button>
++        </form>
++        <div style={{ marginTop: 12, textAlign: "center" }}>
++          <input type="password" placeholder="Senha" value={senha} onChange={(e)=>setSenha(e.target.value)} />
++          {erro && <div style={{ color: "tomato", marginTop: 8 }}>{erro}</div>}
++          <button className="primary" type="submit">Entrar</button>
++          <Link className="link" to="/login">Voltar ao login</Link>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/client/src/pages/Payment.jsx b/client/src/pages/Payment.jsx
+new file mode 100644
+--- /dev/null
++++ b/client/src/pages/Payment.jsx
+@@ -0,0 +1,124 @@
++import React, { useState, useEffect } from "react";
++import { getMe, payAccount } from "../api";
++      <div className="card">
++        <h2 style={{ color: "var(--azul)" }}>Login — ALGO</h2>
++        <form onSubmit={handleSubmit}>
++import { useNavigate } from "react-router-dom";
++
++export default function Payment() {
++  const nav = useNavigate();
++  const [user, setUser] = useState(null);
++  const [loading, setLoading] = useState(true);
++
++  async function load() {
++    const res = await getMe();
++    if (res.erro) return nav("/login");
++
++  return (
++    <div className="center-page" style={{ background: "var(--azul-escuro)" }}>
++    setUser(res.user);
++    setLoading(false);
++  }
++
++  async function pagar() {
++    const res = await payAccount();
++    if (res.user) {
++      setUser(res.user);
++      // redirect to dashboard
++      nav("/dashboard");
++    } else {
++      alert(res.erro || "Erro no pagamento");
++    }
++  }
++
++  useEffect(()=>{ load(); }, []);
++
++    // redirect based on payment status
++    if (!res.user.pago) {
++      nav("/payment");
++  if (loading) return <div className="center-page"><div className="card">Carregando...</div></div>;
++
++  return (
++    <div className="center-page" style={{ background: "var(--azul-escuro)" }}>
++      <div className="card">
++        <h2 style={{ color: "var(--azul)" }}>Pagamento obrigatório</h2>
++        <p className="muted">Para usar a plataforma ALGO é necessário pagar a assinatura.</p>
++        <div style={{ marginTop: 12 }}>
++          <div style={{ marginBottom: 10 }}>Usuário: <strong>{user.nome}</strong></div>
++          <div style={{ marginBottom: 10 }}>Email: <strong>{user.email}</strong></div>
++          <button className="primary" onClick={pagar}>Pagar agora (simulação)</button>
++          <button className="ghost" onClick={()=>nav("/login")}>Voltar</button>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/client/src/pages/Dashboard.jsx b/client/src/pages/Dashboard.jsx
+new file mode 100644
+--- /dev/null
++++ b/client/src/pages/Dashboard.jsx
+@@ -0,0 +1,120 @@
++import React, { useEffect, useState } from "react";
++import { getMe, payAccount } from "../api";
++import { useNavigate } from "react-router-dom";
++
++export default function Dashboard() {
++  const nav = useNavigate();
++  const [user, setUser] = useState(null);
++
++  async function load() {
++    const res = await getMe();
++    if (res.erro) return nav("/login");
++    setUser(res.user);
++  }
++
++  async function pagar() {
++    const res = await payAccount();
++    if (res.user) setUser(res.user);
++  }
++
++  useEffect(()=>{ load(); }, []);
++
++  if (!user) return <div className="center-page"><div className="card">Carregando...</div></div>;
++
++  return (
++    <div className="dashboard">
++      <div style={{ maxWidth: 960, margin: "0 auto" }}>
++        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
++          <h1>Dashboard — ALGO</h1>
++          <div>
++            <span className="pill">{user.pago ? "Conta Paga" : "Conta NÃO Paga"}</span>
++          </div>
++        </div>
++
++        <section style={{ marginTop: 24, background: "white", padding: 20, borderRadius: 10 }}>
++          <h3>Olá, {user.nome}</h3>
++          <p>Email: {user.email}</p>
++          {!user.pago && <button className="primary" onClick={pagar}>Pagar agora</button>}
++        </section>
++      </div>
++    </div>
++  );
++}
+diff --git a/server/package.json b/server/package.json
+new file mode 100644
+--- /dev/null
++++ b/server/package.json
+@@ -0,0 +1,22 @@
++{
++  "name": "auth-server",
++  "version": "1.0.0",
++  "main": "index.js",
++  "scripts": {
++    "dev": "node index.js"
++  },
++  "dependencies": {
++    "bcryptjs": "^2.4.3",
++    "cors": "^2.8.5",
++    "express": "^4.18.2",
++          </ProtectedRoute>
++        }
++      />
++    "jsonwebtoken": "^9.0.1",
++    "dotenv": "^16.0.0"
++  }
++}
+diff --git a/server/index.js b/server/index.js
++            <Payment />
++          </ProtectedRoute>
++        }
+new file mode 100644
+--- /dev/null
++++ b/server/index.js
++      <Route path="/login" element={<Login onLogin={handleLogin} />} />
++      <Route path="/register" element={<Register />} />
++      <Route
+@@ -0,0 +1,210 @@
++// server/index.js
++// Backend mínimo para Register / Login / Pay (arquivo JSON como DB)
++const express = require("express");
++const fs = require("fs");
++
++  function handleLogin(token, userObj) {
++    localStorage.setItem("token", token);
++const path = require("path");
++const bcrypt = require("bcryptjs");
++const jwt = require("jsonwebtoken");
++const cors = require("cors");
++require("dotenv").config();
++
++const app = express();
++app.use(cors());
++app.use(express.json());
++
++const PORT = process.env.PORT || 4000;
++const SECRET = process.env.JWT_SECRET || "SEGREDO_SUPER_SEGURO";
++const DB_PATH = path.join(__dirname, "users.json");
++
++if (!fs.existsSync(DB_PATH)) {
++  fs.writeFileSync(DB_PATH, JSON.stringify([]));
++}
++
++function readUsers() {
++  try {
++    const raw = fs.readFileSync(DB_PATH, "utf-8");
++    return JSON.parse(raw || "[]");
++  } catch (err) {
++    console.error("Erro lendo users.json:", err);
++    return [];
++  }
++}
++
++function writeUsers(users) {
++  try {
++    fs.writeFileSync(DB_PATH, JSON.stringify(users, null, 2));
++  } catch (err) {
++    console.error("Erro escrevendo users.json:", err);
++  }
++}
++
++function safeUser(u) {
++  return { id: u.id, nome: u.nome, email: u.email, pago: !!u.pago };
++}
++
++app.post("/register", async (req, res) => {
++  try {
++    const { nome, email, senha } = req.body;
++    if (!nome || !email || !senha)
++      return res.status(400).json({ erro: "Campos obrigatórios" });
++
++    const users = readUsers();
++    if (users.find((u) => u.email === email))
++      return res.status(400).json({ erro: "Email já registrado" });
++
++    const hash = await bcrypt.hash(senha, 10);
++    const newUser = {
++      id: Date.now(),
++      nome,
++      email,
++      senha: hash,
++      pago: false
++    };
++
++    users.push(newUser);
++    writeUsers(users);
++    return res.json({ ok: true });
++  } catch (err) {
++    console.error("Erro /register:", err);
++    return res.status(500).json({ erro: "Erro no servidor" });
++  }
++});
++
++app.post("/login", async (req, res) => {
++  try {
++    const { email, senha } = req.body;
++    if (!email || !senha)
++      return res.status(400).json({ erro: "Campos obrigatórios" });
++
++    const users = readUsers();
++    const user = users.find((u) => u.email === email);
++    if (!user) return res.status(400).json({ erro: "Credenciais inválidas" });
++
++    const ok = await bcrypt.compare(senha, user.senha);
++    if (!ok) return res.status(400).json({ erro: "Credenciais inválidas" });
++
++    const token = jwt.sign({ id: user.id }, SECRET, { expiresIn: "7d" });
++    return res.json({ token, user: safeUser(user) });
++  } catch (err) {
++    console.error("Erro /login:", err);
++    return res.status(500).json({ erro: "Erro no servidor" });
++  }
++});
++
++function auth(req, res, next) {
++  const header = req.headers.authorization;
++  if (!header) return res.status(401).json({ erro: "Token ausente" });
++  const token = header.split(" ")[1];
++  try {
++    const data = jwt.verify(token, SECRET);
++    req.userId = data.id;
++    next();
++  } catch (err) {
++    return res.status(401).json({ erro: "Token inválido" });
++  }
++}
++
++app.get("/me", auth, (req, res) => {
++  try {
++    const users = readUsers();
++    const user = users.find((u) => u.id === req.userId);
++    if (!user) return res.status(404).json({ erro: "Usuário não encontrado" });
++    return res.json({ user: safeUser(user) });
++  } catch (err) {
++    console.error("Erro /me:", err);
++    return res.status(500).json({ erro: "Erro no servidor" });
++  }
++});
++
++app.post("/pay", auth, (req, res) => {
++  try {
++    const users = readUsers();
++    const idx = users.findIndex((u) => u.id === req.userId);
++    if (idx === -1) return res.status(404).json({ erro: "Usuário não encontrado" });
++    users[idx].pago = true;
++    writeUsers(users);
++    return res.json({ ok: true, user: safeUser(users[idx]) });
++  } catch (err) {
++    console.error("Erro /pay:", err);
++    return res.status(500).json({ erro: "Erro no servidor" });
++  }
++});
++
++app.listen(PORT, () => {
++  console.log(`Auth server rodando em http://localhost:${PORT}`);
++});
+
