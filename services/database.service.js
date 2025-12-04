@@ -354,6 +354,8 @@ class DatabaseService {
 
   async getFolderById(id, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         const result = await db.query(
           'SELECT * FROM folders WHERE id = $1 AND user_id = $2',
@@ -392,6 +394,8 @@ class DatabaseService {
 
   async updateFolder(id, name, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         const result = await db.query(
           'UPDATE folders SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3 RETURNING *',
@@ -412,6 +416,8 @@ class DatabaseService {
 
   async deleteFolder(id, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         await db.query('DELETE FROM folders WHERE id = $1 AND user_id = $2', [id, userId]);
       } else {
@@ -426,6 +432,8 @@ class DatabaseService {
 
   async resetAnsweredStatusForFolder(folderId, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         await db.query(
           'UPDATE clients SET answered = false, updated_at = CURRENT_TIMESTAMP WHERE folder_id = $1 AND user_id = $2',
@@ -433,11 +441,11 @@ class DatabaseService {
         );
       } else {
         const stmt = db.prepare(
-          'UPDATE clients SET answered = 0, updated_at = CURRENT_TIMESTAMP WHERE folder_id = ? AND user_id = ?'
+          'UPDATE clients SET answered = false, updated_at = CURRENT_TIMESTAMP WHERE folder_id = ? AND user_id = ?'
         );
         stmt.run(folderId, userId);
       }
-      console.log(`✅ Reset answered status for folder ${folderId} and user ${userId}`);
+      console.log(`✅ Reset answered status for folder ${folderId}, user ${userId}`);
     } catch (error) {
       console.error('❌ Error resetting answered status:', error);
       throw error;
@@ -448,6 +456,8 @@ class DatabaseService {
   
   async getAllClients(folderId = null, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       let query = 'SELECT * FROM clients WHERE user_id = $1';
       let params = [userId];
       
@@ -474,6 +484,8 @@ class DatabaseService {
 
   async addClient(client, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       const { phone, name, type, answered, isChatBot, folderId } = client;
       
       if (isProduction) {
@@ -499,7 +511,7 @@ class DatabaseService {
           is_chatbot = excluded.is_chatbot,
           updated_at = CURRENT_TIMESTAMP`
         );
-        stmt.run(phone, name, type, answered ? 1 : 0, isChatBot ? 1 : 0, folderId, userId);
+        stmt.run(phone, name, type, answered, isChatBot, folderId, userId);
       }
       
       return { success: true };
@@ -511,6 +523,8 @@ class DatabaseService {
 
   async deleteClient(phone, folderId = null, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         if (folderId !== null) {
           await db.query('DELETE FROM clients WHERE phone = $1 AND folder_id = $2 AND user_id = $3', [phone, folderId, userId]);
@@ -572,6 +586,8 @@ class DatabaseService {
 
   async updateClientAnsweredStatusInFolder(phone, folderId, answered, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         await db.query(
           'UPDATE clients SET answered = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2 AND folder_id = $3 AND user_id = $4',
@@ -581,7 +597,7 @@ class DatabaseService {
         const stmt = db.prepare(
           'UPDATE clients SET answered = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ? AND folder_id = ? AND user_id = ?'
         );
-        stmt.run(answered ? 1 : 0, phone, folderId, userId);
+        stmt.run(answered, phone, folderId, userId);
       }
     } catch (error) {
       console.error('❌ Error updating client status in folder:', error);
@@ -593,6 +609,8 @@ class DatabaseService {
   
   async getAllProducts(userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         const result = await db.query(
           'SELECT * FROM products WHERE user_id = $1 ORDER BY name',
@@ -622,6 +640,8 @@ class DatabaseService {
 
   async addProduct(product, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         await db.query(
           `INSERT INTO products (name, akas, enabled, user_id)
@@ -633,7 +653,7 @@ class DatabaseService {
           `INSERT INTO products (name, akas, enabled, user_id)
           VALUES (?, ?, ?, ?)`
         );
-        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled ? 1 : 0, userId);
+        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled || true, userId);
       }
     } catch (error) {
       console.error('❌ Error adding product:', error);
@@ -643,6 +663,8 @@ class DatabaseService {
 
   async updateProduct(id, product, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         await db.query(
           `UPDATE products SET 
@@ -662,7 +684,7 @@ class DatabaseService {
             updated_at = CURRENT_TIMESTAMP
           WHERE id = ? AND user_id = ?`
         );
-        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled ? 1 : 0, id, userId);
+        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled, id, userId);
       }
     } catch (error) {
       console.error('❌ Error updating product:', error);
@@ -672,6 +694,8 @@ class DatabaseService {
 
   async deleteProduct(id, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         await db.query('DELETE FROM products WHERE id = $1 AND user_id = $2', [id, userId]);
       } else {
@@ -686,6 +710,8 @@ class DatabaseService {
 
   async toggleProductEnabled(id, enabled, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         await db.query(
           'UPDATE products SET enabled = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3',
@@ -695,7 +721,7 @@ class DatabaseService {
         const stmt = db.prepare(
           'UPDATE products SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?'
         );
-        stmt.run(enabled ? 1 : 0, id, userId);
+        stmt.run(enabled, id, userId);
       }
     } catch (error) {
       console.error('❌ Error toggling product:', error);
@@ -707,22 +733,18 @@ class DatabaseService {
   
   async updateProductTotal(product, quantity, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         await db.query(
-          `INSERT INTO product_totals (product, user_id, total_quantity)
-          VALUES ($1, $2, $3)
-          ON CONFLICT (product, user_id) DO UPDATE
-          SET total_quantity = product_totals.total_quantity + EXCLUDED.total_quantity`,
-          [product, userId, quantity]
+          'UPDATE product_totals SET total_quantity = total_quantity + $1 WHERE product = $2 AND user_id = $3',
+          [quantity, product, userId]
         );
       } else {
         const stmt = db.prepare(
-          `INSERT INTO product_totals (product, user_id, total_quantity)
-          VALUES (?, ?, ?)
-          ON CONFLICT (product, user_id) DO UPDATE
-          SET total_quantity = product_totals.total_quantity + excluded.total_quantity`
+          'UPDATE product_totals SET total_quantity = total_quantity + ? WHERE product = ? AND user_id = ?'
         );
-        stmt.run(product, userId, quantity);
+        stmt.run(quantity, product, userId);
       }
     } catch (error) {
       console.error('❌ Error updating product total:', error);
@@ -732,6 +754,8 @@ class DatabaseService {
 
   async saveUserOrder({ phoneNumber, name, orderType, sessionId, originalMessage, parsedOrders, status = 'confirmed', userId }) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       const totalQuantity = parsedOrders.reduce((sum, order) => sum + order.qty, 0);
       
       if (isProduction) {
@@ -801,6 +825,8 @@ class DatabaseService {
 
   async getProductTotals(userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         const result = await db.query(
           'SELECT product, total_quantity FROM product_totals WHERE user_id = $1 AND total_quantity > 0 ORDER BY product',
@@ -828,6 +854,8 @@ class DatabaseService {
 
   async getUserOrders(userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         const result = await db.query(
           'SELECT * FROM user_orders WHERE user_id = $1 ORDER BY created_at DESC',
@@ -855,17 +883,19 @@ class DatabaseService {
 
   async confirmUserOrder(orderId, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       let order;
       
       if (isProduction) {
         const result = await db.query(
-          'SELECT * FROM user_orders WHERE id = $1 AND user_id = $2 AND status = $3',
-          [orderId, userId, 'pending']
+          'SELECT * FROM user_orders WHERE id = $1 AND status = $2 AND user_id = $3',
+          [orderId, 'pending', userId]
         );
         order = result.rows[0];
       } else {
-        const stmt = db.prepare('SELECT * FROM user_orders WHERE id = ? AND user_id = ? AND status = ?');
-        order = stmt.get(orderId, userId, 'pending');
+        const stmt = db.prepare('SELECT * FROM user_orders WHERE id = ? AND status = ? AND user_id = ?');
+        order = stmt.get(orderId, 'pending', userId);
       }
 
       if (!order) {
@@ -900,6 +930,8 @@ class DatabaseService {
 
   async cancelUserOrder(orderId, userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       let order;
       
       if (isProduction) {
@@ -942,11 +974,12 @@ class DatabaseService {
 
   async clearProductTotals(userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
-        await db.query('DELETE FROM product_totals WHERE user_id = $1', [userId]);
+        await db.query('UPDATE product_totals SET total_quantity = 0 WHERE user_id = $1', [userId]);
       } else {
-        const stmt = db.prepare('DELETE FROM product_totals WHERE user_id = ?');
-        stmt.run(userId);
+        db.exec(`UPDATE product_totals SET total_quantity = 0 WHERE user_id = ${userId}`);
       }
       return { success: true };
     } catch (error) {
@@ -957,11 +990,12 @@ class DatabaseService {
 
   async clearUserOrders(userId) {
     try {
+      if (!userId) throw new Error('User ID required');
+      
       if (isProduction) {
         await db.query('DELETE FROM user_orders WHERE user_id = $1', [userId]);
       } else {
-        const stmt = db.prepare('DELETE FROM user_orders WHERE user_id = ?');
-        stmt.run(userId);
+        db.exec(`DELETE FROM user_orders WHERE user_id = ${userId}`);
       }
       return { success: true };
     } catch (error) {

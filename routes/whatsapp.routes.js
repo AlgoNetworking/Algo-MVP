@@ -2,14 +2,10 @@ const express = require('express');
 const router = express.Router();
 const whatsappService = require('../services/whatsapp.service');
 
-// Connect WhatsApp
 router.post('/connect', async (req, res) => {
   try {
     const { users } = req.body;
-
-    // Users should already be filtered by folder from frontend
-    // Pass userId to WhatsApp service
-    const result = await whatsappService.connect(users, req.userId);
+    const result = await whatsappService.connect(users, req.userId); // ADD req.userId
     res.json(result);
   } catch (error) {
     console.error('Error connecting WhatsApp:', error);
@@ -20,10 +16,9 @@ router.post('/connect', async (req, res) => {
   }
 });
 
-// Disconnect WhatsApp
 router.post('/disconnect', async (req, res) => {
   try {
-    await whatsappService.disconnect();
+    await whatsappService.disconnect(req.userId); // ADD req.userId
     res.json({
       success: true,
       message: 'WhatsApp disconnected'
@@ -37,7 +32,6 @@ router.post('/disconnect', async (req, res) => {
   }
 });
 
-// Send bulk messages
 router.post('/send-bulk', async (req, res) => {
   try {
     const { users } = req.body;
@@ -49,8 +43,7 @@ router.post('/send-bulk', async (req, res) => {
       });
     }
 
-    // Start bulk sending (async)
-    whatsappService.sendBulkMessages(users)
+    whatsappService.sendBulkMessages(users, req.userId) // ADD req.userId
       .then(results => {
         console.log('Bulk messages completed:', results);
       })
@@ -72,10 +65,9 @@ router.post('/send-bulk', async (req, res) => {
   }
 });
 
-// Get sending status
 router.get('/sending-status', (req, res) => {
   try {
-    const status = whatsappService.getSendingStatus();
+    const status = whatsappService.getSendingStatus(req.userId); // ADD req.userId
     res.json({
       success: true,
       ...status
@@ -89,13 +81,12 @@ router.get('/sending-status', (req, res) => {
   }
 });
 
-// Get connection status
 router.get('/status', (req, res) => {
   try {
     res.json({
       success: true,
-      isConnected: whatsappService.isConnected(),
-      sessions: whatsappService.getActiveSessions()
+      isConnected: whatsappService.isUserConnected(req.userId), // ADD req.userId
+      sessions: whatsappService.getUserActiveSessions(req.userId) // ADD req.userId
     });
   } catch (error) {
     console.error('Error getting status:', error);

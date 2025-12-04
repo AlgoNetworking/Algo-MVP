@@ -6,7 +6,7 @@ const databaseService = require('../services/database.service');
 router.get('/', async (req, res) => {
   try {
     const { folderId } = req.query;
-    const clients = await databaseService.getAllClients(folderId, req.userId);
+    const clients = await databaseService.getAllClients(folderId, req.userId); // ADD req.userId
     res.json({
       success: true,
       clients: clients.map(client => ({
@@ -44,7 +44,7 @@ router.post('/', async (req, res) => {
       answered: false,
       isChatBot: true,
       folderId
-    }, req.userId);
+    }, req.userId); // ADD req.userId
 
     res.json({
       success: true,
@@ -84,7 +84,7 @@ router.post('/batch', async (req, res) => {
           answered: false,
           isChatBot: true,
           folderId: folderId
-        }, req.userId);
+        }, req.userId); // ADD req.userId
         results.success++;
       } catch (error) {
         if (error.message && error.message.includes('unique')) {
@@ -152,12 +152,8 @@ router.delete('/:phone', async (req, res) => {
     const { phone } = req.params;
     const { folderId } = req.query;
     
-    if (folderId) {
-      await databaseService.deleteClient(phone, folderId, req.userId);
-    } else {
-      await databaseService.deleteClient(phone, null, req.userId);
-    }
-    
+    await databaseService.deleteClient(phone, folderId, req.userId); // ADD req.userId
+
     res.json({
       success: true,
       message: 'Client deleted successfully'

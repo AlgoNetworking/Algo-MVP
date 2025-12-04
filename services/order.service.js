@@ -187,7 +187,7 @@ class OrderService {
     return { success: true };
   }
 
-  async processMessage({ sessionId, message, messageType, phoneNumber, name, orderType }) {
+  async processMessage({ sessionId, message, messageType, phoneNumber, name, orderType, userId }) { // 🔥 Add userId parameter
     const session = this.getSession(sessionId);
     
     if (phoneNumber) session.phoneNumber = phoneNumber;

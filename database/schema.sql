@@ -8,6 +8,15 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Session table for express-session (PostgreSQL only)
+CREATE TABLE IF NOT EXISTS session (
+  sid VARCHAR NOT NULL COLLATE "default",
+  sess JSON NOT NULL,
+  expire TIMESTAMP(6) NOT NULL,
+  PRIMARY KEY (sid)
+);
+CREATE INDEX IF NOT EXISTS IDX_session_expire ON session (expire);
+
 -- Folders table (now with user_id)
 CREATE TABLE IF NOT EXISTS folders (
     id SERIAL PRIMARY KEY,
@@ -69,7 +78,7 @@ CREATE TABLE IF NOT EXISTS user_orders (
 );
 
 -- Insert a default demo user (password: "demo123")
--- Password hash is for "demo123" using bcrypt
+--password is demo123
 INSERT INTO users (username, email, password_hash) 
 VALUES ('demo', 'demo@example.com', '$2b$10$8K1p/a0dL3LKJ5KV5TXYruXLAq7Z9tQ8WXj3PZfBnXYJ7j5c9JHES')
 ON CONFLICT (username) DO NOTHING;

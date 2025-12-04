@@ -56,7 +56,8 @@ if (isProduction) {
   });
 }
 
-app.use(session(sessionConfig));
+const sessionMiddleware = session(sessionConfig);
+app.use(sessionMiddleware);
 
 // Middleware
 app.use(cors());
@@ -108,7 +109,7 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    whatsappConnected: whatsappService.isConnected()
+    connectedUsers: Object.keys(whatsappService.clients).length
   });
 });
 
@@ -130,7 +131,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Socket.IO connection handling (with auth)
+// Socket.IO connection handling (with session auth)
 io.use((socket, next) => {
   const sessionMiddleware = session(sessionConfig);
   sessionMiddleware(socket.request, {}, next);
@@ -143,19 +144,29 @@ io.on('connection', (socket) => {
     return;
   }
 
-  console.log('🔌 Client connected:', socket.id);
+  const userId = socket.request.session.userId;
+  console.log(`🔌 Client connected: ${socket.id}, User: ${userId}`);
   
-  // Send initial status
-  const sendingStatus = whatsappService.getSendingStatus();
+  // Send initial status for this user
+  const sendingStatus = whatsappService.getSendingStatus(userId);
   socket.emit('bot-status', {
-    isConnected: whatsappService.isConnected(),
-    sessions: whatsappService.getActiveSessions(),
+    userId,
+    isConnected: whatsappService.isUserConnected(userId),
+    sessions: whatsappService.getUserActiveSessions(userId),
     isSendingMessages: sendingStatus.isSendingMessages,
     sendingProgress: sendingStatus.progress
   });
 
+  // Listen for user-specific QR code requests
+  socket.on('request-qr', () => {
+    const qrData = whatsappService.getUserQRCode(userId);
+    if (qrData) {
+      socket.emit('qr-code', { userId, ...qrData });
+    }
+  });
+
   socket.on('disconnect', () => {
-    console.log('🔌 Client disconnected:', socket.id);
+    console.log(`🔌 Client disconnected: ${socket.id}, User: ${userId}`);
   });
 });
 
@@ -172,7 +183,17 @@ app.use((err, req, res, next) => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('🛑 SIGTERM received, shutting down gracefully...');
-  await whatsappService.disconnect();
+  
+  // Disconnect all WhatsApp clients
+  const userIds = Object.keys(whatsappService.clients);
+  for (const userId of userIds) {
+    try {
+      await whatsappService.disconnect(userId);
+    } catch (error) {
+      console.error(`Error disconnecting user ${userId}:`, error);
+    }
+  }
+  
   server.close(() => {
     console.log('✅ Server closed');
     process.exit(0);
@@ -181,7 +202,17 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('🛑 SIGINT received, shutting down gracefully...');
-  await whatsappService.disconnect();
+  
+  // Disconnect all WhatsApp clients
+  const userIds = Object.keys(whatsappService.clients);
+  for (const userId of userIds) {
+    try {
+      await whatsappService.disconnect(userId);
+    } catch (error) {
+      console.error(`Error disconnecting user ${userId}:`, error);
+    }
+  }
+  
   server.close(() => {
     console.log('✅ Server closed');
     process.exit(0);
@@ -193,6 +224,7 @@ server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 Dashboard: http://localhost:${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`👥 Multi-tenant mode: ENABLED`);
 });
 
 module.exports = { app, server, io };
