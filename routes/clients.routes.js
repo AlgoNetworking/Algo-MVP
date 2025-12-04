@@ -6,7 +6,7 @@ const databaseService = require('../services/database.service');
 router.get('/', async (req, res) => {
   try {
     const { folderId } = req.query;
-    const clients = await databaseService.getAllClients(folderId);
+    const clients = await databaseService.getAllClients(folderId, req.userId);
     res.json({
       success: true,
       clients: clients.map(client => ({
@@ -44,7 +44,7 @@ router.post('/', async (req, res) => {
       answered: false,
       isChatBot: true,
       folderId
-    });
+    }, req.userId);
 
     res.json({
       success: true,
@@ -84,7 +84,7 @@ router.post('/batch', async (req, res) => {
           answered: false,
           isChatBot: true,
           folderId: folderId
-        });
+        }, req.userId);
         results.success++;
       } catch (error) {
         if (error.message && error.message.includes('unique')) {
@@ -117,7 +117,7 @@ router.put('/:phone', async (req, res) => {
     const { name, type, answered, folderId = null } = req.body;
 
     // Get existing client
-    const clients = await databaseService.getAllClients();
+    const clients = await databaseService.getAllClients(folderId, req.userId);
     const client = clients.find(c => c.phone === phone && c.folder_id === folderId);
 
     if (!client) {
@@ -134,7 +134,7 @@ router.put('/:phone', async (req, res) => {
       answered: answered !== undefined ? answered : client.answered,
       isChatBot: client.is_chatbot,
       folderId
-    });
+    }, req.userId);
 
     res.json({
       success: true,
@@ -152,12 +152,10 @@ router.delete('/:phone', async (req, res) => {
     const { phone } = req.params;
     const { folderId } = req.query;
     
-    // Need to update database service to delete client with folder consideration
-    // For simplicity, we'll delete where phone AND folder_id match
     if (folderId) {
-      await databaseService.deleteClient(phone, folderId);
+      await databaseService.deleteClient(phone, folderId, req.userId);
     } else {
-      await databaseService.deleteClient(phone);
+      await databaseService.deleteClient(phone, null, req.userId);
     }
     
     res.json({
@@ -176,7 +174,7 @@ router.put('/:phone/answered', async (req, res) => {
     const { phone } = req.params;
     const { answered } = req.body;
 
-    await databaseService.updateClientAnsweredStatus(phone, answered);
+    await databaseService.updateClientAnsweredStatus(phone, answered, req.userId);
 
     res.json({
       success: true,
@@ -194,7 +192,7 @@ router.put('/:phone/chatbot', async (req, res) => {
     const { phone } = req.params;
     const { isChatBot } = req.body;
 
-    await databaseService.updateClientChatBotStatus(phone, isChatBot);
+    await databaseService.updateClientChatBotStatus(phone, isChatBot, req.userId);
 
     res.json({
       success: true,

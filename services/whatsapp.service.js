@@ -14,9 +14,10 @@ class WhatsAppService {
     this.isRunning = false;
     this.pollingInterval = null;
     this.clientUsers = [];
-    this.disabledUsers = new Set(); // 🔒 NEW: Track users who disabled bot
-    this.isSendingMessages = false; // Add this
-    this.bulkMessageProgress = null; // Add this to track progress
+    this.disabledUsers = new Set();
+    this.isSendingMessages = false;
+    this.bulkMessageProgress = null;
+    this.currentUserId = null; // 🔥 NEW: Track which user this connection belongs to
   }
 
   initialize(io) {
@@ -24,16 +25,16 @@ class WhatsAppService {
     console.log('📱 WhatsApp Service initialized');
   }
 
-  async connect(users = null) {
+  async connect(users = null, userId) {
     if (this.isRunning) {
       throw new Error('WhatsApp client already running');
     }
 
     try {
       this.disabledUsers.clear();
-      console.log('🔄 Cleared disabled users list for fresh connection');
+      this.currentUserId = userId; // 🔥 Store the userId
+      console.log(`🔄 Cleared disabled users list for fresh connection (User ID: ${userId})`);
 
-      // If users provided, use them (they should already be filtered by folder)
       this.clientUsers = users || [];
 
       if (this.clientUsers.length === 0) {
@@ -63,12 +64,14 @@ class WhatsAppService {
       this.setupEventHandlers();
       await this.client.initialize();
       this.isRunning = true;
+      this.botStartTime = Date.now(); // Set bot start time
       this.startPolling();
       
       return { success: true, message: 'WhatsApp client starting...' };
     } catch (error) {
       console.error('❌ Failed to connect WhatsApp:', error);
       this.isRunning = false;
+      this.currentUserId = null;
       throw error;
     }
   }
@@ -112,26 +115,24 @@ class WhatsAppService {
     this.client.on('disconnected', (reason) => {
       console.log('🔌 Client disconnected:', reason);
       this.isRunning = false;
+      this.currentUserId = null;
       this.stopPolling();
       if (this.io) {
         this.io.emit('bot-disconnected', { reason });
       }
     });
 
-    // In the message event handler in whatsapp.service.js
     this.client.on('message', async (message) => {      
       const chat = await message.getChat();
       const formattedSenderPhone = this.formatPhoneNumber(message.from); 
-      const fromUser = this.findUserInfo(formattedSenderPhone);
       
-      // More comprehensive filtering of system messages
       if(!(message.from === 'status@broadcast' || 
           message.fromMe || 
           chat.isGroup ||
-          message.type === 'ack' || // Delivery receipts
-          message.type === 'protocol' || // System messages
+          message.type === 'ack' ||
+          message.type === 'protocol' ||
           message.type === 'e2e_notification' ||
-          message.isStatus)) { // Status updates
+          message.isStatus)) {
         await this.handleMessage(message);
 
         if (this.io) {
@@ -149,7 +150,7 @@ class WhatsAppService {
       const messageBody = message.body;
       const phoneNumber = this.formatPhoneNumber(sender);
 
-      // 🔒 CRITICAL: Skip processing if user previously chose to talk to a person
+      // Skip if user disabled bot
       if (this.disabledUsers.has(sender)) {
         if(messageBody === 'sair') {
           console.log(`✅ Enabling bot for user: ${phoneNumber}`);
@@ -162,48 +163,37 @@ class WhatsAppService {
         }
       }
 
-      // 🚨 NEW: Skip messages that were sent before the bot started
-      // More robust approach with additional checks
-      const messageTimestamp = message.timestamp * 1000; // Convert to milliseconds
+      // Skip old messages
+      const messageTimestamp = message.timestamp * 1000;
       const currentTime = Date.now();
       const botStartTime = this.botStartTime || currentTime;
-      
-      // Additional safety margin of 10 seconds to account for timing differences
-      const safetyMargin = 10000; // 10 seconds
+      const safetyMargin = 10000;
       
       if (messageTimestamp < (botStartTime - safetyMargin)) {
-          console.log(`⏪ Skipping old message from ${phoneNumber} - sent ${Math.round((botStartTime - messageTimestamp) / 1000)}s before bot started`);
-          console.log(`   Message time: ${new Date(messageTimestamp).toISOString()}`);
-          console.log(`   Bot start: ${new Date(botStartTime).toISOString()}`);
+          console.log(`⏪ Skipping old message from ${phoneNumber}`);
           return;
       }
 
-      // Also skip messages with future timestamps (more than 30 seconds in future)
       if (messageTimestamp > (currentTime + 30000)) {
-          console.log(`⏩ Skipping future message from ${phoneNumber} - timestamp in future`);
+          console.log(`⏩ Skipping future message from ${phoneNumber}`);
           return;
       }
 
       console.log(`📩 Message from ${phoneNumber}: Type: ${message.type}, Body: ${messageBody}`);
 
-      /*
-      // 🔒 CRITICAL: Skip processing if user previously chose to talk to a person
-      if (this.disabledUsers.has(sender)) {
-        console.log(`⏸️ Skipping message from ${phoneNumber} - user previously chose to talk to person`);
-        return; // Don't process the message at all
-      }
-      */
-
-      // Find user info
       const userInfo = this.findUserInfo(phoneNumber);
     
-      // 🔥 CRITICAL FIX: Mark client as answered when they send any message
+      // Mark client as answered
       if (userInfo) {
-        // We need to find the folderId for this client
         const client = this.clientUsers.find(u => u.phone === phoneNumber);
-        if (client && client.folderId) {
+        if (client && client.folderId && this.currentUserId) {
           try {
-            await databaseService.updateClientAnsweredStatusInFolder(phoneNumber, client.folderId, true);
+            await databaseService.updateClientAnsweredStatusInFolder(
+              phoneNumber, 
+              client.folderId, 
+              true,
+              this.currentUserId // 🔥 Pass userId
+            );
             console.log(`✅ Marked ${phoneNumber} as answered in folder ${client.folderId}`);
           } catch (error) {
             console.error('❌ Error updating answered status:', error);
@@ -227,7 +217,8 @@ class WhatsAppService {
         messageType: message.type,
         phoneNumber: sender,
         name: userInfo.name,
-        orderType: userInfo.type
+        orderType: userInfo.type,
+        userId: this.currentUserId // 🔥 Pass userId to order service
       });
 
       // Send response if available
@@ -235,12 +226,11 @@ class WhatsAppService {
         await this.sendMessage(sender, response.message);
       }
 
-      // 🔒 NEW: If user chose option 2, add them to disabled list
+      // If user chose option 2, disable bot
       if (response && response.isChatBot === false) {
         console.log(`🚫 Disabling bot for user: ${phoneNumber}`);
         this.disabledUsers.add(sender);
         
-        // Also update frontend via socket
         if (this.io) {
           this.io.emit('disable-bot', {
             phone: phoneNumber
@@ -248,23 +238,11 @@ class WhatsAppService {
         }
       }
 
-      // Emit to connected clients
-      /*
-      if (this.io) {
-        this.io.emit('message-received', {
-          from: phoneNumber,
-          message: messageBody,
-          timestamp: new Date()
-        });
-      }
-      */
-
     } catch (error) {
       console.error('❌ Error handling message:', error);
       await this.sendMessage(message.from, '❌ Ocorreu um erro. Tente novamente.');
     }
   }
-
 
   findUserInfo(phoneNumber) {
     const user = this.clientUsers.find(u => u.phone === phoneNumber);
@@ -272,7 +250,6 @@ class WhatsAppService {
   }
 
   formatPhoneNumber(whatsappId) {
-    // Convert from "5585999999999@c.us" to "+55 85 99999-9999"
     const numbers = whatsappId.replace('@c.us', '');
     if (numbers.length >= 12) {
       return `+${numbers.slice(0, 2)} ${numbers.slice(2, 4)} ${numbers.slice(4, 8)}-${numbers.slice(8, 12)}`;
@@ -317,7 +294,6 @@ class WhatsAppService {
     for (const user of users) {
       if (this.isRunning) {
         try {
-          // 🔥 IMPORTANT: Skip if already answered
           if (user.answered) {
             console.log(`⏭️ Skipping ${user.phone} - already answered`);
             results.push({ phone: user.phone, status: 'skipped', reason: 'Already answered' });
@@ -327,7 +303,6 @@ class WhatsAppService {
 
           const phoneId = user.phone.replace(/[+\-\s]/g, '') + '@c.us';
           
-          // Verify number exists
           const numberId = await this.client.getNumberId(phoneId);
           if (!numberId) {
             results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
@@ -335,21 +310,18 @@ class WhatsAppService {
             continue;
           }
 
-          // Create session
           if (!this.userSessions.has(phoneId)) {
             const sessionId = uuidv4();
             this.userSessions.set(phoneId, sessionId);
             await orderService.startSession(sessionId);
           }
 
-          // Send initial message
           const message = this.generateInitialMessage(user.name);
           await this.sendMessage(phoneId, message);
 
           results.push({ phone: user.phone, status: 'sent' });
           this.bulkMessageProgress.sent++;
 
-          // Emit progress
           if (this.io) {
             this.io.emit('bulk-message-progress', {
               phone: user.phone,
@@ -358,7 +330,6 @@ class WhatsAppService {
             });
           }
 
-          // Random delay
           const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
           await new Promise(resolve => setTimeout(resolve, delay));
 
@@ -485,16 +456,16 @@ class WhatsAppService {
       this.isRunning = false;
       this.userSessions.clear();
       
-      // 🔥 CRITICAL: Reset answered status for all clients in current folder
-      if (this.clientUsers.length > 0) {
+      // Reset answered status for all clients in current folder
+      if (this.clientUsers.length > 0 && this.currentUserId) {
         const folderId = this.clientUsers[0]?.folderId;
         if (folderId) {
           console.log(`🔄 Resetting answered status for folder ${folderId}`);
-          // We need a method to reset answered status for a folder
-          // You'll need to add this to database.service.js
-          await databaseService.resetAnsweredStatusForFolder(folderId);
+          await databaseService.resetAnsweredStatusForFolder(folderId, this.currentUserId);
         }
       }
+      
+      this.currentUserId = null; // 🔥 Clear userId
       
       console.log('✅ WhatsApp disconnected');
       

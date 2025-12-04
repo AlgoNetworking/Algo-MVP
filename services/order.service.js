@@ -15,7 +15,8 @@ class OrderSession {
     this.phoneNumber = null;
     this.name = null;
     this.orderType = null;
-    this.hasDisabledProducts = false; // Add this flag
+    this.hasDisabledProducts = false;
+    this.userId = null; // 🔥 ADD THIS
   }
 
   hasEnabledItems() {
@@ -115,8 +116,8 @@ class OrderSession {
     }
   }
 
-   async markAsPending() {
-    if (this.hasEnabledItems() && this.phoneNumber) {
+  async markAsPending() {
+    if (this.hasEnabledItems() && this.phoneNumber && this.userId) { // 🔥 Check userId
       const parsedOrders = [];
       for (const [product, qty] of this.currentDb) {
         const [mainName, akas, enabled] = product;
@@ -132,7 +133,8 @@ class OrderSession {
         sessionId: this.sessionId,
         originalMessage: 'Auto-saved (pending confirmation)',
         parsedOrders,
-        status: 'pending'
+        status: 'pending',
+        userId: this.userId // 🔥 ADD THIS
       });
 
       this.messageQueue.push('🟡 **PEDIDO SALVO COMO PENDENTE** - Aguardando confirmação manual.');
@@ -191,6 +193,7 @@ class OrderService {
     if (phoneNumber) session.phoneNumber = phoneNumber;
     if (name) session.name = name;
     if (orderType) session.orderType = orderType;
+    if (userId) session.userId = userId; // 🔥 ADD THIS
 
     const messageLower = message.toLowerCase().trim();
     session.lastActivity = Date.now();
@@ -357,12 +360,12 @@ class OrderService {
         // Update database
         for (const [product, quantity] of Object.entries(confirmedOrder)) {
           if (quantity > 0) {
-            await databaseService.updateProductTotal(product, quantity);
+            await databaseService.updateProductTotal(product, quantity, session.userId); // 🔥 Pass userId
           }
         }
 
         // Save user order
-        if (session.phoneNumber) {
+        if (session.phoneNumber && session.userId) { // 🔥 Check userId
           const parsedOrders = [];
           for (const [product, qty] of session.currentDb) {
             if (qty > 0) {
@@ -378,7 +381,8 @@ class OrderService {
             sessionId,
             originalMessage: message,
             parsedOrders,
-            status: 'confirmed'
+            status: 'confirmed',
+            userId: session.userId // 🔥 ADD THIS
           });
         }
 

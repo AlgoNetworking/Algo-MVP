@@ -8,7 +8,8 @@ router.post('/connect', async (req, res) => {
     const { users } = req.body;
 
     // Users should already be filtered by folder from frontend
-    const result = await whatsappService.connect(users);
+    // Pass userId to WhatsApp service
+    const result = await whatsappService.connect(users, req.userId);
     res.json(result);
   } catch (error) {
     console.error('Error connecting WhatsApp:', error);
@@ -71,7 +72,7 @@ router.post('/send-bulk', async (req, res) => {
   }
 });
 
-// Add this route to get sending status
+// Get sending status
 router.get('/sending-status', (req, res) => {
   try {
     const status = whatsappService.getSendingStatus();

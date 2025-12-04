@@ -5,7 +5,7 @@ const databaseService = require('../services/database.service');
 // Get all products
 router.get('/', async (req, res) => {
   try {
-    const products = await databaseService.getAllProducts();
+    const products = await databaseService.getAllProducts(req.userId);
     res.json({
       success: true,
       products
@@ -32,7 +32,7 @@ router.post('/', async (req, res) => {
       name,
       akas: Array.isArray(akas) ? akas : [akas],
       enabled
-    });
+    }, req.userId);
 
     res.json({
       success: true,
@@ -54,7 +54,7 @@ router.put('/:id', async (req, res) => {
       name,
       akas: Array.isArray(akas) ? akas : [akas],
       enabled
-    });
+    }, req.userId);
 
     res.json({
       success: true,
@@ -70,7 +70,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await databaseService.deleteProduct(id);
+    await databaseService.deleteProduct(id, req.userId);
     
     res.json({
       success: true,
@@ -95,7 +95,7 @@ router.put('/:id/toggle', async (req, res) => {
       });
     }
 
-    await databaseService.toggleProductEnabled(id, enabled);
+    await databaseService.toggleProductEnabled(id, enabled, req.userId);
 
     res.json({
       success: true,
