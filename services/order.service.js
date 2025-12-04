@@ -159,7 +159,7 @@ class OrderSession {
 
   checkCancelCommand(message) {
     const cancelCommands = ['cancelar', 'não', 'nao'];
-    return cancelCommands.some(cmd => message.toLowerCase().includes(cmd));
+    return cancelCommands.includes(message);
   }
 
   getPendingMessage() {
@@ -303,7 +303,7 @@ class OrderService {
       const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima','sim', 's'];
       const denyWords = ['nao', 'não', 'n', 'cancelar'];
 
-      if (confirmWords.some(w => messageLower.split(' ').includes(w))) {
+      if (confirmWords.includes(messageLower)) {
         // Before confirming, check for disabled products in any new items
         const { disabledProductsFound } = orderParser.parse(message, session.currentDb);
         
@@ -334,14 +334,14 @@ class OrderService {
           let errorMessage = '❌ **ATENÇÃO:**\n\n';
           errorMessage += disabledProductsFound.length > 1 
           ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
-          : 'O seguinte produto está temporariametne fora de estoque:\n';
+          : 'O seguinte produto está temporariamente fora de estoque:\n';
           disabledProductsFound.forEach(item => {
             errorMessage += `• ${item.product}\n`;
           });
           errorMessage += '\nEstes itens foram removidos. Você pode:\n';
           errorMessage += '1. Continuar adicionando outros produtos\n';
           errorMessage += '2. Digitar "pronto" para enviar o pedido\n';
-          errorMessage += '3. Digitar "cancelar" para começar novamente';
+          errorMessage += '3. Digitar "cancelar" para cancelar o seu pedido';
           
           return {
             success: false,
@@ -399,7 +399,7 @@ class OrderService {
 
         return { success: true, message: response, isChatBot: true };
 
-      } else if (denyWords.some(w => messageLower.split(' ').includes(w))) {
+      } else if (denyWords.includes(messageLower)) {
         session.cancelTimer();
         session.resetCurrent();
         session.startInactivityTimer();
@@ -422,19 +422,19 @@ class OrderService {
           let errorMessage = '❌ **ATENÇÃO:**\n\n';
           errorMessage += disabledProductsFound.length > 1 
           ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
-          : 'O seguinte produto está temporariametne fora de estoque:\n';
+          : 'O seguinte produto está temporariamente fora de estoque:\n';
           disabledProductsFound.forEach(item => {
             errorMessage += `• ${item.product}\n`;
           });
           errorMessage += '\nConfirmação interrompida. Você pode:\n';
           errorMessage += '1. Continuar adicionando outros produtos\n';
           errorMessage += '2. Digitar "pronto" para enviar o pedido sem estes itens\n';
-          errorMessage += '3. Digitar "cancelar" para começar novamente';
+          errorMessage += '3. Digitar "cancelar" para cancelar o seu pedido';
           
           return {
             success: false,
             message: errorMessage,
-            isChatBot: true,
+            isChatBot: true
           };
         }
         
@@ -525,14 +525,14 @@ class OrderService {
           let errorMessage = '❌ **ATENÇÃO:**\n\n';
           errorMessage += disabledProductsFound.length > 1 
           ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
-          : 'O seguinte produto está temporariametne fora de estoque:\n';
+          : 'O seguinte produto está temporariamente fora de estoque:\n';
           disabledProductsFound.forEach(item => {
             errorMessage += `• ${item.product}\n`;
           });
           errorMessage += '\nVocê pode:\n';
           errorMessage += '1. Continuar adicionando outros produtos\n';
           errorMessage += '2. Digitar "pronto" para enviar o pedido sem estes itens\n';
-          errorMessage += '3. Digitar "cancelar" para começar novamente';
+          errorMessage += '3. Digitar "cancelar" para cancelar o seu pedido';
           
           return {
             success: false,

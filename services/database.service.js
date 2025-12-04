@@ -288,6 +288,26 @@ class DatabaseService {
     }
   }
 
+async resetAnsweredStatusForFolder(folderId) {
+  try {
+    if (isProduction) {
+      await db.query(
+        'UPDATE clients SET answered = false, updated_at = CURRENT_TIMESTAMP WHERE folder_id = $1',
+        [folderId]
+      );
+    } else {
+      const stmt = db.prepare(
+        'UPDATE clients SET answered = false, updated_at = CURRENT_TIMESTAMP WHERE folder_id = ?'
+      );
+      stmt.run(folderId);
+    }
+    console.log(`✅ Reset answered status for folder ${folderId}`);
+  } catch (error) {
+    console.error('❌ Error resetting answered status:', error);
+    throw error;
+  }
+} 
+
   // ... rest of your methods remain exactly the same
   async updateProductTotal(product, quantity) {
     try {
@@ -778,6 +798,25 @@ class DatabaseService {
       throw error;
     }
   }
+
+  async updateClientAnsweredStatusInFolder(phone, folderId, answered) {
+  try {
+    if (isProduction) {
+      await db.query(
+        'UPDATE clients SET answered = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2 AND folder_id = $3',
+        [answered, phone, folderId]
+      );
+    } else {
+      const stmt = db.prepare(
+        'UPDATE clients SET answered = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ? AND folder_id = ?'
+      );
+      stmt.run(answered, phone, folderId);
+    }
+  } catch (error) {
+    console.error('❌ Error updating client status in folder:', error);
+    throw error;
+  }
+}
 
   // Products methods
   async getAllProducts() {

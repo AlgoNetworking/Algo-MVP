@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const orderService = require('./order.service');
 const { format } = require('mathjs');
 const productsConfig = require('../utils/products-config');
+const databaseService = require('./database.service');
 
 class WhatsAppService {
   constructor() {
@@ -195,6 +196,20 @@ class WhatsAppService {
 
       // Find user info
       const userInfo = this.findUserInfo(phoneNumber);
+    
+      // 🔥 CRITICAL FIX: Mark client as answered when they send any message
+      if (userInfo) {
+        // We need to find the folderId for this client
+        const client = this.clientUsers.find(u => u.phone === phoneNumber);
+        if (client && client.folderId) {
+          try {
+            await databaseService.updateClientAnsweredStatusInFolder(phoneNumber, client.folderId, true);
+            console.log(`✅ Marked ${phoneNumber} as answered in folder ${client.folderId}`);
+          } catch (error) {
+            console.error('❌ Error updating answered status:', error);
+          }
+        }
+      }
       
       // Get or create session
       if (!this.userSessions.has(sender)) {
@@ -252,13 +267,8 @@ class WhatsAppService {
 
 
   findUserInfo(phoneNumber) {
-   const user = this.clientUsers.find(u => u.phone === phoneNumber);
-   console.log(phoneNumber);
-    return {
-      name: user ? user.name : 'Cliente sem nome',
-      type: user ? user.type : 'normal',
-      isChatBot: user ? user.isChatBot : true
-    };
+    const user = this.clientUsers.find(u => u.phone === phoneNumber);
+    return user || null;
   }
 
   formatPhoneNumber(whatsappId) {
@@ -294,11 +304,12 @@ class WhatsAppService {
       throw new Error('Bot not running');
     }
 
-    this.isSendingMessages = true; // Set sending state
+    this.isSendingMessages = true;
     this.bulkMessageProgress = {
       total: users.length,
       sent: 0,
-      failed: 0
+      failed: 0,
+      skipped: 0
     };
 
     const results = [];
@@ -306,9 +317,11 @@ class WhatsAppService {
     for (const user of users) {
       if (this.isRunning) {
         try {
+          // 🔥 IMPORTANT: Skip if already answered
           if (user.answered) {
+            console.log(`⏭️ Skipping ${user.phone} - already answered`);
             results.push({ phone: user.phone, status: 'skipped', reason: 'Already answered' });
-            this.bulkMessageProgress.sent++; // Count skipped as sent for progress
+            this.bulkMessageProgress.skipped++;
             continue;
           }
 
@@ -345,7 +358,7 @@ class WhatsAppService {
             });
           }
 
-          // Random delay between 18-30 seconds
+          // Random delay
           const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
           await new Promise(resolve => setTimeout(resolve, delay));
 
@@ -360,7 +373,7 @@ class WhatsAppService {
       }
     }
 
-    this.isSendingMessages = false; // Reset sending state
+    this.isSendingMessages = false;
     this.bulkMessageProgress = null;
 
     if (this.io) {
@@ -471,6 +484,18 @@ class WhatsAppService {
       }
       this.isRunning = false;
       this.userSessions.clear();
+      
+      // 🔥 CRITICAL: Reset answered status for all clients in current folder
+      if (this.clientUsers.length > 0) {
+        const folderId = this.clientUsers[0]?.folderId;
+        if (folderId) {
+          console.log(`🔄 Resetting answered status for folder ${folderId}`);
+          // We need a method to reset answered status for a folder
+          // You'll need to add this to database.service.js
+          await databaseService.resetAnsweredStatusForFolder(folderId);
+        }
+      }
+      
       console.log('✅ WhatsApp disconnected');
       
       if (this.io) {

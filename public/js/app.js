@@ -2254,7 +2254,6 @@ socket.on('user-answered-status-update', (data) => {
     if (clientIndex !== -1) {
         markAsAnswered(clientIndex);
     }
-    addLog(data.phone + "test");
 });
 
 socket.on('disable-bot', (data) => {
