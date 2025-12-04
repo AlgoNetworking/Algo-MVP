@@ -3,6 +3,7 @@ const http = require('http');
 const socketIO = require('socket.io');
 const path = require('path');
 const cors = require('cors');
+const session = require('express-session');
 require('dotenv').config();
 
 // Import routes and services
@@ -13,6 +14,8 @@ const databaseService = require('./services/database.service');
 const clientsRoutes = require('./routes/clients.routes');
 const productsRoutes = require('./routes/products.routes');
 const foldersRoutes = require('./routes/folders.routes');
+const authRoutes = require('./routes/auth.routes');
+const { requireAuth, attachUser } = require('./middleware/auth.middleware');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,11 +26,45 @@ const io = socketIO(server, {
   }
 });
 
+// Session configuration
+const isProduction = process.env.DATABASE_URL !== undefined;
+let sessionConfig = {
+  secret: process.env.SESSION_SECRET || 'your-secret-key-change-this',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false, // Set to true in production with HTTPS
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+};
+
+if (isProduction) {
+  const pgSession = require('connect-pg-simple')(session);
+  const { Pool } = require('pg');
+  
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_URL.includes('localhost') ? false : {
+      rejectUnauthorized: false
+    }
+  });
+  
+  sessionConfig.store = new pgSession({
+    pool: pool,
+    tableName: 'session'
+  });
+}
+
+app.use(session(sessionConfig));
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Attach user to all requests if authenticated
+app.use(attachUser);
 
 // Initialize database
 databaseService.initialize();
@@ -41,14 +78,32 @@ productsConfig.loadProducts().then(() => {
 // Initialize WhatsApp service with Socket.IO
 whatsappService.initialize(io);
 
-// API Routes
-app.use('/api/orders', orderRoutes);
-app.use('/api/whatsapp', whatsappRoutes);
-app.use('/api/clients', clientsRoutes);
-app.use('/api/products', productsRoutes);
-app.use('/api/folders', foldersRoutes);
+// Public routes (no authentication required)
+app.use('/api/auth', authRoutes);
 
-// Health check
+// Serve login and register pages (no authentication)
+app.get('/login.html', (req, res) => {
+  if (req.session.userId) {
+    return res.redirect('/');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.get('/register.html', (req, res) => {
+  if (req.session.userId) {
+    return res.redirect('/');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'register.html'));
+});
+
+// Protected API Routes (require authentication)
+app.use('/api/orders', requireAuth, orderRoutes);
+app.use('/api/whatsapp', requireAuth, whatsappRoutes);
+app.use('/api/clients', requireAuth, clientsRoutes);
+app.use('/api/products', requireAuth, productsRoutes);
+app.use('/api/folders', requireAuth, foldersRoutes);
+
+// Health check (no auth required)
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
@@ -57,13 +112,37 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Serve main page
+// Serve static files with authentication check
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    // Allow CSS files without auth
+    if (filePath.endsWith('.css')) {
+      return;
+    }
+  }
+}));
+
+// Main page - redirect to login if not authenticated
 app.get('/', (req, res) => {
+  if (!req.session.userId) {
+    return res.redirect('/login.html');
+  }
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Socket.IO connection handling
+// Socket.IO connection handling (with auth)
+io.use((socket, next) => {
+  const sessionMiddleware = session(sessionConfig);
+  sessionMiddleware(socket.request, {}, next);
+});
+
 io.on('connection', (socket) => {
+  // Check if user is authenticated
+  if (!socket.request.session || !socket.request.session.userId) {
+    socket.disconnect();
+    return;
+  }
+
   console.log('🔌 Client connected:', socket.id);
   
   // Send initial status
@@ -71,8 +150,8 @@ io.on('connection', (socket) => {
   socket.emit('bot-status', {
     isConnected: whatsappService.isConnected(),
     sessions: whatsappService.getActiveSessions(),
-    isSendingMessages: sendingStatus.isSendingMessages, // Add this
-    sendingProgress: sendingStatus.progress // Add this
+    isSendingMessages: sendingStatus.isSendingMessages,
+    sendingProgress: sendingStatus.progress
   });
 
   socket.on('disconnect', () => {

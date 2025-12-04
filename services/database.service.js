@@ -10,6 +10,7 @@ let db;
 
 const PRODUCTS = productsConfig.PRODUCTS;
 
+
 class DatabaseService {
   async initialize() {
     try {
@@ -577,16 +578,17 @@ async resetAnsweredStatusForFolder(folderId) {
   }
 
   // Folders methods
-  async getAllFolders() {
+  async getAllFolders(userId) {
     try {
       if (isProduction) {
         const result = await db.query(
-          'SELECT * FROM folders ORDER BY name'
+          'SELECT * FROM folders WHERE user_id = $1 ORDER BY name',
+          [userId]
         );
         return result.rows;
       } else {
-        const stmt = db.prepare('SELECT * FROM folders ORDER BY name');
-        return stmt.all();
+        const stmt = db.prepare('SELECT * FROM folders WHERE user_id = ? ORDER BY name');
+        return stmt.all(userId);
       }
     } catch (error) {
       console.error('❌ Error getting folders:', error);
@@ -612,19 +614,19 @@ async resetAnsweredStatusForFolder(folderId) {
     }
   }
 
-  async createFolder(name) {
+  async createFolder(name, userId) {
     try {
       if (isProduction) {
         const result = await db.query(
-          'INSERT INTO folders (name) VALUES ($1) RETURNING *',
-          [name]
+          'INSERT INTO folders (name, user_id) VALUES ($1, $2) RETURNING *',
+          [name, userId]
         );
         return result.rows[0];
       } else {
         const stmt = db.prepare(
-          'INSERT INTO folders (name) VALUES (?) RETURNING *'
+          'INSERT INTO folders (name, user_id) VALUES (?, ?) RETURNING *'
         );
-        return stmt.get(name);
+        return stmt.get(name, userId);
       }
     } catch (error) {
       console.error('❌ Error creating folder:', error);
@@ -667,14 +669,14 @@ async resetAnsweredStatusForFolder(folderId) {
   }
 
   // Clients methods
-  async getAllClients(folderId = null) {
+  async getAllClients(folderId = null, userId) {
     try {
-      let query = 'SELECT * FROM clients';
-      let params = [];
+      let query = 'SELECT * FROM clients WHERE user_id = $1';
+      let params = [userId];
       
       if (folderId !== null) {
-        query += ' WHERE folder_id = $1';
-        params = [folderId];
+        query += ' AND folder_id = $2';
+        params.push(folderId);
       }
       
       query += ' ORDER BY name';
@@ -683,6 +685,8 @@ async resetAnsweredStatusForFolder(folderId) {
         const result = await db.query(query, params);
         return result.rows;
       } else {
+        // For SQLite, adjust parameter placeholders
+        query = query.replace(/\$1/g, '?').replace(/\$2/g, '?');
         const stmt = db.prepare(query);
         return stmt.all(...params);
       }
@@ -692,34 +696,34 @@ async resetAnsweredStatusForFolder(folderId) {
     }
   }
 
-  async addClient(client) {
+  async addClient(client, userId) {
     try {
       const { phone, name, type, answered, isChatBot, folderId } = client;
       
       if (isProduction) {
         await db.query(
-          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot, folder_id)
-          VALUES ($1, $2, $3, $4, $5, $6)
-          ON CONFLICT (phone, folder_id) DO UPDATE SET
+          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot, folder_id, user_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          ON CONFLICT (phone, folder_id, user_id) DO UPDATE SET
           name = EXCLUDED.name,
           order_type = EXCLUDED.order_type,
           answered = EXCLUDED.answered,
           is_chatbot = EXCLUDED.is_chatbot,
           updated_at = CURRENT_TIMESTAMP`,
-          [phone, name, type, answered, isChatBot, folderId]
+          [phone, name, type, answered, isChatBot, folderId, userId]
         );
       } else {
         const stmt = db.prepare(
-          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot, folder_id)
-          VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT (phone, folder_id) DO UPDATE SET
+          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot, folder_id, user_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT (phone, folder_id, user_id) DO UPDATE SET
           name = excluded.name,
           order_type = excluded.order_type,
           answered = excluded.answered,
           is_chatbot = excluded.is_chatbot,
           updated_at = CURRENT_TIMESTAMP`
         );
-        stmt.run(phone, name, type, answered, isChatBot, folderId);
+        stmt.run(phone, name, type, answered, isChatBot, folderId, userId);
       }
       
       return { success: true };
@@ -819,11 +823,12 @@ async resetAnsweredStatusForFolder(folderId) {
 }
 
   // Products methods
-  async getAllProducts() {
+  async getAllProducts(userId) {
     try {
       if (isProduction) {
         const result = await db.query(
-          'SELECT * FROM products ORDER BY name'
+          'SELECT * FROM products WHERE user_id = $1 ORDER BY name',
+          [userId]
         );
         return result.rows.map(row => ({
           id: row.id,
@@ -832,8 +837,8 @@ async resetAnsweredStatusForFolder(folderId) {
           enabled: row.enabled
         }));
       } else {
-        const stmt = db.prepare('SELECT * FROM products ORDER BY name');
-        const rows = stmt.all();
+        const stmt = db.prepare('SELECT * FROM products WHERE user_id = ? ORDER BY name');
+        const rows = stmt.all(userId);
         return rows.map(row => ({
           id: row.id,
           name: row.name,
@@ -847,20 +852,20 @@ async resetAnsweredStatusForFolder(folderId) {
     }
   }
 
-  async addProduct(product) {
+  async addProduct(product, userId) {
     try {
       if (isProduction) {
         await db.query(
-          `INSERT INTO products (name, akas, enabled)
-          VALUES ($1, $2, $3)`,
-          [product.name, JSON.stringify(product.akas || []), product.enabled || true]
+          `INSERT INTO products (name, akas, enabled, user_id)
+          VALUES ($1, $2, $3, $4)`,
+          [product.name, JSON.stringify(product.akas || []), product.enabled || true, userId]
         );
       } else {
         const stmt = db.prepare(
-          `INSERT INTO products (name, akas, enabled)
-          VALUES (?, ?, ?)`
+          `INSERT INTO products (name, akas, enabled, user_id)
+          VALUES (?, ?, ?, ?)`
         );
-        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled || true);
+        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled || true, userId);
       }
     } catch (error) {
       console.error('❌ Error adding product:', error);
@@ -929,6 +934,78 @@ async resetAnsweredStatusForFolder(folderId) {
       throw error;
     }
   }
+
+  // Add these methods to services/database.service.js
+
+  // ==================== USER MANAGEMENT METHODS ====================
+
+  async createUser({ username, email, passwordHash }) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          `INSERT INTO users (username, email, password_hash)
+          VALUES ($1, $2, $3)
+          RETURNING id, username, email, created_at`,
+          [username, email, passwordHash]
+        );
+        return result.rows[0];
+      } else {
+        const stmt = db.prepare(
+          `INSERT INTO users (username, email, password_hash)
+          VALUES (?, ?, ?)
+          RETURNING id, username, email, created_at`
+        );
+        return stmt.get(username, email, passwordHash);
+      }
+    } catch (error) {
+      console.error('❌ Error creating user:', error);
+      throw error;
+    }
+  }
+
+  async getUserByUsername(username) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'SELECT * FROM users WHERE username = $1',
+          [username]
+        );
+        return result.rows[0] || null;
+      } else {
+        const stmt = db.prepare('SELECT * FROM users WHERE username = ?');
+        return stmt.get(username) || null;
+      }
+    } catch (error) {
+      console.error('❌ Error getting user:', error);
+      throw error;
+    }
+  }
+
+  async getUserById(userId) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'SELECT id, username, email, created_at FROM users WHERE id = $1',
+          [userId]
+        );
+        return result.rows[0] || null;
+      } else {
+        const stmt = db.prepare('SELECT id, username, email, created_at FROM users WHERE id = ?');
+        return stmt.get(userId) || null;
+      }
+    } catch (error) {
+      console.error('❌ Error getting user by ID:', error);
+      throw error;
+    }
+  }
+
+  // ==================== UPDATED METHODS WITH USER_ID ====================
+
+  // NOTE: You'll need to update ALL other database methods similarly to include userId
+  // This includes: updateFolder, deleteFolder, deleteClient, updateProduct, deleteProduct,
+  // getProductTotals, getUserOrders, saveUserOrder, etc.
+  // Each method should filter by userId to ensure multi-tenancy.
+
 }
 
 module.exports = new DatabaseService();

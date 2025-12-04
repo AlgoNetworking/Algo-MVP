@@ -1,11 +1,12 @@
+// routes/folders.routes.js - Updated with multi-tenancy
 const express = require('express');
 const router = express.Router();
 const databaseService = require('../services/database.service');
 
-// Get all folders
+// Get all folders for the authenticated user
 router.get('/', async (req, res) => {
   try {
-    const folders = await databaseService.getAllFolders();
+    const folders = await databaseService.getAllFolders(req.userId);
     res.json({
       success: true,
       folders
@@ -16,11 +17,11 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get folder by ID
+// Get folder by ID (only if it belongs to the user)
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const folder = await databaseService.getFolderById(id);
+    const folder = await databaseService.getFolderById(id, req.userId);
     
     if (!folder) {
       return res.status(404).json({
@@ -39,7 +40,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create folder
+// Create folder for the authenticated user
 router.post('/', async (req, res) => {
   try {
     const { name } = req.body;
@@ -51,7 +52,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const folder = await databaseService.createFolder(name.trim());
+    const folder = await databaseService.createFolder(name.trim(), req.userId);
 
     res.json({
       success: true,
@@ -64,7 +65,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Update folder
+// Update folder (only if it belongs to the user)
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -77,7 +78,7 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    const folder = await databaseService.updateFolder(id, name.trim());
+    const folder = await databaseService.updateFolder(id, name.trim(), req.userId);
 
     if (!folder) {
       return res.status(404).json({
@@ -97,11 +98,11 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Delete folder
+// Delete folder (only if it belongs to the user)
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await databaseService.deleteFolder(id);
+    await databaseService.deleteFolder(id, req.userId);
     
     res.json({
       success: true,
@@ -114,3 +115,9 @@ router.delete('/:id', async (req, res) => {
 });
 
 module.exports = router;
+
+// NOTE: Apply the same pattern to ALL route files:
+// - clients.routes.js: Pass req.userId to all database calls
+// - products.routes.js: Pass req.userId to all database calls  
+// - orders.routes.js: Pass req.userId to all database calls
+// This ensures data isolation between users (multi-tenancy)
