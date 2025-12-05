@@ -15,8 +15,7 @@ class OrderSession {
     this.phoneNumber = null;
     this.name = null;
     this.orderType = null;
-    this.hasDisabledProducts = false;
-    this.userId = null; // 🔥 ADD THIS
+    this.hasDisabledProducts = false; // Add this flag
   }
 
   hasEnabledItems() {
@@ -34,11 +33,7 @@ class OrderSession {
   }
 
   getEmptyProducts() {
-    // If userId exists, use it; otherwise fall back to generic
-    if (this.userId) {
-      return productsConfig.getEmptyProductsDb(this.userId);
-    }
-    return productsConfig.getEmptyProductsDb();
+    return productsConfig.getEmptyProductsDb(); // Update this line
   }
 
   hasItems() {
@@ -120,8 +115,8 @@ class OrderSession {
     }
   }
 
-  async markAsPending() {
-    if (this.hasEnabledItems() && this.phoneNumber && this.userId) { // 🔥 Check userId
+   async markAsPending() {
+    if (this.hasEnabledItems() && this.phoneNumber) {
       const parsedOrders = [];
       for (const [product, qty] of this.currentDb) {
         const [mainName, akas, enabled] = product;
@@ -137,8 +132,7 @@ class OrderSession {
         sessionId: this.sessionId,
         originalMessage: 'Auto-saved (pending confirmation)',
         parsedOrders,
-        status: 'pending',
-        userId: this.userId // 🔥 ADD THIS
+        status: 'pending'
       });
 
       this.messageQueue.push('🟡 **PEDIDO SALVO COMO PENDENTE** - Aguardando confirmação manual.');
@@ -191,13 +185,12 @@ class OrderService {
     return { success: true };
   }
 
-  async processMessage({ sessionId, message, messageType, phoneNumber, name, orderType, userId }) { // 🔥 Add userId parameter
+  async processMessage({ sessionId, message, messageType, phoneNumber, name, orderType }) {
     const session = this.getSession(sessionId);
     
     if (phoneNumber) session.phoneNumber = phoneNumber;
     if (name) session.name = name;
     if (orderType) session.orderType = orderType;
-    if (userId) session.userId = userId; // 🔥 ADD THIS
 
     const messageLower = message.toLowerCase().trim();
     session.lastActivity = Date.now();
@@ -364,12 +357,12 @@ class OrderService {
         // Update database
         for (const [product, quantity] of Object.entries(confirmedOrder)) {
           if (quantity > 0) {
-            await databaseService.updateProductTotal(product, quantity, session.userId); // 🔥 Pass userId
+            await databaseService.updateProductTotal(product, quantity);
           }
         }
 
         // Save user order
-        if (session.phoneNumber && session.userId) { // 🔥 Check userId
+        if (session.phoneNumber) {
           const parsedOrders = [];
           for (const [product, qty] of session.currentDb) {
             if (qty > 0) {
@@ -385,8 +378,7 @@ class OrderService {
             sessionId,
             originalMessage: message,
             parsedOrders,
-            status: 'confirmed',
-            userId: session.userId // 🔥 ADD THIS
+            status: 'confirmed'
           });
         }
 

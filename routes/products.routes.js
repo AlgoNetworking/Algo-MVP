@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const databaseService = require('../services/database.service');
 
+// Get all products
 router.get('/', async (req, res) => {
   try {
-    const products = await databaseService.getAllProducts(req.userId); // ADD req.userId
+    const products = await databaseService.getAllProducts();
     res.json({
       success: true,
       products
@@ -15,6 +16,7 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Add new product
 router.post('/', async (req, res) => {
   try {
     const { name, akas = [], enabled = true } = req.body;
@@ -30,7 +32,7 @@ router.post('/', async (req, res) => {
       name,
       akas: Array.isArray(akas) ? akas : [akas],
       enabled
-    }, req.userId); // ADD req.userId
+    });
 
     res.json({
       success: true,
@@ -42,6 +44,7 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Update product
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -51,7 +54,7 @@ router.put('/:id', async (req, res) => {
       name,
       akas: Array.isArray(akas) ? akas : [akas],
       enabled
-    }, req.userId); // ADD req.userId
+    });
 
     res.json({
       success: true,
@@ -63,10 +66,11 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// Delete product
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await databaseService.deleteProduct(id, req.userId); // ADD req.userId
+    await databaseService.deleteProduct(id);
     
     res.json({
       success: true,
@@ -78,6 +82,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Toggle product enabled status
 router.put('/:id/toggle', async (req, res) => {
   try {
     const { id } = req.params;
@@ -90,7 +95,7 @@ router.put('/:id/toggle', async (req, res) => {
       });
     }
 
-    await databaseService.toggleProductEnabled(id, enabled, req.userId); // ADD req.userId
+    await databaseService.toggleProductEnabled(id, enabled);
 
     res.json({
       success: true,

@@ -8,12 +8,16 @@ const isProduction = process.env.DATABASE_URL !== undefined;
 
 let db;
 
+const PRODUCTS = productsConfig.PRODUCTS;
+
 class DatabaseService {
   async initialize() {
     try {
       if (isProduction) {
+        // PostgreSQL for production
         const { Pool } = require('pg');
         
+        // Parse the database URL to check if it's local
         const isLocalDB = process.env.DATABASE_URL && 
                          (process.env.DATABASE_URL.includes('localhost') || 
                           process.env.DATABASE_URL.includes('127.0.0.1'));
@@ -27,6 +31,7 @@ class DatabaseService {
         console.log('📊 Using PostgreSQL database');
         await this.initializePostgres();
       } else {
+        // SQLite for local development
         const Database = require('better-sqlite3');
         const dbPath = path.join(__dirname, '..', 'local_orders.db');
         db = new Database(dbPath);
@@ -44,7 +49,7 @@ class DatabaseService {
     try {
       console.log('🔄 Creating PostgreSQL tables...');
       
-      // Drop views if they exist
+      // First, check if the views exist and drop them if they do
       try {
         await db.query('DROP VIEW IF EXISTS product_totals CASCADE');
         await db.query('DROP VIEW IF EXISTS user_orders CASCADE');
@@ -53,31 +58,17 @@ class DatabaseService {
         console.log('ℹ️  No views to remove or error removing views:', error.message);
       }
 
-      // Create users table FIRST
+      // Create folders table FIRST
       await db.query(`
-        CREATE TABLE IF NOT EXISTS users (
+        CREATE TABLE IF NOT EXISTS folders (
           id SERIAL PRIMARY KEY,
-          username VARCHAR(50) UNIQUE NOT NULL,
-          email VARCHAR(100) UNIQUE NOT NULL,
-          password_hash VARCHAR(255) NOT NULL,
+          name VARCHAR(100) NOT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      // Create folders table
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS folders (
-          id SERIAL PRIMARY KEY,
-          name VARCHAR(100) NOT NULL,
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(name, user_id)
-        )
-      `);
-
-      // Create clients table
+      // Create clients table (updated with folder_id)
       await db.query(`
         CREATE TABLE IF NOT EXISTS clients (
           id SERIAL PRIMARY KEY,
@@ -87,10 +78,9 @@ class DatabaseService {
           answered BOOLEAN DEFAULT FALSE,
           is_chatbot BOOLEAN DEFAULT TRUE,
           folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(phone, folder_id, user_id)
+          UNIQUE(phone, folder_id)
         )
       `);
 
@@ -98,23 +88,19 @@ class DatabaseService {
       await db.query(`
         CREATE TABLE IF NOT EXISTS products (
           id SERIAL PRIMARY KEY,
-          name VARCHAR(100) NOT NULL,
+          name VARCHAR(100) UNIQUE NOT NULL,
           akas JSONB DEFAULT '[]',
           enabled BOOLEAN DEFAULT TRUE,
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(name, user_id)
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
       // Create product_totals table
       await db.query(`
         CREATE TABLE IF NOT EXISTS product_totals (
-          product VARCHAR(255) NOT NULL,
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          total_quantity INTEGER DEFAULT 0,
-          PRIMARY KEY (product, user_id)
+          product VARCHAR(255) PRIMARY KEY,
+          total_quantity INTEGER DEFAULT 0
         )
       `);
 
@@ -130,36 +116,64 @@ class DatabaseService {
           parsed_orders JSONB,
           total_quantity INTEGER,
           status VARCHAR(50) DEFAULT 'confirmed',
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      // Create session table for express-session
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS session (
-          sid VARCHAR NOT NULL PRIMARY KEY,
-          sess JSON NOT NULL,
-          expire TIMESTAMP(6) NOT NULL
-        )
-      `);
+      // Insert default products if table is empty
+      const productsResult = await db.query('SELECT COUNT(*) FROM products');
+      if (parseInt(productsResult.rows[0].count) === 0) {
+        const defaultProducts = [
+          ['abacaxi', '[]', true],
+          ['abacaxi com hortelã', '[]', true],
+          ['açaí', '[]', true],
+          ['acerola', '[]', true],
+          ['ameixa', '[]', true],
+          ['cajá', '[]', true],
+          ['caju', '[]', true],
+          ['goiaba', '[]', true],
+          ['graviola', '[]', true],
+          ['manga', '[]', true],
+          ['maracujá', '[]', true],
+          ['morango', '[]', true],
+          ['seriguela', '[]', true],
+          ['tamarindo', '[]', true],
+          ['caixa de ovos', '["ovo", "ovos"]', true],
+          ['queijo', '[]', true]
+        ];
 
-      await db.query(`
-        CREATE INDEX IF NOT EXISTS IDX_session_expire ON session (expire)
-      `);
-
-      // Insert demo user if not exists
-      const demoCheck = await db.query('SELECT id FROM users WHERE username = $1', ['demo']);
-      if (demoCheck.rows.length === 0) {
-        const bcrypt = require('bcrypt');
-        const demoHash = await bcrypt.hash('demo123', 10);
-        await db.query(
-          'INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3)',
-          ['demo', 'demo@example.com', demoHash]
-        );
-        console.log('✅ Demo user created (username: demo, password: demo123)');
+        for (const [name, akas, enabled] of defaultProducts) {
+          await db.query(
+            `INSERT INTO products (name, akas, enabled) 
+            VALUES ($1, $2::jsonb, $3)`,
+            [name, akas, enabled]
+          );
+        }
+        console.log('✅ Default products inserted');
       }
 
+      // Create a default folder if none exists
+      const foldersResult = await db.query('SELECT COUNT(*) FROM folders');
+      if (parseInt(foldersResult.rows[0].count) === 0) {
+        await db.query(
+          'INSERT INTO folders (name) VALUES ($1)',
+          ['Pasta Padrão']
+        );
+        console.log('✅ Default folder created');
+      }
+
+      // Clear any existing data and initialize product totals
+      await db.query('DELETE FROM product_totals');
+      
+      const products = await this.getAllProducts();
+      for (const product of products) {
+        await db.query(
+          `INSERT INTO product_totals (product, total_quantity) 
+          VALUES ($1, 0)`,
+          [product.name]
+        );
+      }
+      
       console.log('✅ PostgreSQL tables created successfully');
     } catch (error) {
       console.error('❌ Error creating PostgreSQL tables:', error);
@@ -171,44 +185,17 @@ class DatabaseService {
     try {
       console.log('🔄 Creating SQLite tables...');
       
-      // Create users table FIRST
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          username TEXT UNIQUE NOT NULL,
-          email TEXT UNIQUE NOT NULL,
-          password_hash TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Create folders table
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS folders (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(name, user_id)
-        )
-      `);
-
       // Create clients table
       db.exec(`
         CREATE TABLE IF NOT EXISTS clients (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          phone TEXT NOT NULL,
+          phone TEXT UNIQUE NOT NULL,
           name TEXT NOT NULL,
           order_type TEXT DEFAULT 'normal',
           answered INTEGER DEFAULT 0,
           is_chatbot INTEGER DEFAULT 1,
-          folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(phone, folder_id, user_id)
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
@@ -216,23 +203,19 @@ class DatabaseService {
       db.exec(`
         CREATE TABLE IF NOT EXISTS products (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
+          name TEXT UNIQUE NOT NULL,
           akas TEXT DEFAULT '[]',
           enabled INTEGER DEFAULT 1,
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(name, user_id)
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
       // Create product_totals table
       db.exec(`
         CREATE TABLE IF NOT EXISTS product_totals (
-          product TEXT NOT NULL,
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          total_quantity INTEGER DEFAULT 0,
-          PRIMARY KEY (product, user_id)
+          product TEXT PRIMARY KEY,
+          total_quantity INTEGER DEFAULT 0
         )
       `);
 
@@ -248,21 +231,56 @@ class DatabaseService {
           parsed_orders TEXT,
           total_quantity INTEGER,
           status TEXT DEFAULT 'confirmed',
-          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      // Insert demo user if not exists
-      const demoCheck = db.prepare('SELECT id FROM users WHERE username = ?').get('demo');
-      if (!demoCheck) {
-        const bcrypt = require('bcrypt');
-        const demoHash = bcrypt.hashSync('demo123', 10);
-        db.prepare('INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)')
-          .run('demo', 'demo@example.com', demoHash);
-        console.log('✅ Demo user created (username: demo, password: demo123)');
+      // Insert default products if table is empty
+      const countStmt = db.prepare('SELECT COUNT(*) as count FROM products');
+      const count = countStmt.get().count;
+      
+      if (count === 0) {
+        const defaultProducts = [
+          ['abacaxi', '[]', 1],
+          ['abacaxi com hortelã', '[]', 1],
+          ['açaí', '[]', 1],
+          ['acerola', '[]', 1],
+          ['ameixa', '[]', 1],
+          ['cajá', '[]', 1],
+          ['caju', '[]', 1],
+          ['goiaba', '[]', 1],
+          ['graviola', '[]', 1],
+          ['manga', '[]', 1],
+          ['maracujá', '[]', 1],
+          ['morango', '[]', 1],
+          ['seriguela', '[]', 1],
+          ['tamarindo', '[]', 1],
+          ['caixa de ovos', '["ovo", "ovos"]', 1],
+          ['queijo', '[]', 1]
+        ];
+
+        const insertStmt = db.prepare(
+          'INSERT INTO products (name, akas, enabled) VALUES (?, ?, ?)'
+        );
+
+        for (const [name, akas, enabled] of defaultProducts) {
+          insertStmt.run(name, akas, enabled);
+        }
+        console.log('✅ Default products inserted');
       }
 
+      // Clear any existing data and initialize product totals
+      db.exec('DELETE FROM product_totals');
+      
+      const products = this.getAllProducts();
+      const stmt = db.prepare(
+        'INSERT INTO product_totals (product, total_quantity) VALUES (?, 0)'
+      );
+
+      for (const product of products) {
+        stmt.run(product.name);
+      }
+      
       console.log('✅ SQLite tables created successfully');
     } catch (error) {
       console.error('❌ Error creating SQLite tables:', error);
@@ -270,481 +288,39 @@ class DatabaseService {
     }
   }
 
-  // ==================== USER MANAGEMENT ====================
-  
-  async createUser({ username, email, passwordHash }) {
-    try {
-      if (isProduction) {
-        const result = await db.query(
-          `INSERT INTO users (username, email, password_hash)
-          VALUES ($1, $2, $3)
-          RETURNING id, username, email, created_at`,
-          [username, email, passwordHash]
-        );
-        return result.rows[0];
-      } else {
-        const stmt = db.prepare(
-          `INSERT INTO users (username, email, password_hash)
-          VALUES (?, ?, ?)
-          RETURNING id, username, email, created_at`
-        );
-        return stmt.get(username, email, passwordHash);
-      }
-    } catch (error) {
-      console.error('❌ Error creating user:', error);
-      throw error;
+async resetAnsweredStatusForFolder(folderId) {
+  try {
+    if (isProduction) {
+      await db.query(
+        'UPDATE clients SET answered = false, updated_at = CURRENT_TIMESTAMP WHERE folder_id = $1',
+        [folderId]
+      );
+    } else {
+      const stmt = db.prepare(
+        'UPDATE clients SET answered = false, updated_at = CURRENT_TIMESTAMP WHERE folder_id = ?'
+      );
+      stmt.run(folderId);
     }
+    console.log(`✅ Reset answered status for folder ${folderId}`);
+  } catch (error) {
+    console.error('❌ Error resetting answered status:', error);
+    throw error;
   }
+} 
 
-  async getUserByUsername(username) {
-    try {
-      if (isProduction) {
-        const result = await db.query(
-          'SELECT * FROM users WHERE username = $1',
-          [username]
-        );
-        return result.rows[0] || null;
-      } else {
-        const stmt = db.prepare('SELECT * FROM users WHERE username = ?');
-        return stmt.get(username) || null;
-      }
-    } catch (error) {
-      console.error('❌ Error getting user:', error);
-      throw error;
-    }
-  }
-
-  async getUserById(userId) {
-    try {
-      if (isProduction) {
-        const result = await db.query(
-          'SELECT id, username, email, created_at FROM users WHERE id = $1',
-          [userId]
-        );
-        return result.rows[0] || null;
-      } else {
-        const stmt = db.prepare('SELECT id, username, email, created_at FROM users WHERE id = ?');
-        return stmt.get(userId) || null;
-      }
-    } catch (error) {
-      console.error('❌ Error getting user by ID:', error);
-      throw error;
-    }
-  }
-
-  // ==================== FOLDERS ====================
-  
-  async getAllFolders(userId) {
-    try {
-      if (isProduction) {
-        const result = await db.query(
-          'SELECT * FROM folders WHERE user_id = $1 ORDER BY name',
-          [userId]
-        );
-        return result.rows;
-      } else {
-        const stmt = db.prepare('SELECT * FROM folders WHERE user_id = ? ORDER BY name');
-        return stmt.all(userId);
-      }
-    } catch (error) {
-      console.error('❌ Error getting folders:', error);
-      throw error;
-    }
-  }
-
-  async getFolderById(id, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        const result = await db.query(
-          'SELECT * FROM folders WHERE id = $1 AND user_id = $2',
-          [id, userId]
-        );
-        return result.rows[0] || null;
-      } else {
-        const stmt = db.prepare('SELECT * FROM folders WHERE id = ? AND user_id = ?');
-        return stmt.get(id, userId) || null;
-      }
-    } catch (error) {
-      console.error('❌ Error getting folder:', error);
-      throw error;
-    }
-  }
-
-  async createFolder(name, userId) {
-    try {
-      if (isProduction) {
-        const result = await db.query(
-          'INSERT INTO folders (name, user_id) VALUES ($1, $2) RETURNING *',
-          [name, userId]
-        );
-        return result.rows[0];
-      } else {
-        const stmt = db.prepare(
-          'INSERT INTO folders (name, user_id) VALUES (?, ?) RETURNING *'
-        );
-        return stmt.get(name, userId);
-      }
-    } catch (error) {
-      console.error('❌ Error creating folder:', error);
-      throw error;
-    }
-  }
-
-  async updateFolder(id, name, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        const result = await db.query(
-          'UPDATE folders SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3 RETURNING *',
-          [name, id, userId]
-        );
-        return result.rows[0];
-      } else {
-        const stmt = db.prepare(
-          'UPDATE folders SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? RETURNING *'
-        );
-        return stmt.get(name, id, userId);
-      }
-    } catch (error) {
-      console.error('❌ Error updating folder:', error);
-      throw error;
-    }
-  }
-
-  async deleteFolder(id, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        await db.query('DELETE FROM folders WHERE id = $1 AND user_id = $2', [id, userId]);
-      } else {
-        const stmt = db.prepare('DELETE FROM folders WHERE id = ? AND user_id = ?');
-        stmt.run(id, userId);
-      }
-    } catch (error) {
-      console.error('❌ Error deleting folder:', error);
-      throw error;
-    }
-  }
-
-  async resetAnsweredStatusForFolder(folderId, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        await db.query(
-          'UPDATE clients SET answered = false, updated_at = CURRENT_TIMESTAMP WHERE folder_id = $1 AND user_id = $2',
-          [folderId, userId]
-        );
-      } else {
-        const stmt = db.prepare(
-          'UPDATE clients SET answered = false, updated_at = CURRENT_TIMESTAMP WHERE folder_id = ? AND user_id = ?'
-        );
-        stmt.run(folderId, userId);
-      }
-      console.log(`✅ Reset answered status for folder ${folderId}, user ${userId}`);
-    } catch (error) {
-      console.error('❌ Error resetting answered status:', error);
-      throw error;
-    }
-  }
-
-  // ==================== CLIENTS ====================
-  
-  async getAllClients(folderId = null, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      let query = 'SELECT * FROM clients WHERE user_id = $1';
-      let params = [userId];
-      
-      if (folderId !== null) {
-        query += ' AND folder_id = $2';
-        params.push(folderId);
-      }
-      
-      query += ' ORDER BY name';
-      
-      if (isProduction) {
-        const result = await db.query(query, params);
-        return result.rows;
-      } else {
-        query = query.replace(/\$1/g, '?').replace(/\$2/g, '?');
-        const stmt = db.prepare(query);
-        return stmt.all(...params);
-      }
-    } catch (error) {
-      console.error('❌ Error getting clients:', error);
-      throw error;
-    }
-  }
-
-  async addClient(client, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      const { phone, name, type, answered, isChatBot, folderId } = client;
-      
-      if (isProduction) {
-        await db.query(
-          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot, folder_id, user_id)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
-          ON CONFLICT (phone, folder_id, user_id) DO UPDATE SET
-          name = EXCLUDED.name,
-          order_type = EXCLUDED.order_type,
-          answered = EXCLUDED.answered,
-          is_chatbot = EXCLUDED.is_chatbot,
-          updated_at = CURRENT_TIMESTAMP`,
-          [phone, name, type, answered, isChatBot, folderId, userId]
-        );
-      } else {
-        const stmt = db.prepare(
-          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot, folder_id, user_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (phone, folder_id, user_id) DO UPDATE SET
-          name = excluded.name,
-          order_type = excluded.order_type,
-          answered = excluded.answered,
-          is_chatbot = excluded.is_chatbot,
-          updated_at = CURRENT_TIMESTAMP`
-        );
-        stmt.run(phone, name, type, answered, isChatBot, folderId, userId);
-      }
-      
-      return { success: true };
-    } catch (error) {
-      console.error('❌ Error adding client:', error);
-      throw error;
-    }
-  }
-
-  async deleteClient(phone, folderId = null, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        if (folderId !== null) {
-          await db.query('DELETE FROM clients WHERE phone = $1 AND folder_id = $2 AND user_id = $3', [phone, folderId, userId]);
-        } else {
-          await db.query('DELETE FROM clients WHERE phone = $1 AND user_id = $2', [phone, userId]);
-        }
-      } else {
-        if (folderId !== null) {
-          const stmt = db.prepare('DELETE FROM clients WHERE phone = ? AND folder_id = ? AND user_id = ?');
-          stmt.run(phone, folderId, userId);
-        } else {
-          const stmt = db.prepare('DELETE FROM clients WHERE phone = ? AND user_id = ?');
-          stmt.run(phone, userId);
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error deleting client:', error);
-      throw error;
-    }
-  }
-
-  async updateClientAnsweredStatus(phone, answered, userId) {
+  // ... rest of your methods remain exactly the same
+  async updateProductTotal(product, quantity) {
     try {
       if (isProduction) {
         await db.query(
-          'UPDATE clients SET answered = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2 AND user_id = $3',
-          [answered, phone, userId]
+          'UPDATE product_totals SET total_quantity = total_quantity + $1 WHERE product = $2',
+          [quantity, product]
         );
       } else {
         const stmt = db.prepare(
-          'UPDATE clients SET answered = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ? AND user_id = ?'
+          'UPDATE product_totals SET total_quantity = total_quantity + ? WHERE product = ?'
         );
-        stmt.run(answered ? 1 : 0, phone, userId);
-      }
-    } catch (error) {
-      console.error('❌ Error updating client status:', error);
-      throw error;
-    }
-  }
-
-  async updateClientChatBotStatus(phone, isChatBot, userId) {
-    try {
-      if (isProduction) {
-        await db.query(
-          'UPDATE clients SET is_chatbot = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2 AND user_id = $3',
-          [isChatBot, phone, userId]
-        );
-      } else {
-        const stmt = db.prepare(
-          'UPDATE clients SET is_chatbot = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ? AND user_id = ?'
-        );
-        stmt.run(isChatBot ? 1 : 0, phone, userId);
-      }
-    } catch (error) {
-      console.error('❌ Error updating client chatbot status:', error);
-      throw error;
-    }
-  }
-
-  async updateClientAnsweredStatusInFolder(phone, folderId, answered, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        await db.query(
-          'UPDATE clients SET answered = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2 AND folder_id = $3 AND user_id = $4',
-          [answered, phone, folderId, userId]
-        );
-      } else {
-        const stmt = db.prepare(
-          'UPDATE clients SET answered = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ? AND folder_id = ? AND user_id = ?'
-        );
-        stmt.run(answered, phone, folderId, userId);
-      }
-    } catch (error) {
-      console.error('❌ Error updating client status in folder:', error);
-      throw error;
-    }
-  }
-
-  // ==================== PRODUCTS ====================
-  
-  async getAllProducts(userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        const result = await db.query(
-          'SELECT * FROM products WHERE user_id = $1 ORDER BY name',
-          [userId]
-        );
-        return result.rows.map(row => ({
-          id: row.id,
-          name: row.name,
-          akas: row.akas || [],
-          enabled: row.enabled
-        }));
-      } else {
-        const stmt = db.prepare('SELECT * FROM products WHERE user_id = ? ORDER BY name');
-        const rows = stmt.all(userId);
-        return rows.map(row => ({
-          id: row.id,
-          name: row.name,
-          akas: JSON.parse(row.akas || '[]'),
-          enabled: row.enabled
-        }));
-      }
-    } catch (error) {
-      console.error('❌ Error getting products:', error);
-      throw error;
-    }
-  }
-
-  async addProduct(product, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        await db.query(
-          `INSERT INTO products (name, akas, enabled, user_id)
-          VALUES ($1, $2, $3, $4)`,
-          [product.name, JSON.stringify(product.akas || []), product.enabled || true, userId]
-        );
-      } else {
-        const stmt = db.prepare(
-          `INSERT INTO products (name, akas, enabled, user_id)
-          VALUES (?, ?, ?, ?)`
-        );
-        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled || true, userId);
-      }
-    } catch (error) {
-      console.error('❌ Error adding product:', error);
-      throw error;
-    }
-  }
-
-  async updateProduct(id, product, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        await db.query(
-          `UPDATE products SET 
-            name = $1,
-            akas = $2,
-            enabled = $3,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = $4 AND user_id = $5`,
-          [product.name, JSON.stringify(product.akas || []), product.enabled, id, userId]
-        );
-      } else {
-        const stmt = db.prepare(
-          `UPDATE products SET 
-            name = ?,
-            akas = ?,
-            enabled = ?,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = ? AND user_id = ?`
-        );
-        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled, id, userId);
-      }
-    } catch (error) {
-      console.error('❌ Error updating product:', error);
-      throw error;
-    }
-  }
-
-  async deleteProduct(id, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        await db.query('DELETE FROM products WHERE id = $1 AND user_id = $2', [id, userId]);
-      } else {
-        const stmt = db.prepare('DELETE FROM products WHERE id = ? AND user_id = ?');
-        stmt.run(id, userId);
-      }
-    } catch (error) {
-      console.error('❌ Error deleting product:', error);
-      throw error;
-    }
-  }
-
-  async toggleProductEnabled(id, enabled, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        await db.query(
-          'UPDATE products SET enabled = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3',
-          [enabled, id, userId]
-        );
-      } else {
-        const stmt = db.prepare(
-          'UPDATE products SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?'
-        );
-        stmt.run(enabled, id, userId);
-      }
-    } catch (error) {
-      console.error('❌ Error toggling product:', error);
-      throw error;
-    }
-  }
-
-  // ==================== ORDERS ====================
-  
-  async updateProductTotal(product, quantity, userId) {
-    try {
-      if (!userId) throw new Error('User ID required');
-      
-      if (isProduction) {
-        await db.query(
-          'UPDATE product_totals SET total_quantity = total_quantity + $1 WHERE product = $2 AND user_id = $3',
-          [quantity, product, userId]
-        );
-      } else {
-        const stmt = db.prepare(
-          'UPDATE product_totals SET total_quantity = total_quantity + ? WHERE product = ? AND user_id = ?'
-        );
-        stmt.run(quantity, product, userId);
+        stmt.run(quantity, product);
       }
     } catch (error) {
       console.error('❌ Error updating product total:', error);
@@ -752,24 +328,22 @@ class DatabaseService {
     }
   }
 
-  async saveUserOrder({ phoneNumber, name, orderType, sessionId, originalMessage, parsedOrders, status = 'confirmed', userId }) {
+  async saveUserOrder({ phoneNumber, name, orderType, sessionId, originalMessage, parsedOrders, status = 'confirmed' }) {
     try {
-      if (!userId) throw new Error('User ID required');
-      
       const totalQuantity = parsedOrders.reduce((sum, order) => sum + order.qty, 0);
       
       if (isProduction) {
         await db.query(
-          `INSERT INTO user_orders (phone_number, name, order_type, session_id, original_message, parsed_orders, total_quantity, status, user_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [phoneNumber, name, orderType, sessionId, originalMessage, JSON.stringify(parsedOrders), totalQuantity, status, userId]
+          `INSERT INTO user_orders (phone_number, name, order_type, session_id, original_message, parsed_orders, total_quantity, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [phoneNumber, name, orderType, sessionId, originalMessage, JSON.stringify(parsedOrders), totalQuantity, status]
         );
       } else {
         const stmt = db.prepare(
-          `INSERT INTO user_orders (phone_number, name, order_type, session_id, original_message, parsed_orders, total_quantity, status, user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO user_orders (phone_number, name, order_type, session_id, original_message, parsed_orders, total_quantity, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        stmt.run(phoneNumber, name, orderType, sessionId, originalMessage, JSON.stringify(parsedOrders), totalQuantity, status, userId);
+        stmt.run(phoneNumber, name, orderType, sessionId, originalMessage, JSON.stringify(parsedOrders), totalQuantity, status);
       }
 
       if (status === 'confirmed') {
@@ -823,14 +397,11 @@ class DatabaseService {
     }
   }
 
-  async getProductTotals(userId) {
+  async getProductTotals() {
     try {
-      if (!userId) throw new Error('User ID required');
-      
       if (isProduction) {
         const result = await db.query(
-          'SELECT product, total_quantity FROM product_totals WHERE user_id = $1 AND total_quantity > 0 ORDER BY product',
-          [userId]
+          'SELECT product, total_quantity FROM product_totals WHERE total_quantity > 0 ORDER BY product'
         );
         return result.rows.reduce((acc, row) => {
           acc[row.product] = row.total_quantity;
@@ -838,9 +409,9 @@ class DatabaseService {
         }, {});
       } else {
         const stmt = db.prepare(
-          'SELECT product, total_quantity FROM product_totals WHERE user_id = ? AND total_quantity > 0 ORDER BY product'
+          'SELECT product, total_quantity FROM product_totals WHERE total_quantity > 0 ORDER BY product'
         );
-        const rows = stmt.all(userId);
+        const rows = stmt.all();
         return rows.reduce((acc, row) => {
           acc[row.product] = row.total_quantity;
           return acc;
@@ -852,14 +423,11 @@ class DatabaseService {
     }
   }
 
-  async getUserOrders(userId) {
+  async getUserOrders() {
     try {
-      if (!userId) throw new Error('User ID required');
-      
       if (isProduction) {
         const result = await db.query(
-          'SELECT * FROM user_orders WHERE user_id = $1 ORDER BY created_at DESC',
-          [userId]
+          'SELECT * FROM user_orders ORDER BY created_at DESC'
         );
         return result.rows.map(row => ({
           ...row,
@@ -868,8 +436,8 @@ class DatabaseService {
             : row.parsed_orders
         }));
       } else {
-        const stmt = db.prepare('SELECT * FROM user_orders WHERE user_id = ? ORDER BY created_at DESC');
-        const rows = stmt.all(userId);
+        const stmt = db.prepare('SELECT * FROM user_orders ORDER BY created_at DESC');
+        const rows = stmt.all();
         return rows.map(row => ({
           ...row,
           parsed_orders: JSON.parse(row.parsed_orders)
@@ -881,21 +449,19 @@ class DatabaseService {
     }
   }
 
-  async confirmUserOrder(orderId, userId) {
+  async confirmUserOrder(orderId) {
     try {
-      if (!userId) throw new Error('User ID required');
-      
       let order;
       
       if (isProduction) {
         const result = await db.query(
-          'SELECT * FROM user_orders WHERE id = $1 AND status = $2 AND user_id = $3',
-          [orderId, 'pending', userId]
+          'SELECT * FROM user_orders WHERE id = $1 AND status = $2',
+          [orderId, 'pending']
         );
         order = result.rows[0];
       } else {
-        const stmt = db.prepare('SELECT * FROM user_orders WHERE id = ? AND status = ? AND user_id = ?');
-        order = stmt.get(orderId, 'pending', userId);
+        const stmt = db.prepare('SELECT * FROM user_orders WHERE id = ? AND status = ?');
+        order = stmt.get(orderId, 'pending');
       }
 
       if (!order) {
@@ -906,17 +472,19 @@ class DatabaseService {
         ? JSON.parse(order.parsed_orders)
         : order.parsed_orders;
 
+      // Update product totals
       for (const item of parsedOrders) {
         if (item.qty > 0) {
-          await this.updateProductTotal(item.product, item.qty, userId);
+          await this.updateProductTotal(item.product, item.qty);
         }
       }
 
+      // Update order status
       if (isProduction) {
-        await db.query('UPDATE user_orders SET status = $1 WHERE id = $2 AND user_id = $3', ['confirmed', orderId, userId]);
+        await db.query('UPDATE user_orders SET status = $1 WHERE id = $2', ['confirmed', orderId]);
       } else {
-        const stmt = db.prepare('UPDATE user_orders SET status = ? WHERE id = ? AND user_id = ?');
-        stmt.run('confirmed', orderId, userId);
+        const stmt = db.prepare('UPDATE user_orders SET status = ? WHERE id = ?');
+        stmt.run('confirmed', orderId);
       }
 
       this.writeToTextFile(order.phone_number, order.name, order.order_type, parsedOrders);
@@ -928,24 +496,23 @@ class DatabaseService {
     }
   }
 
-  async cancelUserOrder(orderId, userId) {
+  async cancelUserOrder(orderId) {
     try {
-      if (!userId) throw new Error('User ID required');
-      
       let order;
       
       if (isProduction) {
-        const result = await db.query('SELECT * FROM user_orders WHERE id = $1 AND user_id = $2', [orderId, userId]);
+        const result = await db.query('SELECT * FROM user_orders WHERE id = $1', [orderId]);
         order = result.rows[0];
       } else {
-        const stmt = db.prepare('SELECT * FROM user_orders WHERE id = ? AND user_id = ?');
-        order = stmt.get(orderId, userId);
+        const stmt = db.prepare('SELECT * FROM user_orders WHERE id = ?');
+        order = stmt.get(orderId);
       }
 
       if (!order) {
         throw new Error('Order not found');
       }
 
+      // If confirmed, subtract quantities
       if (order.status === 'confirmed') {
         const parsedOrders = typeof order.parsed_orders === 'string'
           ? JSON.parse(order.parsed_orders)
@@ -953,16 +520,17 @@ class DatabaseService {
 
         for (const item of parsedOrders) {
           if (item.qty > 0) {
-            await this.updateProductTotal(item.product, -item.qty, userId);
+            await this.updateProductTotal(item.product, -item.qty);
           }
         }
       }
 
+      // Delete order
       if (isProduction) {
-        await db.query('DELETE FROM user_orders WHERE id = $1 AND user_id = $2', [orderId, userId]);
+        await db.query('DELETE FROM user_orders WHERE id = $1', [orderId]);
       } else {
-        const stmt = db.prepare('DELETE FROM user_orders WHERE id = ? AND user_id = ?');
-        stmt.run(orderId, userId);
+        const stmt = db.prepare('DELETE FROM user_orders WHERE id = ?');
+        stmt.run(orderId);
       }
 
       return { success: true };
@@ -972,14 +540,12 @@ class DatabaseService {
     }
   }
 
-  async clearProductTotals(userId) {
+  async clearProductTotals() {
     try {
-      if (!userId) throw new Error('User ID required');
-      
       if (isProduction) {
-        await db.query('UPDATE product_totals SET total_quantity = 0 WHERE user_id = $1', [userId]);
+        await db.query('UPDATE product_totals SET total_quantity = 0');
       } else {
-        db.exec(`UPDATE product_totals SET total_quantity = 0 WHERE user_id = ${userId}`);
+        db.exec('UPDATE product_totals SET total_quantity = 0');
       }
       return { success: true };
     } catch (error) {
@@ -988,14 +554,12 @@ class DatabaseService {
     }
   }
 
-  async clearUserOrders(userId) {
+  async clearUserOrders() {
     try {
-      if (!userId) throw new Error('User ID required');
-      
       if (isProduction) {
-        await db.query('DELETE FROM user_orders WHERE user_id = $1', [userId]);
+        await db.query('DELETE FROM user_orders');
       } else {
-        db.exec(`DELETE FROM user_orders WHERE user_id = ${userId}`);
+        db.exec('DELETE FROM user_orders');
       }
       return { success: true };
     } catch (error) {
@@ -1009,6 +573,360 @@ class DatabaseService {
       await db.end();
     } else {
       db.close();
+    }
+  }
+
+  // Folders methods
+  async getAllFolders() {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'SELECT * FROM folders ORDER BY name'
+        );
+        return result.rows;
+      } else {
+        const stmt = db.prepare('SELECT * FROM folders ORDER BY name');
+        return stmt.all();
+      }
+    } catch (error) {
+      console.error('❌ Error getting folders:', error);
+      throw error;
+    }
+  }
+
+  async getFolderById(id) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'SELECT * FROM folders WHERE id = $1',
+          [id]
+        );
+        return result.rows[0] || null;
+      } else {
+        const stmt = db.prepare('SELECT * FROM folders WHERE id = ?');
+        return stmt.get(id) || null;
+      }
+    } catch (error) {
+      console.error('❌ Error getting folder:', error);
+      throw error;
+    }
+  }
+
+  async createFolder(name) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'INSERT INTO folders (name) VALUES ($1) RETURNING *',
+          [name]
+        );
+        return result.rows[0];
+      } else {
+        const stmt = db.prepare(
+          'INSERT INTO folders (name) VALUES (?) RETURNING *'
+        );
+        return stmt.get(name);
+      }
+    } catch (error) {
+      console.error('❌ Error creating folder:', error);
+      throw error;
+    }
+  }
+
+  async updateFolder(id, name) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'UPDATE folders SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+          [name, id]
+        );
+        return result.rows[0];
+      } else {
+        const stmt = db.prepare(
+          'UPDATE folders SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING *'
+        );
+        return stmt.get(name, id);
+      }
+    } catch (error) {
+      console.error('❌ Error updating folder:', error);
+      throw error;
+    }
+  }
+
+  async deleteFolder(id) {
+    try {
+      if (isProduction) {
+        await db.query('DELETE FROM folders WHERE id = $1', [id]);
+      } else {
+        const stmt = db.prepare('DELETE FROM folders WHERE id = ?');
+        stmt.run(id);
+      }
+    } catch (error) {
+      console.error('❌ Error deleting folder:', error);
+      throw error;
+    }
+  }
+
+  // Clients methods
+  async getAllClients(folderId = null) {
+    try {
+      let query = 'SELECT * FROM clients';
+      let params = [];
+      
+      if (folderId !== null) {
+        query += ' WHERE folder_id = $1';
+        params = [folderId];
+      }
+      
+      query += ' ORDER BY name';
+      
+      if (isProduction) {
+        const result = await db.query(query, params);
+        return result.rows;
+      } else {
+        const stmt = db.prepare(query);
+        return stmt.all(...params);
+      }
+    } catch (error) {
+      console.error('❌ Error getting clients:', error);
+      throw error;
+    }
+  }
+
+  async addClient(client) {
+    try {
+      const { phone, name, type, answered, isChatBot, folderId } = client;
+      
+      if (isProduction) {
+        await db.query(
+          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot, folder_id)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (phone, folder_id) DO UPDATE SET
+          name = EXCLUDED.name,
+          order_type = EXCLUDED.order_type,
+          answered = EXCLUDED.answered,
+          is_chatbot = EXCLUDED.is_chatbot,
+          updated_at = CURRENT_TIMESTAMP`,
+          [phone, name, type, answered, isChatBot, folderId]
+        );
+      } else {
+        const stmt = db.prepare(
+          `INSERT INTO clients (phone, name, order_type, answered, is_chatbot, folder_id)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT (phone, folder_id) DO UPDATE SET
+          name = excluded.name,
+          order_type = excluded.order_type,
+          answered = excluded.answered,
+          is_chatbot = excluded.is_chatbot,
+          updated_at = CURRENT_TIMESTAMP`
+        );
+        stmt.run(phone, name, type, answered, isChatBot, folderId);
+      }
+      
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Error adding client:', error);
+      
+      // Provide user-friendly error messages
+      let message = error.message;
+      if (error.message.includes('unique constraint')) {
+        message = `Cliente com telefone ${client.phone} já existe nesta pasta`;
+      } else if (error.message.includes('foreign key constraint')) {
+        message = 'Pasta não encontrada';
+      }
+      
+      throw new Error(message);
+    }
+  }
+
+  async deleteClient(phone, folderId = null) {
+  try {
+    if (isProduction) {
+      if (folderId !== null) {
+        await db.query('DELETE FROM clients WHERE phone = $1 AND folder_id = $2', [phone, folderId]);
+      } else {
+        await db.query('DELETE FROM clients WHERE phone = $1', [phone]);
+      }
+    } else {
+      if (folderId !== null) {
+        const stmt = db.prepare('DELETE FROM clients WHERE phone = ? AND folder_id = ?');
+        stmt.run(phone, folderId);
+      } else {
+        const stmt = db.prepare('DELETE FROM clients WHERE phone = ?');
+        stmt.run(phone);
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error deleting client:', error);
+    throw error;
+  }
+}
+
+  async updateClientAnsweredStatus(phone, answered) {
+    try {
+      if (isProduction) {
+        await db.query(
+          'UPDATE clients SET answered = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2',
+          [answered, phone]
+        );
+      } else {
+        const stmt = db.prepare(
+          'UPDATE clients SET answered = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?'
+        );
+        stmt.run(answered, phone);
+      }
+    } catch (error) {
+      console.error('❌ Error updating client status:', error);
+      throw error;
+    }
+  }
+
+  async updateClientChatBotStatus(phone, isChatBot) {
+    try {
+      if (isProduction) {
+        await db.query(
+          'UPDATE clients SET is_chatbot = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2',
+          [isChatBot, phone]
+        );
+      } else {
+        const stmt = db.prepare(
+          'UPDATE clients SET is_chatbot = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ?'
+        );
+        stmt.run(isChatBot, phone);
+      }
+    } catch (error) {
+      console.error('❌ Error updating client chatbot status:', error);
+      throw error;
+    }
+  }
+
+  async updateClientAnsweredStatusInFolder(phone, folderId, answered) {
+  try {
+    if (isProduction) {
+      await db.query(
+        'UPDATE clients SET answered = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2 AND folder_id = $3',
+        [answered, phone, folderId]
+      );
+    } else {
+      const stmt = db.prepare(
+        'UPDATE clients SET answered = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ? AND folder_id = ?'
+      );
+      stmt.run(answered, phone, folderId);
+    }
+  } catch (error) {
+    console.error('❌ Error updating client status in folder:', error);
+    throw error;
+  }
+}
+
+  // Products methods
+  async getAllProducts() {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          'SELECT * FROM products ORDER BY name'
+        );
+        return result.rows.map(row => ({
+          id: row.id,
+          name: row.name,
+          akas: row.akas || [],
+          enabled: row.enabled
+        }));
+      } else {
+        const stmt = db.prepare('SELECT * FROM products ORDER BY name');
+        const rows = stmt.all();
+        return rows.map(row => ({
+          id: row.id,
+          name: row.name,
+          akas: JSON.parse(row.akas || '[]'),
+          enabled: row.enabled
+        }));
+      }
+    } catch (error) {
+      console.error('❌ Error getting products:', error);
+      throw error;
+    }
+  }
+
+  async addProduct(product) {
+    try {
+      if (isProduction) {
+        await db.query(
+          `INSERT INTO products (name, akas, enabled)
+          VALUES ($1, $2, $3)`,
+          [product.name, JSON.stringify(product.akas || []), product.enabled || true]
+        );
+      } else {
+        const stmt = db.prepare(
+          `INSERT INTO products (name, akas, enabled)
+          VALUES (?, ?, ?)`
+        );
+        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled || true);
+      }
+    } catch (error) {
+      console.error('❌ Error adding product:', error);
+      throw error;
+    }
+  }
+
+  async updateProduct(id, product) {
+    try {
+      if (isProduction) {
+        await db.query(
+          `UPDATE products SET 
+            name = $1,
+            akas = $2,
+            enabled = $3,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $4`,
+          [product.name, JSON.stringify(product.akas || []), product.enabled, id]
+        );
+      } else {
+        const stmt = db.prepare(
+          `UPDATE products SET 
+            name = ?,
+            akas = ?,
+            enabled = ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?`
+        );
+        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled, id);
+      }
+    } catch (error) {
+      console.error('❌ Error updating product:', error);
+      throw error;
+    }
+  }
+
+  async deleteProduct(id) {
+    try {
+      if (isProduction) {
+        await db.query('DELETE FROM products WHERE id = $1', [id]);
+      } else {
+        const stmt = db.prepare('DELETE FROM products WHERE id = ?');
+        stmt.run(id);
+      }
+    } catch (error) {
+      console.error('❌ Error deleting product:', error);
+      throw error;
+    }
+  }
+
+  async toggleProductEnabled(id, enabled) {
+    try {
+      if (isProduction) {
+        await db.query(
+          'UPDATE products SET enabled = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+          [enabled, id]
+        );
+      } else {
+        const stmt = db.prepare(
+          'UPDATE products SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        );
+        stmt.run(enabled, id);
+      }
+    } catch (error) {
+      console.error('❌ Error toggling product:', error);
+      throw error;
     }
   }
 }
