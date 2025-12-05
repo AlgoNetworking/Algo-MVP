@@ -11,6 +11,18 @@
         <div class="header">
             <h1>🤖 Bot de Pedidos WhatsApp</h1>
             <div class="subtitle">Sistema Automatizado de Gestão de Pedidos</div>
+            
+            <!-- User info and logout button -->
+            <div class="user-info-bar" style="margin-top: 15px; display: flex; justify-content: center; align-items: center; gap: 20px;">
+                <div class="user-info" style="background: rgba(255,255,255,0.2); padding: 8px 20px; border-radius: 20px; display: flex; align-items: center; gap: 10px;">
+                    <span class="user-avatar" style="width: 32px; height: 32px; background: white; color: #F0B513; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;" id="userAvatar">U</span>
+                    <span class="user-name" style="color: white; font-weight: 600;" id="userName">Usuário</span>
+                </div>
+                <button class="logout-btn" onclick="logout()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 20px; border-radius: 20px; cursor: pointer; font-weight: 600; transition: background 0.3s;">
+                    🚪 Sair
+                </button>
+            </div>
+            
             <div class="status-bar">
                 <span id="connectionStatus" class="status-badge offline">Desconectado</span>
                 <span id="lastUpdate">Última atualização: Nunca</span>
@@ -169,7 +181,6 @@
         <div id="clients" class="tab-content">
             <div class="panel">
                 <h2>👥 Gerenciar Clientes</h2>
-                <!-- <button class="btn btn-primary" onclick="addClient()">➕ Adicionar Cliente</button> -->
                 <div id="clientsList" class="clients-list"></div>
             </div>
         </div>
@@ -198,6 +209,7 @@
             </div>
         </div>        
     </div>
+    
     <!-- Custom Modal Dialog System -->
     <div id="modalOverlay" class="modal-overlay" style="display: none;">
         <div class="modal">

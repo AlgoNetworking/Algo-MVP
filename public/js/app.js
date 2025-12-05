@@ -1,5 +1,56 @@
-// Socket.IO connection
-const socket = io();
+let currentUser = null;
+
+async function checkAuthentication() {
+  try {
+    const response = await fetch('/api/check-auth');
+    const data = await response.json();
+    
+    if (!data.authenticated) {
+      window.location.href = '/login';
+      return false;
+    }
+    
+    currentUser = data.user;
+    updateUserInfo();
+    return true;
+  } catch (error) {
+    console.error('Auth check error:', error);
+    window.location.href = '/login';
+    return false;
+  }
+}
+
+function updateUserInfo() {
+  if (currentUser) {
+    const userName = document.getElementById('userName');
+    const userAvatar = document.getElementById('userAvatar');
+    
+    if (userName) {
+      userName.textContent = currentUser.username;
+    }
+    
+    if (userAvatar) {
+      userAvatar.textContent = currentUser.username.charAt(0).toUpperCase();
+    }
+  }
+}
+
+async function logout() {
+  const confirmed = await confirmAction('Sair', 'Deseja realmente sair da sua conta?');
+  if (!confirmed) return;
+  
+  try {
+    const response = await fetch('/api/auth/logout', { method: 'POST' });
+    const data = await response.json();
+    
+    if (data.success) {
+      window.location.href = '/login';
+    }
+  } catch (error) {
+    console.error('Logout error:', error);
+    customAlert('Erro', 'Erro ao fazer logout. Tente novamente.');
+  }
+}
 
 // Global variables
 let autoRefreshInterval = null;
@@ -2196,127 +2247,128 @@ async function importFromTxt() {
 }
 
 
-// Socket.IO event handlers
-socket.on('connect', () => {
-    addLog('🔌 Conectado ao servidor');
-});
+// Initialize Socket.IO with authentication
+let socket;
 
-socket.on('disconnect', () => {
+function initializeSocket() {
+  if (!currentUser) return;
+  
+  socket = io({
+    auth: {
+      userId: currentUser.id
+    }
+  });
+
+  // ... (rest of socket event handlers remain the same)
+  socket.on('connect', () => {
+    addLog('🔌 Conectado ao servidor');
+  });
+
+  socket.on('disconnect', () => {
     addLog('🔌 Desconectado do servidor');
     updateConnectionStatus(false);
-});
+  });
 
-socket.on('qr-code', (data) => {
+  socket.on('qr-code', (data) => {
     const container = document.getElementById('qrContainer');
-    container.innerHTML = `<img src="${data.qrDataUrl}" alt="QR Code" style="max-width: 300px;">`;
+    container.innerHTML = `<img src="${data.qr}" alt="QR Code" style="max-width: 300px;">`;
     addLog('📱 QR Code recebido - escaneie com WhatsApp');
-});
+  });
 
-socket.on('bot-ready', () => {
+  socket.on('bot-ready', () => {
     addLog('✅ WhatsApp conectado e pronto!');
     updateConnectionStatus(true);
     document.getElementById('sendBulkBtn').disabled = false;
     document.getElementById('disconnectBtn').disabled = false;
     document.getElementById('connectBtn').disabled = true;
-});
+  });
 
-socket.on('bot-authenticated', () => {
+  socket.on('bot-authenticated', () => {
     addLog('✅ WhatsApp autenticado');
-});
+  });
 
-socket.on('bot-error', (data) => {
+  socket.on('bot-error', (data) => {
     addLog(`❌ Erro: ${data.message}`, 'error');
-});
+  });
 
-socket.on('bot-disconnected', (data) => {
+  socket.on('bot-disconnected', (data) => {
     addLog(`🔌 WhatsApp desconectado: ${data.reason}`);
     updateConnectionStatus(false);
     document.getElementById('connectBtn').disabled = false;
     document.getElementById('disconnectBtn').disabled = true;
     document.getElementById('sendBulkBtn').disabled = true;
-});
+  });
 
-socket.on('bot-stopped', () => {
+  socket.on('bot-stopped', () => {
     addLog('🛑 Bot parado');
     updateConnectionStatus(false);
     document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens em Massa';
     document.getElementById('sendBulkBtn').disabled = true;
     document.getElementById('disconnectBtn').disabled = true;
     document.getElementById('connectBtn').disabled = false;
-});
+  });
 
-socket.on('message-received', (data) => {
+  socket.on('message-received', (data) => {
     addLog(`📩 Mensagem de ${data.from}: ${data.message.substring(0, 50)}`);
-});
+  });
 
-socket.on('user-answered-status-update', (data) => {
+  socket.on('user-answered-status-update', (data) => {
     const clientIndex = clients.findIndex(c => c.phone === data.phone);
     if (clientIndex !== -1) {
-        markAsAnswered(clientIndex);
+      markAsAnswered(clientIndex);
     }
-});
+  });
 
-socket.on('disable-bot', (data) => {
-    // Create notification when user chooses option 2
+  socket.on('disable-bot', (data) => {
     const formattedPhone = formatPhoneNumberForDisplay(data.phone);
     const user = clients.find(c => c.phone === formattedPhone);
     
     if (user) {
-        addNotification(formattedPhone, user.name);
+      addNotification(formattedPhone, user.name);
     } else {
-        // Try to find user without formatting
-        const unformattedUser = clients.find(c => {
-            const normalizedPhone = c.phone.replace(/[+\-\s]/g, '');
-            const normalizedDataPhone = data.phone.replace(/[+\-\s]/g, '');
-            return normalizedPhone.includes(normalizedDataPhone) || 
-                   normalizedDataPhone.includes(normalizedPhone);
-        });
-        
-        if (unformattedUser) {
-            addNotification(unformattedUser.phone, unformattedUser.name);
-        } else {
-            addNotification(data.phone, 'Cliente sem Nome');
-        }
+      const unformattedUser = clients.find(c => {
+        const normalizedPhone = c.phone.replace(/[+\-\s]/g, '');
+        const normalizedDataPhone = data.phone.replace(/[+\-\s]/g, '');
+        return normalizedPhone.includes(normalizedDataPhone) || 
+               normalizedDataPhone.includes(normalizedPhone);
+      });
+      
+      if (unformattedUser) {
+        addNotification(unformattedUser.phone, unformattedUser.name);
+      } else {
+        addNotification(data.phone, 'Cliente sem Nome');
+      }
     }
-    
-    // Update client chatbot status
+ 
     const clientDisableBotIndex = clients.findIndex(c => c.phone === formattedPhone);
     if (clientDisableBotIndex !== -1) {
-        disableChatBot(clientDisableBotIndex);
+      disableChatBot(clientDisableBotIndex);
     }
-});
+  });
 
-
-socket.on('bulk-message-progress', (data) => {
+  socket.on('bulk-message-progress', (data) => {
     addLog(`📤 Enviado para ${data.name} (${data.phone})`);
-    
-    // Mark as answered
-//    const clientIndex = clients.findIndex(c => c.phone === data.phone);
-//    if (clientIndex !== -1) {
-//        clients[clientIndex].answered = true;
-//        saveClients();
-//    }
-});
+  });
 
-socket.on('bulk-messages-complete', (data) => {
+  socket.on('bulk-messages-complete', (data) => {
     addLog('✅ Envio de mensagens concluído!');
     document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
     
-    // The button state will be updated by the next status check
     const successful = data.results.filter(r => r.status === 'sent').length;
     if(successful == 1) {
-        addLog(`Envio concluído!\n${successful} mensagem enviada com sucesso!`);
+      addLog(`Envio concluído!\n${successful} mensagem enviada com sucesso!`);
     }
     else if(successful > 1) {
-        addLog(`Envio concluído!\n${successful} mensagens enviadas com sucesso!`);
+      addLog(`Envio concluído!\n${successful} mensagens enviadas com sucesso!`);
     }
     renderClients();
-});
+  });
 
-socket.on('bot-status', (data) => {
+  socket.on('bot-status', (data) => {
     document.getElementById('sessionCount').textContent = data.sessions.length;
     updateConnectionStatus(data.isConnected, data.isSendingMessages, data.sendingProgress);
-});
+  });
+}
 
 // alterei umas coisas aqui pra quando o usuario reiniciar a pagina
 function updateConnectionStatus(isConnected, isSendingMessages = false, sendingProgress = null) {
@@ -2353,11 +2405,18 @@ function updateConnectionStatus(isConnected, isSendingMessages = false, sendingP
 }
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Check authentication first
+  const isAuthenticated = await checkAuthentication();
+  if (!isAuthenticated) return;
+  
+  // Initialize socket after authentication
+  initializeSocket();
+  
   addLog('🚀 Dashboard inicializado');
   setupTabs();
-  loadFolders(); // Load folders for the clients tab
-  updateFolderSelect(); // Load folders for the dropdown
+  loadFolders();
+  updateFolderSelect();
   loadProducts();
   initializeNotifications();
   initializeModal();
@@ -2365,7 +2424,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Setup button event listeners
   document.getElementById('connectBtn').addEventListener('click', connectWhatsApp);
   document.getElementById('disconnectBtn').addEventListener('click', disconnectWhatsApp);
-  // Remove the onclick from the HTML button and use event listener
   document.getElementById('sendBulkBtn').addEventListener('click', sendBulkMessages);
   document.getElementById('downloadExcelBtn').addEventListener('click', downloadExcel);
   document.getElementById('clearDbBtn').addEventListener('click', clearDatabase);
@@ -2379,11 +2437,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Status updates
 setInterval(() => {
+    if (!socket || !currentUser) return;
+    
     fetch('/api/whatsapp/status')
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                // Also get sending status
                 fetch('/api/whatsapp/sending-status')
                     .then(r => r.json())
                     .then(sendingData => {

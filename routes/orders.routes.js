@@ -6,11 +6,10 @@ const orderParser = require('../utils/order-parser');
 const ExcelJS = require('exceljs');
 const productsConfig = require('../utils/products-config');
 
-
 // Get product totals
 router.get('/totals', async (req, res) => {
   try {
-    const totals = await databaseService.getProductTotals();
+    const totals = await databaseService.getProductTotals(req.userId);
     res.json({
       success: true,
       main_orders: totals,
@@ -25,7 +24,7 @@ router.get('/totals', async (req, res) => {
 // Get user orders
 router.get('/user-orders', async (req, res) => {
   try {
-    const orders = await databaseService.getUserOrders();
+    const orders = await databaseService.getUserOrders(req.userId);
     res.json({
       success: true,
       user_orders: orders
@@ -40,7 +39,7 @@ router.get('/user-orders', async (req, res) => {
 router.post('/confirm-order', async (req, res) => {
   try {
     const { order_id } = req.body;
-    await databaseService.confirmUserOrder(order_id);
+    await databaseService.confirmUserOrder(req.userId, order_id);
     res.json({
       success: true,
       message: 'Order confirmed successfully'
@@ -55,7 +54,7 @@ router.post('/confirm-order', async (req, res) => {
 router.post('/cancel-order', async (req, res) => {
   try {
     const { order_id } = req.body;
-    await databaseService.cancelUserOrder(order_id);
+    await databaseService.cancelUserOrder(req.userId, order_id);
     res.json({
       success: true,
       message: 'Order canceled successfully'
@@ -86,8 +85,9 @@ router.post('/manual-order', async (req, res) => {
       });
     }
 
-    // Parse the order
-    const emptyDb = productsConfig.getEmptyProductsDb();
+    // Get user's products to parse order
+    const userProducts = await databaseService.getAllProducts(req.userId);
+    const emptyDb = userProducts.map(p => [[p.name, p.akas, p.enabled], 0]);
 
     const { parsedOrders, disabledProductsFound } = orderParser.parse(message, emptyDb);
 
@@ -107,6 +107,7 @@ router.post('/manual-order', async (req, res) => {
 
     // Save order
     await databaseService.saveUserOrder({
+      userId: req.userId,
       phoneNumber: phone_number,
       name: client_name,
       orderType: order_type,
@@ -119,7 +120,7 @@ router.post('/manual-order', async (req, res) => {
     // Update product totals
     for (const order of parsedOrders) {
       if (order.qty > 0) {
-        await databaseService.updateProductTotal(order.product, order.qty);
+        await databaseService.updateProductTotal(req.userId, order.product, order.qty);
       }
     }
 
@@ -143,7 +144,7 @@ router.post('/manual-order', async (req, res) => {
 // Clear product totals
 router.post('/clear-totals', async (req, res) => {
   try {
-    await databaseService.clearProductTotals();
+    await databaseService.clearProductTotals(req.userId);
     res.json({
       success: true,
       message: 'Product totals cleared'
@@ -157,7 +158,7 @@ router.post('/clear-totals', async (req, res) => {
 // Clear user orders
 router.post('/clear-user-orders', async (req, res) => {
   try {
-    await databaseService.clearUserOrders();
+    await databaseService.clearUserOrders(req.userId);
     res.json({
       success: true,
       message: 'User orders cleared'
@@ -171,7 +172,7 @@ router.post('/clear-user-orders', async (req, res) => {
 // Download Excel
 router.get('/download-excel', async (req, res) => {
   try {
-    const totals = await databaseService.getProductTotals();
+    const totals = await databaseService.getProductTotals(req.userId);
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Pedidos');

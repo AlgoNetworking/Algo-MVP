@@ -16,6 +16,7 @@ const clientsRoutes = require('./routes/clients.routes');
 const productsRoutes = require('./routes/products.routes');
 const foldersRoutes = require('./routes/folders.routes');
 const authMiddleware = require('./auth/auth.middleware');
+const authService = require('./auth/auth.service');
 
 const app = express();
 const server = http.createServer(app);
@@ -33,7 +34,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Session configuration
-app.use(session({
+const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'multi-tenant-secret-key-change-in-production',
   resave: false,
   saveUninitialized: false,
@@ -41,10 +42,15 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
-}));
+});
+
+app.use(sessionMiddleware);
 
 // Initialize database
-databaseService.initialize();
+databaseService.initialize().then(() => {
+  // Set database for auth service after initialization
+  authService.setDatabase(databaseService.getDatabase());
+});
 
 // Load products config
 const productsConfig = require('./utils/products-config');
@@ -55,15 +61,10 @@ productsConfig.loadProducts().then(() => {
 // Initialize WhatsApp service with Socket.IO
 whatsappService.initialize(io);
 
-// API Routes
+// Public routes (no authentication required)
 app.use('/api/auth', authRoutes);
-app.use('/api/orders', authMiddleware.isAuthenticated, orderRoutes);
-app.use('/api/whatsapp', authMiddleware.isAuthenticated, whatsappRoutes);
-app.use('/api/clients', authMiddleware.isAuthenticated, clientsRoutes);
-app.use('/api/products', authMiddleware.isAuthenticated, productsRoutes);
-app.use('/api/folders', authMiddleware.isAuthenticated, foldersRoutes);
 
-// Auth check endpoint
+// Auth check endpoint (no auth required to check status)
 app.get('/api/check-auth', (req, res) => {
   res.json({ 
     authenticated: !!req.session.userId,
@@ -71,21 +72,29 @@ app.get('/api/check-auth', (req, res) => {
   });
 });
 
+// Protected API routes (require authentication)
+app.use('/api/orders', authMiddleware.isAuthenticated, authMiddleware.attachUserId, orderRoutes);
+app.use('/api/whatsapp', authMiddleware.isAuthenticated, authMiddleware.attachUserId, whatsappRoutes);
+app.use('/api/clients', authMiddleware.isAuthenticated, authMiddleware.attachUserId, clientsRoutes);
+app.use('/api/products', authMiddleware.isAuthenticated, authMiddleware.attachUserId, productsRoutes);
+app.use('/api/folders', authMiddleware.isAuthenticated, authMiddleware.attachUserId, foldersRoutes);
+
 // Health check
 app.get('/health', (req, res) => {
+  const userId = req.session?.userId;
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    whatsappConnected: whatsappService.isConnected()
+    whatsappConnected: userId ? whatsappService.isConnected(userId) : false
   });
 });
 
 // Serve pages
 app.get('/', (req, res) => {
   if (req.session.userId) {
-    res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
   } else {
-    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+    res.redirect('/login');
   }
 });
 
@@ -105,11 +114,17 @@ app.get('/register', (req, res) => {
   }
 });
 
+// Socket.IO session sharing
+io.use((socket, next) => {
+  sessionMiddleware(socket.request, {}, next);
+});
+
 // Socket.IO connection handling with auth
 io.use((socket, next) => {
-  const userId = socket.handshake.auth.userId;
+  const userId = socket.request.session?.userId;
   if (userId) {
     socket.userId = userId;
+    socket.join(`user-${userId}`);
     next();
   } else {
     next(new Error('Authentication required'));

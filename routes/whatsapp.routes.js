@@ -8,7 +8,7 @@ router.post('/connect', async (req, res) => {
     const { users } = req.body;
 
     // Users should already be filtered by folder from frontend
-    const result = await whatsappService.connect(users);
+    const result = await whatsappService.connect(req.userId, users);
     res.json(result);
   } catch (error) {
     console.error('Error connecting WhatsApp:', error);
@@ -22,7 +22,7 @@ router.post('/connect', async (req, res) => {
 // Disconnect WhatsApp
 router.post('/disconnect', async (req, res) => {
   try {
-    await whatsappService.disconnect();
+    await whatsappService.disconnect(req.userId);
     res.json({
       success: true,
       message: 'WhatsApp disconnected'
@@ -49,12 +49,12 @@ router.post('/send-bulk', async (req, res) => {
     }
 
     // Start bulk sending (async)
-    whatsappService.sendBulkMessages(users)
+    whatsappService.sendBulkMessages(req.userId, users)
       .then(results => {
-        console.log('Bulk messages completed:', results);
+        console.log('Bulk messages completed for user', req.userId, ':', results);
       })
       .catch(error => {
-        console.error('Bulk messages error:', error);
+        console.error('Bulk messages error for user', req.userId, ':', error);
       });
 
     res.json({
@@ -71,10 +71,10 @@ router.post('/send-bulk', async (req, res) => {
   }
 });
 
-// Add this route to get sending status
+// Get sending status
 router.get('/sending-status', (req, res) => {
   try {
-    const status = whatsappService.getSendingStatus();
+    const status = whatsappService.getSendingStatus(req.userId);
     res.json({
       success: true,
       ...status
@@ -93,8 +93,8 @@ router.get('/status', (req, res) => {
   try {
     res.json({
       success: true,
-      isConnected: whatsappService.isConnected(),
-      sessions: whatsappService.getActiveSessions()
+      isConnected: whatsappService.isConnected(req.userId),
+      sessions: whatsappService.getActiveSessions(req.userId)
     });
   } catch (error) {
     console.error('Error getting status:', error);

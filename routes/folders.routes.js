@@ -5,7 +5,7 @@ const databaseService = require('../services/database.service');
 // Get all folders
 router.get('/', async (req, res) => {
   try {
-    const folders = await databaseService.getAllFolders();
+    const folders = await databaseService.getAllFolders(req.userId);
     res.json({
       success: true,
       folders
@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const folder = await databaseService.getFolderById(id);
+    const folder = await databaseService.getFolderById(req.userId, id);
     
     if (!folder) {
       return res.status(404).json({
@@ -51,7 +51,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const folder = await databaseService.createFolder(name.trim());
+    const folder = await databaseService.createFolder(req.userId, name.trim());
 
     res.json({
       success: true,
@@ -77,7 +77,7 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    const folder = await databaseService.updateFolder(id, name.trim());
+    const folder = await databaseService.updateFolder(req.userId, id, name.trim());
 
     if (!folder) {
       return res.status(404).json({
@@ -101,7 +101,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await databaseService.deleteFolder(id);
+    await databaseService.deleteFolder(req.userId, id);
     
     res.json({
       success: true,
