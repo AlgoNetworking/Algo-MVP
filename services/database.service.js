@@ -683,6 +683,61 @@ class DatabaseService {
 
   // Continue in next artifact with clients and products methods...
   // Clients methods with user_id
+  async getUserClients(userId) {
+    try {
+      if (isProduction) {
+        // PostgreSQL version - get all clients for the user, including folder info
+        const result = await db.query(
+          `SELECT 
+            c.*,
+            f.name as folder_name
+          FROM clients c
+          LEFT JOIN folders f ON c.folder_id = f.id
+          WHERE c.user_id = $1
+          ORDER BY c.name`,
+          [userId]
+        );
+        
+        return result.rows.map(client => ({
+          id: client.id,
+          phone: client.phone,
+          name: client.name,
+          type: client.order_type,
+          answered: client.answered,
+          isChatBot: client.is_chatbot,
+          folderId: client.folder_id,
+          folderName: client.folder_name
+        }));
+      } else {
+        // SQLite version
+        const stmt = db.prepare(`
+          SELECT 
+            c.*,
+            f.name as folder_name
+          FROM clients c
+          LEFT JOIN folders f ON c.folder_id = f.id
+          WHERE c.user_id = ?
+          ORDER BY c.name
+        `);
+        
+        const rows = stmt.all(userId);
+        return rows.map(client => ({
+          id: client.id,
+          phone: client.phone,
+          name: client.name,
+          type: client.order_type,
+          answered: client.answered,
+          isChatBot: client.is_chatbot,
+          folderId: client.folder_id,
+          folderName: client.folder_name
+        }));
+      }
+    } catch (error) {
+      console.error('❌ Error getting user clients:', error);
+      throw error;
+    }
+  }
+
   async getAllClients(userId, folderId = null) {
     try {
       if (isProduction) {

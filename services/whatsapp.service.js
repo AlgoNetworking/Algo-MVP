@@ -165,11 +165,12 @@ class WhatsAppService {
 
       // Update answered status if needed
       if (userInfo) {
+        // FIXED: Correct parameter order for updateClientAnsweredStatusInFolder
         await databaseService.updateClientAnsweredStatusInFolder(
-          phoneNumber, 
-          userInfo.folderId, 
-          true,
-          userId
+          userId,        // userId first
+          phoneNumber,   // phone
+          userInfo.folderId || null, // folderId
+          true           // answered
         );
       }
 
@@ -179,12 +180,16 @@ class WhatsAppService {
         const sessionId = uuidv4();
         userSessions.set(sender, sessionId);
         console.log(`🆕 Session created for user ${userId}: ${sessionId} for ${phoneNumber}`);
+        
+        // Start the session and ensure products are loaded
+        await orderService.startSession(sessionId, userId);
       }
 
       const sessionId = userSessions.get(sender);
 
       // Process message through order service
       const response = await orderService.processMessage({
+        userId,
         sessionId,
         message: messageBody,
         messageType: message.type,

@@ -1,11 +1,12 @@
+// services/order.service.js
 const databaseService = require('./database.service');
 const orderParser = require('../utils/order-parser');
-const productsConfig = require('../utils/products-config');
 
 class OrderSession {
-  constructor(sessionId) {
+  constructor(sessionId, userId) {
     this.sessionId = sessionId;
-    this.currentDb = this.getEmptyProducts();
+    this.userId = userId;
+    this.currentDb = []; // Will be populated async
     this.state = 'waiting_for_next';
     this.reminderCount = 0;
     this.messageQueue = [];
@@ -15,7 +16,44 @@ class OrderSession {
     this.phoneNumber = null;
     this.name = null;
     this.orderType = null;
-    this.hasDisabledProducts = false; // Add this flag
+    this.hasDisabledProducts = false;
+    this.productsLoaded = false;
+    this.loadingPromise = null; // To handle concurrent loading
+  }
+
+  // Async method to load products
+  async loadProducts() {
+    if (this.productsLoaded) return this.currentDb;
+    
+    if (this.loadingPromise) {
+      // If already loading, wait for that promise
+      return await this.loadingPromise;
+    }
+    
+    this.loadingPromise = (async () => {
+      try {
+        console.log(`🔄 Loading products for user ${this.userId} in session ${this.sessionId}`);
+        const userProducts = await databaseService.getAllProducts(this.userId);
+        
+        // Convert to format expected by order-parser
+        this.currentDb = userProducts.map(product => [
+          [product.name, product.akas || [], product.enabled],
+          0
+        ]);
+        
+        this.productsLoaded = true;
+        console.log(`✅ Loaded ${this.currentDb.length} products for user ${this.userId}`);
+        return this.currentDb;
+      } catch (error) {
+        console.error('❌ Error loading products:', error);
+        this.currentDb = [];
+        return [];
+      } finally {
+        this.loadingPromise = null;
+      }
+    })();
+    
+    return await this.loadingPromise;
   }
 
   hasEnabledItems() {
@@ -32,10 +70,6 @@ class OrderSession {
     });
   }
 
-  getEmptyProducts() {
-    return productsConfig.getEmptyProductsDb(); // Update this line
-  }
-
   hasItems() {
     return this.currentDb.some(([_, qty]) => qty > 0);
   }
@@ -47,7 +81,8 @@ class OrderSession {
   }
 
   resetCurrent() {
-    this.currentDb = this.getEmptyProducts();
+    // Reset quantities to 0 but keep products
+    this.currentDb = this.currentDb.map(([product, _]) => [product, 0]);
     this.state = 'collecting';
     this.reminderCount = 0;
     this.cancelTimer();
@@ -85,14 +120,13 @@ class OrderSession {
       
       this.state = 'confirming';
       this.reminderCount = 0;
-      const summary = this.buildSummary(enabledItems); // Pass only enabled items
+      const summary = this.buildSummary(enabledItems);
       this.messageQueue.push(summary);
       this.startReminderCycle();
     } else if (this.state === 'collecting') {
       this.startInactivityTimer();
     }
   }
-
 
   startReminderCycle() {
     this.reminderCount = 1;
@@ -115,7 +149,7 @@ class OrderSession {
     }
   }
 
-   async markAsPending() {
+  async markAsPending() {
     if (this.hasEnabledItems() && this.phoneNumber) {
       const parsedOrders = [];
       for (const [product, qty] of this.currentDb) {
@@ -126,6 +160,7 @@ class OrderSession {
       }
 
       await databaseService.saveUserOrder({
+        userId: this.userId,
         phoneNumber: this.phoneNumber,
         name: this.name,
         orderType: this.orderType,
@@ -148,7 +183,7 @@ class OrderSession {
     for (const [product, qty] of itemsToShow) {
       if (qty > 0) {
         const [mainName, akas, enabled] = product;
-        if (enabled) { // Only show enabled products in summary
+        if (enabled) {
           summary += `• ${mainName}: ${qty}\n`;
         }
       }
@@ -165,6 +200,16 @@ class OrderSession {
   getPendingMessage() {
     return this.messageQueue.shift() || null;
   }
+
+  // Helper to get product names for examples
+  getProductNames() {
+    return this.currentDb
+      .map(([product, _]) => {
+        const [name, akas, enabled] = product;
+        return enabled ? name : null;
+      })
+      .filter(name => name !== null);
+  }
 }
 
 class OrderService {
@@ -172,21 +217,27 @@ class OrderService {
     this.sessions = new Map();
   }
 
-  getSession(sessionId) {
+  getSession(sessionId, userId) {
     if (!this.sessions.has(sessionId)) {
-      this.sessions.set(sessionId, new OrderSession(sessionId));
+      this.sessions.set(sessionId, new OrderSession(sessionId, userId));
     }
     return this.sessions.get(sessionId);
   }
 
-  async startSession(sessionId) {
-    const session = this.getSession(sessionId);
+  async startSession(sessionId, userId) {
+    const session = this.getSession(sessionId, userId);
+    await session.loadProducts(); // Ensure products are loaded
     session.state = 'collecting';
     return { success: true };
   }
 
-  async processMessage({ sessionId, message, messageType, phoneNumber, name, orderType }) {
-    const session = this.getSession(sessionId);
+  async processMessage({ userId, sessionId, message, messageType, phoneNumber, name, orderType }) {
+    const session = this.getSession(sessionId, userId);
+    
+    // Ensure products are loaded before processing
+    if (!session.productsLoaded) {
+      await session.loadProducts();
+    }
     
     if (phoneNumber) session.phoneNumber = phoneNumber;
     if (name) session.name = name;
@@ -231,16 +282,32 @@ class OrderService {
         session.state = 'collecting';
         session.startInactivityTimer();
 
-        const products = productsConfig.PRODUCTS;
+        // Get user's product names for example
+        const productNames = session.getProductNames();
         
-            const idx1 = Math.floor(Math.random() * products.length);
-            const idx2 = Math.floor(Math.random() * products.length);
-            const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
+        if (productNames.length === 0) {
+          return {
+            success: false,
+            message: '❌ Não há produtos disponíveis no momento. Por favor, entre em contato conosco.',
+            isChatBot: true
+          };
+        }
         
-            const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0]}`;
+        let example = '';
+        if (productNames.length >= 2) {
+          const idx1 = Math.floor(Math.random() * productNames.length);
+          let idx2 = Math.floor(Math.random() * productNames.length);
+          while (idx2 === idx1 && productNames.length > 1) {
+            idx2 = Math.floor(Math.random() * productNames.length);
+          }
+          example = `${Math.floor(Math.random() * 10) + 1} ${productNames[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${productNames[idx2]}`;
+        } else {
+          example = `${Math.floor(Math.random() * 10) + 1} ${productNames[0]}`;
+        }
+        
         return {
           success: true,
-          message: `Ótimo! Digite seus pedidos. Exemplo: \"${example}\"\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!`,
+          message: `Ótimo! Digite seus pedidos. Exemplo: "${example}"\ndigite "pronto" quando terminar seu pedido ou aguarde a mensagem automática!`,
           isChatBot: true
         };
       } else if (messageLower === '2') {
@@ -248,48 +315,68 @@ class OrderService {
         session.state = 'waiting_for_next';
         return {
           success: true,
-          message: 'Ok, assim que podermos terá uma resposta!\n\n(digite \"sair\" caso queira voltar a conversar com o bot)',
+          message: 'Ok, assim que podermos terá uma resposta!\n\n(digite "sair" caso queira voltar a conversar com o bot)',
           isChatBot: false
         };
       } else if (messageLower === '3') {
         const okay = name !== 'Cliente sem nome' ? `Certo, ${name}. Aqui` : 'Certo, aqui';
         session.waitingForOption = true;
         session.state = 'option';
+        
         let productList = `${okay} está nossa lista de produtos!\n\n`;
-        for (const item of session.currentDb) {
-          productList += `- ${item[0][0]} \n`;
+        let hasProducts = false;
+        
+        for (const [product, qty] of session.currentDb) {
+          const [productName, akas, enabled] = product;
+          if (enabled) {
+            productList += `• ${productName}\n`;
+            hasProducts = true;
+          }
         }
-        productList += '\nE agora? Você deseja:\nrealizar um pedido (digite "*1*");\ntirar uma dúvida com uma pessoa (digite "*2*");\nver novamente a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?'
+        
+        if (!hasProducts) {
+          productList += 'Nenhum produto disponível no momento.\n';
+        }
+        
+        productList += '\nE agora? Você deseja:\nrealizar um pedido (digite "*1*");\ntirar uma dúvida com uma pessoa (digite "*2*");\nver novamente a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?';
+        
         return {
           success: true,
           message: productList,
           isChatBot: true
-        }
+        };
       } else if (messageLower === '4') {
-
-        const products = productsConfig.PRODUCTS;
-    
-        const idx1 = Math.floor(Math.random() * products.length);
-        const idx2 = Math.floor(Math.random() * products.length);
-        const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
-    
-        const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0]}`;
+        // Get product names for example
+        const productNames = session.getProductNames();
+        let example = '';
+        
+        if (productNames.length >= 2) {
+          const idx1 = Math.floor(Math.random() * productNames.length);
+          let idx2 = Math.floor(Math.random() * productNames.length);
+          while (idx2 === idx1 && productNames.length > 1) {
+            idx2 = Math.floor(Math.random() * productNames.length);
+          }
+          example = `${Math.floor(Math.random() * 10) + 1} ${productNames[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${productNames[idx2]}`;
+        } else if (productNames.length === 1) {
+          example = `${Math.floor(Math.random() * 10) + 1} ${productNames[0]}`;
+        } else {
+          example = '2 mangas e 3 queijos';
+        }
 
         session.waitingForOption = true;
         session.state = 'option';
         let info = 'Ok, aqui temos instruções de como utilizar o programa e mais sobre ele!\n\n';
         info += 'O programa oferece quatro opções quando está no menu inicial: "*1*" para realizar um pedido, "*2*" para tirar uma dúvida com uma pessoa, "*3*" para ver a lista de produtos e "*4*" para ler a mensagem que você está lendo agora.\n\n';
         info += `Para realizar um pedido, basta digitar mensagens de texto de forma natural, como: ${example}. Pois o programa consegue entender mensagens em linguagem natural.\n\n`;
-        info += 'O programa foi feito por Guilherme Moura Mororó e amigos para originalmente ajudar a empresa de seus avós. No entanto, ainda está em fase de testes e pode ser adicionado ao seu negócio gratuitamente. Basta contatar o número (+55 85 7400-2430) e recebrá mais informações sobre o produto.\n\n'
-        info += 'E agora? Você deseja:\nrealizar um pedido (digite "*1*");\ntirar uma dúvida com uma pessoa (digite "*2*");\nler a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo novamente(digite "*4*")?'
+        info += 'O programa foi feito por Guilherme Moura Mororó e amigos para originalmente ajudar a empresa de seus avós. No entanto, ainda está em fase de testes e pode ser adicionado ao seu negócio gratuitamente. Basta contatar o número (+55 85 7400-2430) e recebrá mais informações sobre o produto.\n\n';
+        info += 'E agora? Você deseja:\nrealizar um pedido (digite "*1*");\ntirar uma dúvida com uma pessoa (digite "*2*");\nler a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo novamente(digite "*4*")?';
+        
         return {
           success: true,
           message: info,
           isChatBot: true
-        }
-      } 
-      
-      else {
+        };
+      } else {
         return {
           success: false,
           message: 'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para tirar uma dúvida com uma pessoa;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo',
@@ -350,14 +437,14 @@ class OrderService {
           };
         }
         
-        // Rest of confirmation logic remains the same...
+        // Rest of confirmation logic
         session.cancelTimer();
         const confirmedOrder = session.getCurrentOrders();
 
         // Update database
         for (const [product, quantity] of Object.entries(confirmedOrder)) {
           if (quantity > 0) {
-            await databaseService.updateProductTotal(product, quantity);
+            await databaseService.updateProductTotal(userId, product, quantity);
           }
         }
 
@@ -372,6 +459,7 @@ class OrderService {
           }
 
           await databaseService.saveUserOrder({
+            userId,
             phoneNumber: session.phoneNumber,
             name: session.name,
             orderType: session.orderType,
@@ -466,7 +554,6 @@ class OrderService {
           });
           
 
-          // console.log(hasDisabledProducts); aparentemente isso aqui embaixo nunca vai ser usado
           if (hasDisabledProducts) {
             // Remove disabled products and keep only enabled ones
             const filteredDb = [];
@@ -549,7 +636,7 @@ class OrderService {
           session.startInactivityTimer();
           return {
             success: false,
-            message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. Se desejar cancelar o pedido, digite \"cancelar\".',
+            message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. Se desejar cancelar o pedido, digite "cancelar".',
             isChatBot: true
           };
         }
@@ -559,8 +646,13 @@ class OrderService {
     return { success: false, message: 'Estado não reconhecido. Digite \'cancelar\' para reiniciar.', isChatBot: true};
   }
 
-  async getUpdates(sessionId) {
-    const session = this.getSession(sessionId);
+  async getUpdates(sessionId, userId) {
+    const session = this.getSession(sessionId, userId);
+    // Ensure products are loaded
+    if (!session.productsLoaded) {
+      await session.loadProducts();
+    }
+    
     const message = session.getPendingMessage();
     
     return {
@@ -572,8 +664,8 @@ class OrderService {
     };
   }
 
-  getSessionInfo(sessionId) {
-    const session = this.getSession(sessionId);
+  getSessionInfo(sessionId, userId) {
+    const session = this.getSession(sessionId, userId);
     return {
       state: session.state,
       hasItems: session.hasItems(),

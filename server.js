@@ -52,11 +52,13 @@ databaseService.initialize().then(() => {
   authService.setDatabase(databaseService.getDatabase());
 });
 
+/*
 // Load products config
 const productsConfig = require('./utils/products-config');
 productsConfig.loadProducts().then(() => {
   console.log('✅ Products config loaded');
 });
+*/
 
 // Initialize WhatsApp service with Socket.IO
 whatsappService.initialize(io);
@@ -111,6 +113,31 @@ app.get('/register', (req, res) => {
     res.redirect('/');
   } else {
     res.sendFile(path.join(__dirname, 'public', 'register.html'));
+  }
+});
+
+// server.js - Update the auth check endpoint
+app.get('/api/check-auth', async (req, res) => {
+  try {
+    if (req.session.userId) {
+      // Load user-specific products when checking auth
+      await productsConfig.loadUserProducts(req.session.userId);
+      res.json({ 
+        authenticated: true,
+        user: req.session.user
+      });
+    } else {
+      res.json({ 
+        authenticated: false,
+        user: null
+      });
+    }
+  } catch (error) {
+    console.error('Error checking auth:', error);
+    res.json({ 
+      authenticated: false,
+      user: null
+    });
   }
 });
 
