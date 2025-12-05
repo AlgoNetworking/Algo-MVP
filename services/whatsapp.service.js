@@ -2,49 +2,42 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const { v4: uuidv4 } = require('uuid');
 const orderService = require('./order.service');
-const { format } = require('mathjs');
-const productsConfig = require('../utils/products-config');
 const databaseService = require('./database.service');
 
 class WhatsAppService {
   constructor() {
-    this.client = null;
+    this.clients = new Map(); // userId -> client
+    this.userSessions = new Map(); // userId -> userSessions map
     this.io = null;
-    this.userSessions = new Map();
-    this.isRunning = false;
-    this.pollingInterval = null;
-    this.clientUsers = [];
-    this.disabledUsers = new Set(); // 🔒 NEW: Track users who disabled bot
-    this.isSendingMessages = false; // Add this
-    this.bulkMessageProgress = null; // Add this to track progress
+    this.userQRCodes = new Map(); // userId -> QR code
+    this.disabledUsers = new Map(); // userId -> Set of disabled phone numbers
+    this.sendingStatus = new Map(); // userId -> sending status
   }
 
   initialize(io) {
     this.io = io;
-    console.log('📱 WhatsApp Service initialized');
+    console.log('📱 WhatsApp Service initialized for multi-tenant');
   }
 
-  async connect(users = null) {
-    if (this.isRunning) {
-      throw new Error('WhatsApp client already running');
-    }
-
+  async connect(userId, users = null) {
     try {
-      this.disabledUsers.clear();
-      console.log('🔄 Cleared disabled users list for fresh connection');
-
-      // If users provided, use them (they should already be filtered by folder)
-      this.clientUsers = users || [];
-
-      if (this.clientUsers.length === 0) {
-        console.log('⚠️ No clients to connect with');
-      } else {
-        console.log(`📋 Loaded ${this.clientUsers.length} clients for WhatsApp connection`);
+      // Clean up previous client if exists
+      if (this.clients.has(userId)) {
+        await this.disconnect(userId);
       }
 
-      this.client = new Client({
+      // Clear disabled users for this user
+      this.disabledUsers.set(userId, new Set());
+
+      // Initialize sending status
+      this.sendingStatus.set(userId, {
+        isSendingMessages: false,
+        progress: null
+      });
+
+      const client = new Client({
         authStrategy: new LocalAuth({
-          dataPath: './whatsapp-session'
+          clientId: `user-${userId}` // Unique session per user
         }),
         puppeteer: {
           headless: true,
@@ -60,165 +53,135 @@ class WhatsAppService {
         }
       });
 
-      this.setupEventHandlers();
-      await this.client.initialize();
-      this.isRunning = true;
-      this.startPolling();
+      this.clients.set(userId, client);
+      this.userSessions.set(userId, new Map());
+
+      this.setupEventHandlers(userId, client);
+
+      await client.initialize();
       
       return { success: true, message: 'WhatsApp client starting...' };
     } catch (error) {
-      console.error('❌ Failed to connect WhatsApp:', error);
-      this.isRunning = false;
+      console.error('❌ Failed to connect WhatsApp for user', userId, error);
       throw error;
     }
   }
 
-  setupEventHandlers() {
-    this.client.on('qr', async (qr) => {
-      console.log('📱 QR Code received');
+  setupEventHandlers(userId, client) {
+    client.on('qr', async (qr) => {
+      console.log('📱 QR Code received for user:', userId);
       try {
         const qrDataUrl = await qrcode.toDataURL(qr);
+        this.userQRCodes.set(userId, qrDataUrl);
+        
         if (this.io) {
-          this.io.emit('qr-code', { qr, qrDataUrl });
+          // Emit to this specific user's sockets
+          this.io.to(`user-${userId}`).emit('qr-code', { 
+            qr: qrDataUrl,
+            userId 
+          });
         }
       } catch (error) {
         console.error('❌ QR code generation error:', error);
       }
     });
 
-    this.client.on('ready', () => {
-      console.log('✅ WhatsApp client ready');
+    client.on('ready', () => {
+      console.log('✅ WhatsApp client ready for user:', userId);
+      this.userQRCodes.delete(userId);
+      
       if (this.io) {
-        this.io.emit('bot-ready', {
-          clientInfo: this.client.info
+        this.io.to(`user-${userId}`).emit('bot-ready', {
+          userId,
+          clientInfo: client.info
         });
       }
     });
 
-    this.client.on('authenticated', () => {
-      console.log('✅ WhatsApp authenticated');
+    client.on('authenticated', () => {
+      console.log('✅ WhatsApp authenticated for user:', userId);
       if (this.io) {
-        this.io.emit('bot-authenticated');
+        this.io.to(`user-${userId}`).emit('bot-authenticated', { userId });
       }
     });
 
-    this.client.on('auth_failure', (msg) => {
-      console.error('❌ Authentication failed:', msg);
-      if (this.io) {
-        this.io.emit('bot-error', { message: 'Authentication failed', error: msg });
-      }
-    });
-
-    this.client.on('disconnected', (reason) => {
-      console.log('🔌 Client disconnected:', reason);
-      this.isRunning = false;
-      this.stopPolling();
-      if (this.io) {
-        this.io.emit('bot-disconnected', { reason });
-      }
-    });
-
-    // In the message event handler in whatsapp.service.js
-    this.client.on('message', async (message) => {      
-      const chat = await message.getChat();
-      const formattedSenderPhone = this.formatPhoneNumber(message.from); 
-      const fromUser = this.findUserInfo(formattedSenderPhone);
+    client.on('auth_failure', (msg) => {
+      console.error('❌ Authentication failed for user:', userId, msg);
+      this.userQRCodes.delete(userId);
       
-      // More comprehensive filtering of system messages
-      if(!(message.from === 'status@broadcast' || 
-          message.fromMe || 
-          chat.isGroup ||
-          message.type === 'ack' || // Delivery receipts
-          message.type === 'protocol' || // System messages
-          message.type === 'e2e_notification' ||
-          message.isStatus)) { // Status updates
-        await this.handleMessage(message);
-
-        if (this.io) {
-          this.io.emit('user-answered-status-update', {
-            phone: formattedSenderPhone
-          });
-        }
+      if (this.io) {
+        this.io.to(`user-${userId}`).emit('bot-error', { 
+          message: 'Authentication failed', 
+          error: msg,
+          userId 
+        });
       }
+    });
+
+    client.on('disconnected', (reason) => {
+      console.log('🔌 WhatsApp disconnected for user:', userId, 'Reason:', reason);
+      this.clients.delete(userId);
+      this.userSessions.delete(userId);
+      this.userQRCodes.delete(userId);
+      this.disabledUsers.delete(userId);
+      this.sendingStatus.delete(userId);
+      
+      if (this.io) {
+        this.io.to(`user-${userId}`).emit('bot-disconnected', { 
+          reason,
+          userId 
+        });
+      }
+    });
+
+    // Message handler
+    client.on('message', async (message) => {
+      await this.handleMessage(userId, message);
     });
   }
 
-  async handleMessage(message) {
+  async handleMessage(userId, message) {
     try {
       const sender = message.from;
       const messageBody = message.body;
       const phoneNumber = this.formatPhoneNumber(sender);
 
-      // 🔒 CRITICAL: Skip processing if user previously chose to talk to a person
-      if (this.disabledUsers.has(sender)) {
-        if(messageBody === 'sair') {
-          console.log(`✅ Enabling bot for user: ${phoneNumber}`);
-          this.disabledUsers.delete(sender);
+      // Get user's disabled users
+      const userDisabled = this.disabledUsers.get(userId) || new Set();
+      if (userDisabled.has(sender)) {
+        if (messageBody === 'sair') {
+          console.log(`✅ Enabling bot for user ${userId}: ${phoneNumber}`);
+          userDisabled.delete(sender);
+          return;
+        } else {
+          console.log(`⏸️ Skipping message from ${phoneNumber} - user chose to talk to person`);
           return;
         }
-        else {
-          console.log(`⏸️ Skipping message from ${phoneNumber} - user previously chose to talk to person`);
-          return;
-        }
       }
 
-      // 🚨 NEW: Skip messages that were sent before the bot started
-      // More robust approach with additional checks
-      const messageTimestamp = message.timestamp * 1000; // Convert to milliseconds
-      const currentTime = Date.now();
-      const botStartTime = this.botStartTime || currentTime;
-      
-      // Additional safety margin of 10 seconds to account for timing differences
-      const safetyMargin = 10000; // 10 seconds
-      
-      if (messageTimestamp < (botStartTime - safetyMargin)) {
-          console.log(`⏪ Skipping old message from ${phoneNumber} - sent ${Math.round((botStartTime - messageTimestamp) / 1000)}s before bot started`);
-          console.log(`   Message time: ${new Date(messageTimestamp).toISOString()}`);
-          console.log(`   Bot start: ${new Date(botStartTime).toISOString()}`);
-          return;
-      }
+      // Get user's clients from their folder
+      const clientUsers = await databaseService.getUserClients(userId);
+      const userInfo = this.findUserInfo(clientUsers, phoneNumber);
 
-      // Also skip messages with future timestamps (more than 30 seconds in future)
-      if (messageTimestamp > (currentTime + 30000)) {
-          console.log(`⏩ Skipping future message from ${phoneNumber} - timestamp in future`);
-          return;
-      }
-
-      console.log(`📩 Message from ${phoneNumber}: Type: ${message.type}, Body: ${messageBody}`);
-
-      /*
-      // 🔒 CRITICAL: Skip processing if user previously chose to talk to a person
-      if (this.disabledUsers.has(sender)) {
-        console.log(`⏸️ Skipping message from ${phoneNumber} - user previously chose to talk to person`);
-        return; // Don't process the message at all
-      }
-      */
-
-      // Find user info
-      const userInfo = this.findUserInfo(phoneNumber);
-    
-      // 🔥 CRITICAL FIX: Mark client as answered when they send any message
+      // Update answered status if needed
       if (userInfo) {
-        // We need to find the folderId for this client
-        const client = this.clientUsers.find(u => u.phone === phoneNumber);
-        if (client && client.folderId) {
-          try {
-            await databaseService.updateClientAnsweredStatusInFolder(phoneNumber, client.folderId, true);
-            console.log(`✅ Marked ${phoneNumber} as answered in folder ${client.folderId}`);
-          } catch (error) {
-            console.error('❌ Error updating answered status:', error);
-          }
-        }
-      }
-      
-      // Get or create session
-      if (!this.userSessions.has(sender)) {
-        const sessionId = uuidv4();
-        this.userSessions.set(sender, sessionId);
-        console.log(`🆕 Session created: ${sessionId} for ${phoneNumber}`);
+        await databaseService.updateClientAnsweredStatusInFolder(
+          phoneNumber, 
+          userInfo.folderId, 
+          true,
+          userId
+        );
       }
 
-      const sessionId = this.userSessions.get(sender);
+      // Get or create session
+      const userSessions = this.userSessions.get(userId);
+      if (!userSessions.has(sender)) {
+        const sessionId = uuidv4();
+        userSessions.set(sender, sessionId);
+        console.log(`🆕 Session created for user ${userId}: ${sessionId} for ${phoneNumber}`);
+      }
+
+      const sessionId = userSessions.get(sender);
 
       // Process message through order service
       const response = await orderService.processMessage({
@@ -226,86 +189,63 @@ class WhatsAppService {
         message: messageBody,
         messageType: message.type,
         phoneNumber: sender,
-        name: userInfo.name,
-        orderType: userInfo.type
+        name: userInfo?.name,
+        orderType: userInfo?.type
       });
 
       // Send response if available
       if (response && response.message) {
-        await this.sendMessage(sender, response.message);
+        await this.sendMessage(userId, sender, response.message);
       }
 
-      // 🔒 NEW: If user chose option 2, add them to disabled list
+      // Handle user choosing to talk to person
       if (response && response.isChatBot === false) {
-        console.log(`🚫 Disabling bot for user: ${phoneNumber}`);
-        this.disabledUsers.add(sender);
+        console.log(`🚫 Disabling bot for user ${userId}: ${phoneNumber}`);
+        userDisabled.add(sender);
         
-        // Also update frontend via socket
         if (this.io) {
-          this.io.emit('disable-bot', {
-            phone: phoneNumber
+          this.io.to(`user-${userId}`).emit('disable-bot', {
+            phone: phoneNumber,
+            userId
           });
         }
       }
 
-      // Emit to connected clients
-      /*
-      if (this.io) {
-        this.io.emit('message-received', {
-          from: phoneNumber,
-          message: messageBody,
-          timestamp: new Date()
-        });
-      }
-      */
-
     } catch (error) {
-      console.error('❌ Error handling message:', error);
-      await this.sendMessage(message.from, '❌ Ocorreu um erro. Tente novamente.');
+      console.error('❌ Error handling message for user', userId, error);
+      await this.sendMessage(userId, message.from, '❌ Ocorreu um erro. Tente novamente.');
     }
   }
 
-
-  findUserInfo(phoneNumber) {
-    const user = this.clientUsers.find(u => u.phone === phoneNumber);
-    return user || null;
-  }
-
-  formatPhoneNumber(whatsappId) {
-    // Convert from "5585999999999@c.us" to "+55 85 99999-9999"
-    const numbers = whatsappId.replace('@c.us', '');
-    if (numbers.length >= 12) {
-      return `+${numbers.slice(0, 2)} ${numbers.slice(2, 4)} ${numbers.slice(4, 8)}-${numbers.slice(8, 12)}`;
-    }
-    return numbers;
-  }
-
-  async sendMessage(recipient, message) {
-    if (!this.isRunning || !this.client) {
-      console.log('🛑 Cannot send message: Bot not running');
+  async sendMessage(userId, recipient, message) {
+    const client = this.clients.get(userId);
+    if (!client) {
+      console.log('🛑 Cannot send message: No client for user', userId);
       return false;
     }
 
     try {
       if (message && message.trim()) {
-        await this.client.sendMessage(recipient, message);
-        console.log(`✅ Message sent to ${recipient}`);
+        await client.sendMessage(recipient, message);
+        console.log(`✅ Message sent from user ${userId} to ${recipient}`);
         return true;
       }
       return false;
     } catch (error) {
-      console.error('❌ Error sending message:', error);
+      console.error('❌ Error sending message for user', userId, error);
       return false;
     }
   }
 
-  async sendBulkMessages(users) {
-    if (!this.isRunning) {
-      throw new Error('Bot not running');
+  async sendBulkMessages(userId, users) {
+    const client = this.clients.get(userId);
+    if (!client) {
+      throw new Error('Bot not running for user ' + userId);
     }
 
-    this.isSendingMessages = true;
-    this.bulkMessageProgress = {
+    const status = this.sendingStatus.get(userId);
+    status.isSendingMessages = true;
+    status.progress = {
       total: users.length,
       sent: 0,
       failed: 0,
@@ -315,46 +255,45 @@ class WhatsAppService {
     const results = [];
 
     for (const user of users) {
-      if (this.isRunning) {
+      if (status.isSendingMessages) {
         try {
-          // 🔥 IMPORTANT: Skip if already answered
           if (user.answered) {
-            console.log(`⏭️ Skipping ${user.phone} - already answered`);
             results.push({ phone: user.phone, status: 'skipped', reason: 'Already answered' });
-            this.bulkMessageProgress.skipped++;
+            status.progress.skipped++;
             continue;
           }
 
           const phoneId = user.phone.replace(/[+\-\s]/g, '') + '@c.us';
+          const numberId = await client.getNumberId(phoneId);
           
-          // Verify number exists
-          const numberId = await this.client.getNumberId(phoneId);
           if (!numberId) {
             results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
-            this.bulkMessageProgress.failed++;
+            status.progress.failed++;
             continue;
           }
 
-          // Create session
-          if (!this.userSessions.has(phoneId)) {
+          // Create session if not exists
+          const userSessions = this.userSessions.get(userId);
+          if (!userSessions.has(phoneId)) {
             const sessionId = uuidv4();
-            this.userSessions.set(phoneId, sessionId);
+            userSessions.set(phoneId, sessionId);
             await orderService.startSession(sessionId);
           }
 
           // Send initial message
           const message = this.generateInitialMessage(user.name);
-          await this.sendMessage(phoneId, message);
+          await this.sendMessage(userId, phoneId, message);
 
           results.push({ phone: user.phone, status: 'sent' });
-          this.bulkMessageProgress.sent++;
+          status.progress.sent++;
 
           // Emit progress
           if (this.io) {
-            this.io.emit('bulk-message-progress', {
+            this.io.to(`user-${userId}`).emit('bulk-message-progress', {
               phone: user.phone,
               name: user.name,
-              progress: this.bulkMessageProgress
+              progress: status.progress,
+              userId
             });
           }
 
@@ -363,158 +302,112 @@ class WhatsAppService {
           await new Promise(resolve => setTimeout(resolve, delay));
 
         } catch (error) {
-          console.error(`❌ Error sending to ${user.phone}:`, error);
+          console.error(`❌ Error sending to ${user.phone} for user ${userId}:`, error);
           results.push({ phone: user.phone, status: 'failed', reason: error.message });
-          this.bulkMessageProgress.failed++;
+          status.progress.failed++;
         }
       } else {
-        console.log("Envio de mensagens interrompido pelo desligamento do bot.");
+        console.log(`Envio de mensagens interrompido para usuário ${userId}`);
         break;
       }
     }
 
-    this.isSendingMessages = false;
-    this.bulkMessageProgress = null;
+    status.isSendingMessages = false;
+    status.progress = null;
 
     if (this.io) {
-      this.io.emit('bulk-messages-complete', { results });
+      this.io.to(`user-${userId}`).emit('bulk-messages-complete', { 
+        results,
+        userId 
+      });
     }
 
     return results;
   }
 
-  getSendingStatus() {
-    return {
-      isSendingMessages: this.isSendingMessages,
-      progress: this.bulkMessageProgress
+  getSendingStatus(userId) {
+    return this.sendingStatus.get(userId) || {
+      isSendingMessages: false,
+      progress: null
     };
   }
 
+  async disconnect(userId) {
+    try {
+      const client = this.clients.get(userId);
+      if (client) {
+        await client.destroy();
+      }
+      
+      this.clients.delete(userId);
+      this.userSessions.delete(userId);
+      this.userQRCodes.delete(userId);
+      this.disabledUsers.delete(userId);
+      this.sendingStatus.delete(userId);
+      
+      console.log('✅ WhatsApp disconnected for user:', userId);
+      
+      if (this.io) {
+        this.io.to(`user-${userId}`).emit('bot-stopped', { userId });
+      }
+    } catch (error) {
+      console.error('❌ Error disconnecting WhatsApp for user', userId, error);
+    }
+  }
+
+  async disconnectAll() {
+    const promises = Array.from(this.clients.keys()).map(userId => 
+      this.disconnect(userId)
+    );
+    await Promise.all(promises);
+  }
+
+  isConnected(userId) {
+    const client = this.clients.get(userId);
+    return client !== undefined && client !== null;
+  }
+
+  getActiveSessions(userId) {
+    const userSessions = this.userSessions.get(userId);
+    if (!userSessions) return [];
+    
+    return Array.from(userSessions.entries()).map(([phone, sessionId]) => ({
+      phone: this.formatPhoneNumber(phone),
+      sessionId
+    }));
+  }
+
+  getQRCode(userId) {
+    return this.userQRCodes.get(userId);
+  }
+
+  // Helper methods
+  findUserInfo(users, phoneNumber) {
+    return users.find(u => u.phone === phoneNumber) || null;
+  }
+
+  formatPhoneNumber(whatsappId) {
+    const numbers = whatsappId.replace('@c.us', '');
+    if (numbers.length >= 12) {
+      return `+${numbers.slice(0, 2)} ${numbers.slice(2, 4)} ${numbers.slice(4, 8)}-${numbers.slice(8, 12)}`;
+    }
+    return numbers;
+  }
+
   generateInitialMessage(userName) {
+    // Same as before but simplified
     const user = userName !== 'Cliente sem nome' ? ' ' + userName : '';
     const messages = [
-      `Opa${user}! Estamos no aguardo do seu pedido!`, 
+      `Opa${user}! Estamos no aguardo do seu pedido!`,
       `Olá${user}! Estamos no aguardo do seu pedido!`,
-      `Oi${user}! Estamos no aguardo do seu pedido!`,
-      `Opa${user}! Já estamos no aguardo do seu pedido!`,
-      `Olá${user}! Já estamos no aguardo do seu pedido!`,
-      `Oi${user}! Já estamos no aguardo do seu pedido!`,
-      `Opa${user}! Já estamos no aguardo do pedido!`,
-      `Olá${user}! Já estamos no aguardo do pedido!`,
-      `Oi${user}! Já estamos no aguardo do pedido!`,
-      `Opa${user}! Estamos aguardando o pedido!`,
-      `Olá${user}! Estamos aguardando o pedido!`,
-      `Oi${user}! Estamos aguardando o pedido!`,
-      `Opa${user}! Já estamos aguardando o pedido!`,
-      `Olá${user}! Já estamos aguardando o pedido!`,
-      `Oi${user}! Já estamos aguardando o pedido!`,
-      // "nós" section
-      `Opa${user}! Nós estamos no aguardo do seu pedido!`, 
-      `Olá${user}! Nós estamos no aguardo do seu pedido!`,
-      `Oi${user}! Nós estamos no aguardo do seu pedido!`,
-      `Opa${user}! Nós já estamos no aguardo do seu pedido!`,
-      `Olá${user}! Nós já estamos no aguardo do seu pedido!`,
-      `Oi${user}! Nós já estamos no aguardo do seu pedido!`,
-      `Opa${user}! Nós já estamos no aguardo do pedido!`,
-      `Olá${user}! Nós já estamos no aguardo do pedido!`,
-      `Oi${user}! Nós já estamos no aguardo do pedido!`,
-      `Opa${user}! Nós estamos aguardando o pedido!`,
-      `Olá${user}! Nós estamos aguardando o pedido!`,
-      `Oi${user}! Nós estamos aguardando o pedido!`,
-      `Opa${user}! Nós já estamos aguardando o pedido!`,
-      `Olá${user}! Nós já estamos aguardando o pedido!`,
-      `Oi${user}! Nós já estamos aguardando o pedido!`
+      `Oi${user}! Estamos no aguardo do seu pedido!`
     ];
-
-    const products = productsConfig.PRODUCTS;
-
-    const idx1 = Math.floor(Math.random() * products.length);
-    const idx2 = Math.floor(Math.random() * products.length);
-    const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
-
-    const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0]}`;
+    
+    const example = "2 mangas e 3 queijos";
     let warning = `\n\n(Isto é uma mensagem automática para a sua conveniência 😊, digite naturalmente como: ${example})`;
     warning += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!';
 
     return messages[Math.floor(Math.random() * messages.length)] + warning;
-  }
-
-  startPolling() {
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
-    }
-
-    this.pollingInterval = setInterval(async () => {
-      if (!this.isRunning) return;
-
-      try {
-        for (const [phone, sessionId] of this.userSessions.entries()) {
-          try {
-            const updates = await orderService.getUpdates(sessionId);
-            
-            if (updates.has_message && updates.bot_message) {
-              await this.sendMessage(phone, updates.bot_message);
-            }
-          } catch (error) {
-            console.error(`❌ Polling error for ${phone}:`, error.message);
-          }
-        }
-      } catch (error) {
-        console.error('❌ General polling error:', error);
-      }
-    }, 5000);
-
-    console.log('🔄 Polling started');
-  }
-
-  stopPolling() {
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
-      this.pollingInterval = null;
-    }
-    console.log('🛑 Polling stopped');
-  }
-
-  async disconnect() {
-    try {
-      this.stopPolling();
-      if (this.client) {
-        await this.client.destroy();
-        this.client = null;
-      }
-      this.isRunning = false;
-      this.userSessions.clear();
-      
-      // 🔥 CRITICAL: Reset answered status for all clients in current folder
-      if (this.clientUsers.length > 0) {
-        const folderId = this.clientUsers[0]?.folderId;
-        if (folderId) {
-          console.log(`🔄 Resetting answered status for folder ${folderId}`);
-          // We need a method to reset answered status for a folder
-          // You'll need to add this to database.service.js
-          await databaseService.resetAnsweredStatusForFolder(folderId);
-        }
-      }
-      
-      console.log('✅ WhatsApp disconnected');
-      
-      if (this.io) {
-        this.io.emit('bot-stopped');
-      }
-    } catch (error) {
-      console.error('❌ Error disconnecting:', error);
-    }
-  }
-
-  isConnected() {
-    return this.isRunning && this.client !== null;
-  }
-
-  getActiveSessions() {
-    return Array.from(this.userSessions.entries()).map(([phone, sessionId]) => ({
-      phone: this.formatPhoneNumber(phone),
-      sessionId
-    }));
   }
 }
 

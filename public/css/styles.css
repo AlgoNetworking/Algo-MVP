@@ -899,6 +899,151 @@ tr:hover {
   transition: width 0.3s ease;
 }
 
+/* Auth Pages */
+.auth-page {
+    background: linear-gradient(135deg, #F58076 0%, #FF9F89 50%, #FFB7A2 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.auth-container {
+    width: 100%;
+    max-width: 400px;
+}
+
+.auth-card {
+    background: white;
+    border-radius: 15px;
+    padding: 40px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+}
+
+.auth-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.auth-header h1 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+    font-size: 1.8em;
+}
+
+.auth-form {
+    margin-top: 20px;
+}
+
+.auth-form .form-group {
+    margin-bottom: 20px;
+}
+
+.auth-form label {
+    display: block;
+    margin-bottom: 8px;
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+.auth-form input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 16px;
+    transition: border-color 0.3s;
+}
+
+.auth-form input:focus {
+    outline: none;
+    border-color: #9DB044;
+}
+
+.btn-block {
+    width: 100%;
+    padding: 12px;
+    margin-top: 10px;
+}
+
+.error-message {
+    background-color: #fee;
+    color: #c33;
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 20px;
+    border: 1px solid #fcc;
+    text-align: center;
+}
+
+.success-message {
+    background-color: #dfd;
+    color: #373;
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 20px;
+    border: 1px solid #cfc;
+    text-align: center;
+}
+
+.auth-footer {
+    margin-top: 20px;
+    text-align: center;
+    color: #7f8c8d;
+}
+
+.auth-footer a {
+    color: #9DB044;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.auth-footer a:hover {
+    text-decoration: underline;
+}
+
+/* User info in dashboard */
+.user-info {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.user-avatar {
+    width: 40px;
+    height: 40px;
+    background: #9DB044;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+}
+
+.user-name {
+    color: white;
+    font-weight: 600;
+}
+
+.logout-btn {
+    background: rgba(255,255,255,0.2);
+    color: white;
+    border: none;
+    padding: 5px 15px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.logout-btn:hover {
+    background: rgba(255,255,255,0.3);
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .modal {

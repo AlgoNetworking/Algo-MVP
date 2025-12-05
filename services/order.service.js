@@ -549,7 +549,7 @@ class OrderService {
           session.startInactivityTimer();
           return {
             success: false,
-            message: '❌ Nenhum item reconhecido. Tente usar termos como \'2 mangas\', \'cinco queijos\', etc.',
+            message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. Se desejar cancelar o pedido, digite \"cancelar\".',
             isChatBot: true
           };
         }

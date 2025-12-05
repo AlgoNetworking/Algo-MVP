@@ -3,9 +3,11 @@ const http = require('http');
 const socketIO = require('socket.io');
 const path = require('path');
 const cors = require('cors');
+const session = require('express-session');
 require('dotenv').config();
 
 // Import routes and services
+const authRoutes = require('./routes/auth.routes');
 const whatsappService = require('./services/whatsapp.service');
 const orderRoutes = require('./routes/orders.routes');
 const whatsappRoutes = require('./routes/whatsapp.routes');
@@ -13,6 +15,7 @@ const databaseService = require('./services/database.service');
 const clientsRoutes = require('./routes/clients.routes');
 const productsRoutes = require('./routes/products.routes');
 const foldersRoutes = require('./routes/folders.routes');
+const authMiddleware = require('./auth/auth.middleware');
 
 const app = express();
 const server = http.createServer(app);
@@ -29,6 +32,17 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Session configuration
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'multi-tenant-secret-key-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
 // Initialize database
 databaseService.initialize();
 
@@ -42,11 +56,20 @@ productsConfig.loadProducts().then(() => {
 whatsappService.initialize(io);
 
 // API Routes
-app.use('/api/orders', orderRoutes);
-app.use('/api/whatsapp', whatsappRoutes);
-app.use('/api/clients', clientsRoutes);
-app.use('/api/products', productsRoutes);
-app.use('/api/folders', foldersRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/orders', authMiddleware.isAuthenticated, orderRoutes);
+app.use('/api/whatsapp', authMiddleware.isAuthenticated, whatsappRoutes);
+app.use('/api/clients', authMiddleware.isAuthenticated, clientsRoutes);
+app.use('/api/products', authMiddleware.isAuthenticated, productsRoutes);
+app.use('/api/folders', authMiddleware.isAuthenticated, foldersRoutes);
+
+// Auth check endpoint
+app.get('/api/check-auth', (req, res) => {
+  res.json({ 
+    authenticated: !!req.session.userId,
+    user: req.session.user
+  });
+});
 
 // Health check
 app.get('/health', (req, res) => {
@@ -57,22 +80,52 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Serve main page
+// Serve pages
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  if (req.session.userId) {
+    res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+  } else {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+  }
 });
 
-// Socket.IO connection handling
+app.get('/login', (req, res) => {
+  if (req.session.userId) {
+    res.redirect('/');
+  } else {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+  }
+});
+
+app.get('/register', (req, res) => {
+  if (req.session.userId) {
+    res.redirect('/');
+  } else {
+    res.sendFile(path.join(__dirname, 'public', 'register.html'));
+  }
+});
+
+// Socket.IO connection handling with auth
+io.use((socket, next) => {
+  const userId = socket.handshake.auth.userId;
+  if (userId) {
+    socket.userId = userId;
+    next();
+  } else {
+    next(new Error('Authentication required'));
+  }
+});
+
 io.on('connection', (socket) => {
-  console.log('🔌 Client connected:', socket.id);
+  console.log('🔌 Client connected for user:', socket.userId);
   
-  // Send initial status
-  const sendingStatus = whatsappService.getSendingStatus();
+  // Send initial status for this user
+  const sendingStatus = whatsappService.getSendingStatus(socket.userId);
   socket.emit('bot-status', {
-    isConnected: whatsappService.isConnected(),
-    sessions: whatsappService.getActiveSessions(),
-    isSendingMessages: sendingStatus.isSendingMessages, // Add this
-    sendingProgress: sendingStatus.progress // Add this
+    isConnected: whatsappService.isConnected(socket.userId),
+    sessions: whatsappService.getActiveSessions(socket.userId),
+    isSendingMessages: sendingStatus.isSendingMessages,
+    sendingProgress: sendingStatus.progress
   });
 
   socket.on('disconnect', () => {
@@ -93,7 +146,7 @@ app.use((err, req, res, next) => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('🛑 SIGTERM received, shutting down gracefully...');
-  await whatsappService.disconnect();
+  await whatsappService.disconnectAll();
   server.close(() => {
     console.log('✅ Server closed');
     process.exit(0);
@@ -102,7 +155,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('🛑 SIGINT received, shutting down gracefully...');
-  await whatsappService.disconnect();
+  await whatsappService.disconnectAll();
   server.close(() => {
     console.log('✅ Server closed');
     process.exit(0);
@@ -112,7 +165,7 @@ process.on('SIGINT', async () => {
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Dashboard: http://localhost:${PORT}`);
+  console.log(`🌐 Login: http://localhost:${PORT}/login`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
