@@ -71,10 +71,12 @@ app.use(attachUser);
 databaseService.initialize();
 
 // Load products config
+/*
 const productsConfig = require('./utils/products-config');
 productsConfig.loadProducts().then(() => {
   console.log('✅ Products config loaded');
 });
+*/
 
 // Initialize WhatsApp service with Socket.IO
 whatsappService.initialize(io);
@@ -133,7 +135,6 @@ app.get('/', (req, res) => {
 
 // Socket.IO connection handling (with session auth)
 io.use((socket, next) => {
-  const sessionMiddleware = session(sessionConfig);
   sessionMiddleware(socket.request, {}, next);
 });
 
@@ -185,7 +186,7 @@ process.on('SIGTERM', async () => {
   console.log('🛑 SIGTERM received, shutting down gracefully...');
   
   // Disconnect all WhatsApp clients
-  const userIds = Object.keys(whatsappService.clients);
+  const userIds = Array.from(whatsappService.userClients.keys());
   for (const userId of userIds) {
     try {
       await whatsappService.disconnect(userId);
@@ -203,8 +204,8 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
   console.log('🛑 SIGINT received, shutting down gracefully...');
   
-  // Disconnect all WhatsApp clients
-  const userIds = Object.keys(whatsappService.clients);
+  // ✅ FIX: Use userClients Map
+  const userIds = Array.from(whatsappService.userClients.keys());
   for (const userId of userIds) {
     try {
       await whatsappService.disconnect(userId);

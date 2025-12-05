@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS user_orders (
 );
 
 -- Insert a default demo user (password: "demo123")
---password is demo123
+-- password is demo123
 INSERT INTO users (username, email, password_hash) 
 VALUES ('demo', 'demo@example.com', '$2b$10$8K1p/a0dL3LKJ5KV5TXYruXLAq7Z9tQ8WXj3PZfBnXYJ7j5c9JHES')
 ON CONFLICT (username) DO NOTHING;

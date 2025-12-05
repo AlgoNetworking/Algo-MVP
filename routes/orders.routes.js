@@ -80,7 +80,8 @@ router.post('/manual-order', async (req, res) => {
       });
     }
 
-    const emptyDb = productsConfig.getEmptyProductsDb();
+    // ✅ FIX: Use user-specific products
+    const emptyDb = productsConfig.getEmptyProductsDb(req.userId);
     const { parsedOrders, disabledProductsFound } = orderParser.parse(message, emptyDb);
 
     if (disabledProductsFound.length > 0) {

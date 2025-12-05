@@ -34,7 +34,11 @@ class OrderSession {
   }
 
   getEmptyProducts() {
-    return productsConfig.getEmptyProductsDb(); // Update this line
+    // If userId exists, use it; otherwise fall back to generic
+    if (this.userId) {
+      return productsConfig.getEmptyProductsDb(this.userId);
+    }
+    return productsConfig.getEmptyProductsDb();
   }
 
   hasItems() {

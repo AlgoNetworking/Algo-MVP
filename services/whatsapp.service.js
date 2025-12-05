@@ -34,6 +34,11 @@ class WhatsAppService {
     }
 
     try {
+      // ✅ ADD: Load products for this user
+      const productsConfig = require('../utils/products-config');
+      await productsConfig.loadProducts(userId);
+      console.log(`✅ Products loaded for user ${userId}`);
+
       // Clear disabled users for this user
       this.userDisabledUsers.set(userId, new Set());
       console.log(`🔄 Cleared disabled users list for user ${userId}`);

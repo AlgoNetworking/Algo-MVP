@@ -1,27 +1,35 @@
-// utils/products-config.js
 let databaseService = null;
 
 class ProductsConfig {
   constructor() {
-    this.products = [];
-    this.loaded = false;
+    this.userProducts = new Map(); // userId -> products array
+    this.loaded = new Set(); // Track which users have loaded products
   }
 
-  async loadProducts() {
+  async loadProducts(userId) {
+    if (!userId) {
+      console.warn('⚠️ ProductsConfig.loadProducts called without userId, using defaults');
+      return this.getDefaultProducts();
+    }
+
     try {
       // Lazy load database service to avoid circular dependency
       if (!databaseService) {
         databaseService = require('../services/database.service');
       }
       
-      this.products = await databaseService.getAllProducts();
-      this.loaded = true;
-      console.log(`✅ Loaded ${this.products.length} products from database`);
+      const products = await databaseService.getAllProducts(userId);
+      this.userProducts.set(userId, products);
+      this.loaded.add(userId);
+      console.log(`✅ Loaded ${products.length} products for user ${userId}`);
+      return products;
     } catch (error) {
-      console.error('❌ Error loading products:', error);
+      console.error(`❌ Error loading products for user ${userId}:`, error);
       // Fallback to default products
-      this.products = this.getDefaultProducts();
-      this.loaded = true;
+      const defaults = this.getDefaultProducts();
+      this.userProducts.set(userId, defaults);
+      this.loaded.add(userId);
+      return defaults;
     }
   }
 
@@ -47,32 +55,38 @@ class ProductsConfig {
   }
 
   get PRODUCTS() {
-    if (!this.loaded && this.products.length === 0) {
-      this.products = this.getDefaultProducts();
-      this.loaded = true;
+    // This is a fallback - should not be used in multi-tenant context
+    console.warn('⚠️ PRODUCTS getter called without userId - using defaults');
+    return this.getDefaultProducts().map(product => 
+      [product.name, product.akas || [], product.enabled]
+    );
+  }
+
+  getUserProducts(userId) {
+    if (!userId) {
+      return this.PRODUCTS;
     }
-    return this.products.map(product => {
+    
+    const products = this.userProducts.get(userId) || this.getDefaultProducts();
+    return products.map(product => {
       if (Array.isArray(product)) {
-        // For backward compatibility with old format
         return product;
       } else {
-        // New format from database
         return [product.name, product.akas || [], product.enabled];
       }
     });
   }
 
-  getEmptyProductsDb() {
-    return this.PRODUCTS.map(product => {
-      // product is [name, akas, enabled]
-      return [product, 0];
-    });
+  getEmptyProductsDb(userId = null) {
+    const products = userId ? this.getUserProducts(userId) : this.PRODUCTS;
+    return products.map(product => [product, 0]);
   }
 
-  getProductByAka(akaName) {
+  getProductByAka(akaName, userId = null) {
     const normalizedAka = this.normalizeText(akaName);
+    const products = userId ? this.getUserProducts(userId) : this.PRODUCTS;
 
-    for (const product of this.PRODUCTS) {
+    for (const product of products) {
       const [mainName, akas, enabled] = product;
 
       if (!enabled) continue;
@@ -93,19 +107,17 @@ class ProductsConfig {
     return null;
   }
 
-  // Add this method to the ProductsConfig class
-  getProductByAkaWithStatus(akaName) {
+  getProductByAkaWithStatus(akaName, userId = null) {
     const normalizedAka = this.normalizeText(akaName);
+    const products = userId ? this.getUserProducts(userId) : this.PRODUCTS;
 
-    for (const product of this.PRODUCTS) {
+    for (const product of products) {
       const [mainName, akas, enabled] = product;
 
-      // Check main name
       if (this.normalizeText(mainName) === normalizedAka) {
         return { mainProduct: mainName, score: 100, enabled };
       }
 
-      // Check AKAs
       if (akas && akas.length > 0) {
         for (const aka of akas) {
           if (this.normalizeText(aka) === normalizedAka) {
@@ -125,8 +137,15 @@ class ProductsConfig {
       .trim();
   }
 
-  async refresh() {
-    await this.loadProducts();
+  async refresh(userId) {
+    if (userId) {
+      await this.loadProducts(userId);
+    }
+  }
+
+  clearUserCache(userId) {
+    this.userProducts.delete(userId);
+    this.loaded.delete(userId);
   }
 }
 
