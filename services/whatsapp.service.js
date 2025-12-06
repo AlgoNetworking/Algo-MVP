@@ -55,6 +55,20 @@ class PostgresStore {
     
     try {
       console.log(`💾 Save called for session: ${session}`);
+      try {
+        const keys = Object.keys(options || {});
+        console.log(`🔍 Save options keys: ${keys.join(', ')}`);
+        if (options && options.data) {
+          try {
+            const size = typeof options.data === 'string' ? Buffer.byteLength(options.data) : JSON.stringify(options.data).length;
+            console.log(`🔎 Save options contains 'data' (approx ${Math.round(size / 1024)} KB)`);
+          } catch (e) {
+            console.log('🔎 Save options contains data but size calculation failed');
+          }
+        }
+      } catch (e) {
+        console.log('⚠️ Failed to inspect save options', e.message);
+      }
       const normalized = this.normalizeSession(session);
       
       // Wait for RemoteAuth to finish writing files
