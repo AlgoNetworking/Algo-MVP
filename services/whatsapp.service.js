@@ -58,6 +58,18 @@ class PostgresStore {
       try {
         const keys = Object.keys(options || {});
         console.log(`🔍 Save options keys: ${keys.join(', ')}`);
+
+        // Log a trimmed JSON of options for debugging (avoid huge payloads)
+        try {
+          const safe = JSON.stringify(options, (k, v) => {
+            if (k === 'session_data' || k === 'data' || k === 'files') return '[REDACTED]';
+            return v;
+          });
+          console.log(`🔍 Save options preview: ${safe.slice(0, 1000)}`);
+        } catch (e) {
+          console.log('🔍 Could not stringify save options for preview');
+        }
+
         if (options && options.data) {
           try {
             const size = typeof options.data === 'string' ? Buffer.byteLength(options.data) : JSON.stringify(options.data).length;
@@ -80,11 +92,23 @@ class PostgresStore {
       const candidates = [session, normalized, `RemoteAuth-${normalized}`].filter(Boolean);
       let sessionDir = null;
 
-      for (const cand of candidates) {
-        const candPath = path.join(this.authDir, cand);
-        if (fs.existsSync(candPath)) {
-          sessionDir = candPath;
-          break;
+      // Retry loop: sometimes RemoteAuth triggers save before writing files to disk.
+      const maxAttempts = 10;
+      const attemptDelayMs = 1000;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        for (const cand of candidates) {
+          const candPath = path.join(this.authDir, cand);
+          if (fs.existsSync(candPath)) {
+            sessionDir = candPath;
+            break;
+          }
+        }
+        if (sessionDir) break;
+
+        if (attempt < maxAttempts) {
+          console.log(`⏳ Session dir not found (attempt ${attempt}/${maxAttempts}), retrying in ${attemptDelayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, attemptDelayMs));
         }
       }
 
@@ -95,6 +119,18 @@ class PostgresStore {
         if (!fs.existsSync(this.authDir)) {
           console.log(`📁 Creating auth directory: ${this.authDir}`);
           fs.mkdirSync(this.authDir, { recursive: true });
+        }
+
+        // If RemoteAuth provided session data directly in options, save it.
+        if (options && options.data) {
+          try {
+            const sessionDataJson = typeof options.data === 'string' ? options.data : JSON.stringify(options.data);
+            console.log(`💾 Saving session data provided directly by RemoteAuth for ${normalized}`);
+            await this.saveToDatabase(normalized, sessionDataJson);
+            console.log(`✅ Session saved from options for ${normalized}`);
+          } catch (err) {
+            console.error('❌ Failed to save session data from options:', err.message);
+          }
         }
 
         return;
