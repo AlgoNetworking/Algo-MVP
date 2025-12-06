@@ -1,136 +1,279 @@
-// services/whatsapp.service.js - WITH REMOTE AUTH FOR RAILWAY
+// services/whatsapp.service.js - WORKING VERSION WITH HYBRID APPROACH
 const { Client, RemoteAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const { v4: uuidv4 } = require('uuid');
 const orderService = require('./order.service');
 const databaseService = require('./database.service');
+const fs = require('fs');
+const path = require('path');
 
-// Custom PostgreSQL Store for RemoteAuth
+// 🔥 WORKING: Hybrid PostgreSQL Store
+// Let RemoteAuth handle file operations, we just store the data in PostgreSQL
 class PostgresStore {
   constructor(db) {
     this.db = db;
     this.isProduction = process.env.DATABASE_URL !== undefined;
+    
+    // Directory where RemoteAuth stores files
+    this.authDir = path.join(__dirname, '..', '.wwebjs_auth', 'session');
   }
 
   async sessionExists(options) {
     const { session } = options;
     try {
+      console.log(`🔍 Checking if session exists in database: ${session}`);
+      
       if (this.isProduction) {
         const result = await this.db.query(
           'SELECT COUNT(*) as count FROM whatsapp_sessions WHERE session_id = $1',
           [session]
         );
-        return parseInt(result.rows[0].count) > 0;
+        const exists = parseInt(result.rows[0].count) > 0;
+        console.log(`📊 Database check - Session ${session} exists: ${exists}`);
+        return exists;
       } else {
         const stmt = this.db.prepare('SELECT COUNT(*) as count FROM whatsapp_sessions WHERE session_id = ?');
         const row = stmt.get(session);
-        return row.count > 0;
+        const exists = row.count > 0;
+        console.log(`📊 Database check - Session ${session} exists: ${exists}`);
+        return exists;
       }
     } catch (error) {
-      console.error('Error checking session existence:', error);
+      console.error('❌ Error checking session existence:', error);
       return false;
     }
   }
 
   async save(options) {
-    const { session, data } = options;
+    const { session } = options;
+    
     try {
-      const sessionData = JSON.stringify(data);
+      console.log(`💾 Save called for session: ${session}`);
       
-      if (this.isProduction) {
-        await this.db.query(
-          `INSERT INTO whatsapp_sessions (session_id, session_data, updated_at)
-           VALUES ($1, $2, CURRENT_TIMESTAMP)
-           ON CONFLICT (session_id) DO UPDATE SET
-           session_data = EXCLUDED.session_data,
-           updated_at = CURRENT_TIMESTAMP`,
-          [session, sessionData]
-        );
-      } else {
-        const stmt = this.db.prepare(
-          `INSERT INTO whatsapp_sessions (session_id, session_data, updated_at)
-           VALUES (?, ?, CURRENT_TIMESTAMP)
-           ON CONFLICT (session_id) DO UPDATE SET
-           session_data = excluded.session_data,
-           updated_at = CURRENT_TIMESTAMP`
-        );
-        stmt.run(session, sessionData);
+      // Wait for RemoteAuth to finish writing files
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Look for the session directory
+      const sessionDir = path.join(this.authDir, session);
+      
+      if (!fs.existsSync(sessionDir)) {
+        console.log(`⚠️ Session directory not found: ${sessionDir}`);
+        console.log(`📂 Checking if auth directory exists: ${this.authDir}`);
+        
+        if (!fs.existsSync(this.authDir)) {
+          console.log(`📁 Creating auth directory: ${this.authDir}`);
+          fs.mkdirSync(this.authDir, { recursive: true });
+        }
+        
+        return;
       }
-      console.log(`✅ Session saved for ${session}`);
+      
+      // Read all files in the session directory
+      console.log(`📂 Reading session directory: ${sessionDir}`);
+      const files = this.readDirectoryRecursive(sessionDir);
+      
+      if (files.length === 0) {
+        console.log(`⚠️ No files found in session directory`);
+        return;
+      }
+      
+      console.log(`📦 Found ${files.length} files to save`);
+      
+      // Create a JSON structure with all files
+      const sessionData = {
+        files: files.map(file => ({
+          path: path.relative(sessionDir, file.fullPath),
+          data: file.data,
+          isBase64: file.isBase64
+        }))
+      };
+      
+      const jsonData = JSON.stringify(sessionData);
+      console.log(`💾 Saving ${(jsonData.length / 1024).toFixed(2)} KB to database`);
+      
+      // Save to database
+      await this.saveToDatabase(session, jsonData);
+      
+      console.log(`✅ Session saved successfully: ${session}`);
+      
     } catch (error) {
-      console.error('Error saving session:', error);
-      throw error;
+      console.error('❌ Error saving session:', error);
+      console.error('Stack:', error.stack);
+    }
+  }
+  
+  readDirectoryRecursive(dir) {
+    const files = [];
+    
+    const items = fs.readdirSync(dir);
+    
+    for (const item of items) {
+      const fullPath = path.join(dir, item);
+      const stat = fs.statSync(fullPath);
+      
+      if (stat.isDirectory()) {
+        files.push(...this.readDirectoryRecursive(fullPath));
+      } else {
+        try {
+          const ext = path.extname(item).toLowerCase();
+          const isBinary = ['.zip', '.wwebjs', '.data'].includes(ext);
+          
+          const data = isBinary 
+            ? fs.readFileSync(fullPath, 'base64')
+            : fs.readFileSync(fullPath, 'utf8');
+          
+          files.push({
+            fullPath,
+            data,
+            isBase64: isBinary
+          });
+        } catch (err) {
+          console.error(`⚠️ Error reading file ${fullPath}:`, err.message);
+        }
+      }
+    }
+    
+    return files;
+  }
+
+  async saveToDatabase(session, sessionData) {
+    if (this.isProduction) {
+      await this.db.query(
+        `INSERT INTO whatsapp_sessions (session_id, session_data, updated_at)
+         VALUES ($1, $2, CURRENT_TIMESTAMP)
+         ON CONFLICT (session_id) DO UPDATE SET
+         session_data = EXCLUDED.session_data,
+         updated_at = CURRENT_TIMESTAMP`,
+        [session, sessionData]
+      );
+    } else {
+      const stmt = this.db.prepare(
+        `INSERT INTO whatsapp_sessions (session_id, session_data, updated_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT (session_id) DO UPDATE SET
+         session_data = excluded.session_data,
+         updated_at = CURRENT_TIMESTAMP`
+      );
+      stmt.run(session, sessionData);
     }
   }
 
   async extract(options) {
-    const { session } = options;
+    const { session, path: extractPath } = options;
+    
     try {
+      console.log(`📂 Extract called for session: ${session}`);
+      console.log(`📂 Extract path: ${extractPath}`);
+      
+      // Get session data from database
+      let sessionDataJson;
+      
       if (this.isProduction) {
         const result = await this.db.query(
           'SELECT session_data FROM whatsapp_sessions WHERE session_id = $1',
           [session]
         );
-        if (result.rows.length > 0) {
-          return JSON.parse(result.rows[0].session_data);
+        if (result.rows.length === 0) {
+          console.log(`ℹ️ No session found in database for ${session}`);
+          return false;
         }
+        sessionDataJson = result.rows[0].session_data;
       } else {
         const stmt = this.db.prepare('SELECT session_data FROM whatsapp_sessions WHERE session_id = ?');
         const row = stmt.get(session);
-        if (row) {
-          return JSON.parse(row.session_data);
+        if (!row) {
+          console.log(`ℹ️ No session found in database for ${session}`);
+          return false;
+        }
+        sessionDataJson = row.session_data;
+      }
+      
+      console.log(`📦 Retrieved session data (${(sessionDataJson.length / 1024).toFixed(2)} KB)`);
+      
+      const sessionData = JSON.parse(sessionDataJson);
+      
+      if (!sessionData.files || sessionData.files.length === 0) {
+        console.log(`⚠️ No files in session data`);
+        return false;
+      }
+      
+      console.log(`📁 Extracting ${sessionData.files.length} files to ${extractPath}`);
+      
+      // Create the session directory
+      if (!fs.existsSync(extractPath)) {
+        fs.mkdirSync(extractPath, { recursive: true });
+      }
+      
+      // Write all files
+      for (const file of sessionData.files) {
+        const filePath = path.join(extractPath, file.path);
+        const fileDir = path.dirname(filePath);
+        
+        if (!fs.existsSync(fileDir)) {
+          fs.mkdirSync(fileDir, { recursive: true });
+        }
+        
+        if (file.isBase64) {
+          fs.writeFileSync(filePath, Buffer.from(file.data, 'base64'));
+        } else {
+          fs.writeFileSync(filePath, file.data, 'utf8');
         }
       }
-      return null;
+      
+      console.log(`✅ Session extracted successfully to ${extractPath}`);
+      return true;
+      
     } catch (error) {
-      console.error('Error extracting session:', error);
-      return null;
+      console.error('❌ Error extracting session:', error);
+      console.error('Stack:', error.stack);
+      return false;
     }
   }
 
   async delete(options) {
     const { session } = options;
     try {
+      console.log(`🗑️ Deleting session: ${session}`);
+      
       if (this.isProduction) {
         await this.db.query('DELETE FROM whatsapp_sessions WHERE session_id = $1', [session]);
       } else {
         const stmt = this.db.prepare('DELETE FROM whatsapp_sessions WHERE session_id = ?');
         stmt.run(session);
       }
-      console.log(`🗑️ Session deleted for ${session}`);
+      
+      console.log(`✅ Session deleted: ${session}`);
     } catch (error) {
-      console.error('Error deleting session:', error);
-      throw error;
+      console.error('❌ Error deleting session:', error);
     }
   }
 }
 
 class WhatsAppService {
   constructor() {
-    this.clients = new Map(); // userId -> client
-    this.userSessions = new Map(); // userId -> userSessions map
+    this.clients = new Map();
+    this.userSessions = new Map();
     this.io = null;
-    this.userQRCodes = new Map(); // userId -> QR code
-    this.disabledUsers = new Map(); // userId -> Set of disabled phone numbers
-    this.sendingStatus = new Map(); // userId -> sending status
-    this.pollingIntervals = new Map(); // userId -> polling interval
-    this.botStartTimes = new Map(); // userId -> bot start timestamp
+    this.userQRCodes = new Map();
+    this.disabledUsers = new Map();
+    this.sendingStatus = new Map();
+    this.pollingIntervals = new Map();
+    this.botStartTimes = new Map();
     this.postgresStore = null;
+    this.saveTimers = new Map(); // Timer to trigger manual saves
   }
 
   initialize(io) {
     this.io = io;
     
-    // Initialize PostgreSQL store for RemoteAuth
     const db = databaseService.getDatabase();
     this.postgresStore = new PostgresStore(db);
     
-    console.log('📱 WhatsApp Service initialized for multi-tenant with RemoteAuth');
+    console.log('📱 WhatsApp Service initialized with RemoteAuth + PostgreSQL');
   }
 
   async connect(userId, users = null) {
     try {
-      // Clean up previous client if exists
       if (this.clients.has(userId)) {
         await this.disconnect(userId);
       }
@@ -145,7 +288,6 @@ class WhatsAppService {
         progress: null
       });
 
-      // 🔥 USE REMOTE AUTH FOR PRODUCTION, LOCAL AUTH FOR DEVELOPMENT
       const useRemoteAuth = process.env.DATABASE_URL !== undefined;
       
       const clientConfig = {
@@ -164,16 +306,13 @@ class WhatsAppService {
       };
 
       if (useRemoteAuth) {
-        // Production: Use RemoteAuth with PostgreSQL
-        const { RemoteAuth } = require('whatsapp-web.js');
         clientConfig.authStrategy = new RemoteAuth({
           store: this.postgresStore,
           clientId: `user-${userId}`,
-          backupSyncIntervalMs: 300000 // Backup every 5 minutes
+          backupSyncIntervalMs: 300000 // 5 minutes
         });
         console.log(`📦 Using RemoteAuth for user ${userId}`);
       } else {
-        // Development: Use LocalAuth
         const { LocalAuth } = require('whatsapp-web.js');
         clientConfig.authStrategy = new LocalAuth({
           clientId: `user-${userId}`
@@ -216,27 +355,59 @@ class WhatsAppService {
       }
     });
 
-    // 🔥 NEW: Listen for remote_session_saved event
+    client.on('authenticated', () => {
+      console.log(`✅ WhatsApp authenticated for user: ${userId}`);
+      
+      // 🔥 CRITICAL: Trigger manual save after authentication
+      console.log(`⏰ Setting up save timer for user ${userId}`);
+      
+      // Clear any existing timer
+      if (this.saveTimers.has(userId)) {
+        clearTimeout(this.saveTimers.get(userId));
+      }
+      
+      // Save after 5 seconds to ensure all files are written
+      const timer = setTimeout(async () => {
+        console.log(`💾 Manually triggering save for user ${userId}`);
+        try {
+          await this.postgresStore.save({ session: `RemoteAuth-user-${userId}` });
+          console.log(`✅ Manual save completed for user ${userId}`);
+        } catch (error) {
+          console.error(`❌ Manual save failed for user ${userId}:`, error);
+        }
+      }, 5000);
+      
+      this.saveTimers.set(userId, timer);
+      
+      if (this.io) {
+        this.io.to(`user-${userId}`).emit('bot-authenticated', { userId });
+      }
+    });
+
     client.on('remote_session_saved', () => {
-      console.log(`💾 RemoteAuth session saved for user ${userId}`);
+      console.log(`💾 RemoteAuth auto-save triggered for user ${userId}`);
     });
 
     client.on('ready', () => {
       console.log('✅ WhatsApp client ready for user:', userId);
       this.userQRCodes.delete(userId);
       
+      // Trigger another save when ready
+      setTimeout(async () => {
+        console.log(`💾 Final save after ready for user ${userId}`);
+        try {
+          await this.postgresStore.save({ session: `RemoteAuth-user-${userId}` });
+          console.log(`✅ Final save completed for user ${userId}`);
+        } catch (error) {
+          console.error(`❌ Final save failed for user ${userId}:`, error);
+        }
+      }, 3000);
+      
       if (this.io) {
         this.io.to(`user-${userId}`).emit('bot-ready', {
           userId,
           clientInfo: client.info
         });
-      }
-    });
-
-    client.on('authenticated', () => {
-      console.log('✅ WhatsApp authenticated for user:', userId);
-      if (this.io) {
-        this.io.to(`user-${userId}`).emit('bot-authenticated', { userId });
       }
     });
 
@@ -255,6 +426,13 @@ class WhatsAppService {
 
     client.on('disconnected', (reason) => {
       console.log('🔌 WhatsApp disconnected for user:', userId, 'Reason:', reason);
+      
+      // Clear save timer
+      if (this.saveTimers.has(userId)) {
+        clearTimeout(this.saveTimers.get(userId));
+        this.saveTimers.delete(userId);
+      }
+      
       this.clients.delete(userId);
       this.userSessions.delete(userId);
       this.userQRCodes.delete(userId);
@@ -275,6 +453,9 @@ class WhatsAppService {
       await this.handleMessage(userId, message);
     });
   }
+
+  // ... Rest of your methods stay exactly the same ...
+  // (handleMessage, sendMessage, sendBulkMessages, etc.)
 
   async handleMessage(userId, message) {
     try {
@@ -521,6 +702,12 @@ class WhatsAppService {
   async disconnect(userId) {
     try {
       this.stopPolling(userId);
+      
+      // Clear save timer
+      if (this.saveTimers.has(userId)) {
+        clearTimeout(this.saveTimers.get(userId));
+        this.saveTimers.delete(userId);
+      }
       
       const client = this.clients.get(userId);
       if (client) {

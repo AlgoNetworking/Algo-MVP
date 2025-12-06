@@ -142,6 +142,121 @@ app.get('/api/check-auth', async (req, res) => {
   }
 });
 
+app.get('/api/debug/whatsapp-sessions', async (req, res) => {
+  try {
+    const db = databaseService.getDatabase();
+    const isProduction = process.env.DATABASE_URL !== undefined;
+    
+    let sessions;
+    if (isProduction) {
+      const result = await db.query(
+        'SELECT session_id, LENGTH(session_data) as data_size, created_at, updated_at FROM whatsapp_sessions ORDER BY updated_at DESC'
+      );
+      sessions = result.rows;
+    } else {
+      const stmt = db.prepare(
+        'SELECT session_id, LENGTH(session_data) as data_size, created_at, updated_at FROM whatsapp_sessions ORDER BY updated_at DESC'
+      );
+      sessions = stmt.all();
+    }
+    
+    res.json({
+      success: true,
+      count: sessions.length,
+      sessions: sessions.map(s => ({
+        session_id: s.session_id,
+        data_size: `${(s.data_size / 1024).toFixed(2)} KB`,
+        created_at: s.created_at,
+        updated_at: s.updated_at
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Force save session endpoint (for testing)
+app.post('/api/debug/force-save-session/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const whatsappService = require('./services/whatsapp.service');
+    
+    // Check if client exists
+    if (!whatsappService.isConnected(userId)) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active WhatsApp client for this user'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'RemoteAuth should auto-save within 1 minute. Check /api/debug/whatsapp-sessions'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Test session restoration
+app.get('/api/debug/test-restore/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const db = databaseService.getDatabase();
+    const isProduction = process.env.DATABASE_URL !== undefined;
+    
+    const sessionId = `RemoteAuth-user-${userId}`;
+    
+    let result;
+    if (isProduction) {
+      result = await db.query(
+        'SELECT session_id, LENGTH(session_data) as data_size, created_at, updated_at FROM whatsapp_sessions WHERE session_id = $1',
+        [sessionId]
+      );
+    } else {
+      const stmt = db.prepare(
+        'SELECT session_id, LENGTH(session_data) as data_size, created_at, updated_at FROM whatsapp_sessions WHERE session_id = ?'
+      );
+      result = { rows: [stmt.get(sessionId)] };
+    }
+    
+    if (!result.rows || result.rows.length === 0 || !result.rows[0]) {
+      return res.json({
+        success: false,
+        message: 'No session found in database',
+        sessionId,
+        recommendation: 'User needs to scan QR code first'
+      });
+    }
+    
+    const session = result.rows[0];
+    
+    res.json({
+      success: true,
+      message: 'Session exists in database',
+      session: {
+        session_id: session.session_id,
+        data_size: `${(session.data_size / 1024).toFixed(2)} KB`,
+        created_at: session.created_at,
+        updated_at: session.updated_at
+      },
+      recommendation: 'Try restarting the WhatsApp client for this user'
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
 // Socket.IO session sharing
 io.use((socket, next) => {
   sessionMiddleware(socket.request, {}, next);
