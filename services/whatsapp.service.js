@@ -18,24 +18,30 @@ class PostgresStore {
     this.authDir = path.join(__dirname, '..', '.wwebjs_auth', 'session');
   }
 
+  normalizeSession(session) {
+    if (!session) return session;
+    return session.replace(/^RemoteAuth-/, '');
+  }
+
   async sessionExists(options) {
     const { session } = options;
     try {
       console.log(`🔍 Checking if session exists in database: ${session}`);
+      const normalized = this.normalizeSession(session);
       
       if (this.isProduction) {
         const result = await this.db.query(
           'SELECT COUNT(*) as count FROM whatsapp_sessions WHERE session_id = $1',
-          [session]
+          [normalized]
         );
         const exists = parseInt(result.rows[0].count) > 0;
-        console.log(`📊 Database check - Session ${session} exists: ${exists}`);
+        console.log(`📊 Database check - Session ${normalized} exists: ${exists}`);
         return exists;
       } else {
         const stmt = this.db.prepare('SELECT COUNT(*) as count FROM whatsapp_sessions WHERE session_id = ?');
-        const row = stmt.get(session);
-        const exists = row.count > 0;
-        console.log(`📊 Database check - Session ${session} exists: ${exists}`);
+        const row = stmt.get(normalized);
+        const exists = row && row.count > 0;
+        console.log(`📊 Database check - Session ${normalized} exists: ${exists}`);
         return exists;
       }
     } catch (error) {
@@ -49,22 +55,34 @@ class PostgresStore {
     
     try {
       console.log(`💾 Save called for session: ${session}`);
+      const normalized = this.normalizeSession(session);
       
       // Wait for RemoteAuth to finish writing files
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       // Look for the session directory
-      const sessionDir = path.join(this.authDir, session);
-      
-      if (!fs.existsSync(sessionDir)) {
-        console.log(`⚠️ Session directory not found: ${sessionDir}`);
+      // RemoteAuth may call with 'RemoteAuth-<clientId>' or '<clientId>'.
+      // Try multiple possible local session directory names for robustness.
+      const candidates = [session, normalized, `RemoteAuth-${normalized}`].filter(Boolean);
+      let sessionDir = null;
+
+      for (const cand of candidates) {
+        const candPath = path.join(this.authDir, cand);
+        if (fs.existsSync(candPath)) {
+          sessionDir = candPath;
+          break;
+        }
+      }
+
+      if (!sessionDir) {
+        console.log(`⚠️ Session directory not found for candidates: ${candidates.join(', ')}`);
         console.log(`📂 Checking if auth directory exists: ${this.authDir}`);
-        
+
         if (!fs.existsSync(this.authDir)) {
           console.log(`📁 Creating auth directory: ${this.authDir}`);
           fs.mkdirSync(this.authDir, { recursive: true });
         }
-        
+
         return;
       }
       
@@ -91,8 +109,8 @@ class PostgresStore {
       const jsonData = JSON.stringify(sessionData);
       console.log(`💾 Saving ${(jsonData.length / 1024).toFixed(2)} KB to database`);
       
-      // Save to database
-      await this.saveToDatabase(session, jsonData);
+      // Save to database using normalized session id
+      await this.saveToDatabase(normalized, jsonData);
       
       console.log(`✅ Session saved successfully: ${session}`);
       
@@ -137,6 +155,7 @@ class PostgresStore {
   }
 
   async saveToDatabase(session, sessionData) {
+    const normalized = this.normalizeSession(session);
     if (this.isProduction) {
       await this.db.query(
         `INSERT INTO whatsapp_sessions (session_id, session_data, updated_at)
@@ -144,7 +163,7 @@ class PostgresStore {
          ON CONFLICT (session_id) DO UPDATE SET
          session_data = EXCLUDED.session_data,
          updated_at = CURRENT_TIMESTAMP`,
-        [session, sessionData]
+        [normalized, sessionData]
       );
     } else {
       const stmt = this.db.prepare(
@@ -154,7 +173,7 @@ class PostgresStore {
          session_data = excluded.session_data,
          updated_at = CURRENT_TIMESTAMP`
       );
-      stmt.run(session, sessionData);
+      stmt.run(normalized, sessionData);
     }
   }
 
@@ -167,22 +186,23 @@ class PostgresStore {
       
       // Get session data from database
       let sessionDataJson;
-      
+      const normalized = this.normalizeSession(session);
+
       if (this.isProduction) {
         const result = await this.db.query(
           'SELECT session_data FROM whatsapp_sessions WHERE session_id = $1',
-          [session]
+          [normalized]
         );
         if (result.rows.length === 0) {
-          console.log(`ℹ️ No session found in database for ${session}`);
+          console.log(`ℹ️ No session found in database for ${normalized}`);
           return false;
         }
         sessionDataJson = result.rows[0].session_data;
       } else {
         const stmt = this.db.prepare('SELECT session_data FROM whatsapp_sessions WHERE session_id = ?');
-        const row = stmt.get(session);
+        const row = stmt.get(normalized);
         if (!row) {
-          console.log(`ℹ️ No session found in database for ${session}`);
+          console.log(`ℹ️ No session found in database for ${normalized}`);
           return false;
         }
         sessionDataJson = row.session_data;
@@ -234,12 +254,13 @@ class PostgresStore {
     const { session } = options;
     try {
       console.log(`🗑️ Deleting session: ${session}`);
-      
+      const normalized = this.normalizeSession(session);
+
       if (this.isProduction) {
-        await this.db.query('DELETE FROM whatsapp_sessions WHERE session_id = $1', [session]);
+        await this.db.query('DELETE FROM whatsapp_sessions WHERE session_id = $1', [normalized]);
       } else {
         const stmt = this.db.prepare('DELETE FROM whatsapp_sessions WHERE session_id = ?');
-        stmt.run(session);
+        stmt.run(normalized);
       }
       
       console.log(`✅ Session deleted: ${session}`);
