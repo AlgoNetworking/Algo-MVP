@@ -17,6 +17,7 @@ const productsRoutes = require('./routes/products.routes');
 const foldersRoutes = require('./routes/folders.routes');
 const authMiddleware = require('./auth/auth.middleware');
 const authService = require('./auth/auth.service');
+const productsConfig = require('./utils/products-config');
 
 const app = express();
 const server = http.createServer(app);
