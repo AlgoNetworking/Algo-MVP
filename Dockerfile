@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxkbfile1 \
     libgbm1 \
     libpango-1.0-0 \
-    libgobject-2.0-0 \
+    libgobject2.0-0 \
     libnss3 \
     libx11-6 \
     libxcb1 \
