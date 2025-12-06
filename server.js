@@ -199,11 +199,24 @@ app.post('/api/debug/force-save-session/:userId', async (req, res) => {
         message: 'No active WhatsApp client for this user'
       });
     }
-    
-    res.json({
-      success: true,
-      message: 'RemoteAuth should auto-save within 1 minute. Check /api/debug/whatsapp-sessions'
-    });
+    // Attempt manual save via the PostgresStore if available
+    try {
+      if (whatsappService.postgresStore && typeof whatsappService.postgresStore.save === 'function') {
+        await whatsappService.postgresStore.save({ session: `RemoteAuth-user-${userId}` });
+        return res.json({
+          success: true,
+          message: 'Manual save attempted. Check /api/debug/whatsapp-sessions for results.'
+        });
+      } else {
+        return res.status(500).json({
+          success: false,
+          message: 'PostgresStore not available. Ensure DATABASE_URL is set and service initialized.'
+        });
+      }
+    } catch (error) {
+      console.error('Error forcing session save:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
   } catch (error) {
     res.status(500).json({ 
       success: false, 
@@ -220,31 +233,32 @@ app.get('/api/debug/test-restore/:userId', async (req, res) => {
     const isProduction = process.env.DATABASE_URL !== undefined;
     
     const sessionId = `RemoteAuth-user-${userId}`;
-    
+    const normalized = sessionId.replace(/^RemoteAuth-/, '');
+
     let result;
     if (isProduction) {
       result = await db.query(
         'SELECT session_id, LENGTH(session_data) as data_size, created_at, updated_at FROM whatsapp_sessions WHERE session_id = $1',
-        [sessionId]
+        [normalized]
       );
     } else {
       const stmt = db.prepare(
         'SELECT session_id, LENGTH(session_data) as data_size, created_at, updated_at FROM whatsapp_sessions WHERE session_id = ?'
       );
-      result = { rows: [stmt.get(sessionId)] };
+      result = { rows: [stmt.get(normalized)] };
     }
     
     if (!result.rows || result.rows.length === 0 || !result.rows[0]) {
       return res.json({
         success: false,
         message: 'No session found in database',
-        sessionId,
+        sessionId: normalized,
         recommendation: 'User needs to scan QR code first'
       });
     }
-    
+
     const session = result.rows[0];
-    
+
     res.json({
       success: true,
       message: 'Session exists in database',
