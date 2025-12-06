@@ -68,6 +68,19 @@ CREATE TABLE IF NOT EXISTS user_orders (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 🔥 NEW: WhatsApp sessions table for RemoteAuth
+CREATE TABLE IF NOT EXISTS whatsapp_sessions (
+    id SERIAL PRIMARY KEY,
+    session_id VARCHAR(255) UNIQUE NOT NULL,
+    session_data TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create index for faster session lookups
+CREATE INDEX IF NOT EXISTS idx_whatsapp_sessions_session_id 
+ON whatsapp_sessions(session_id);
+
 -- Insert default products for each new user (will be copied during user creation)
 CREATE TABLE IF NOT EXISTS default_products (
     id SERIAL PRIMARY KEY,

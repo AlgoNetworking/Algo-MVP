@@ -1,9 +1,109 @@
-// services/whatsapp.service.js - FIXED VERSION
-const { Client, LocalAuth } = require('whatsapp-web.js');
+// services/whatsapp.service.js - WITH REMOTE AUTH FOR RAILWAY
+const { Client, RemoteAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const { v4: uuidv4 } = require('uuid');
 const orderService = require('./order.service');
 const databaseService = require('./database.service');
+
+// Custom PostgreSQL Store for RemoteAuth
+class PostgresStore {
+  constructor(db) {
+    this.db = db;
+    this.isProduction = process.env.DATABASE_URL !== undefined;
+  }
+
+  async sessionExists(options) {
+    const { session } = options;
+    try {
+      if (this.isProduction) {
+        const result = await this.db.query(
+          'SELECT COUNT(*) as count FROM whatsapp_sessions WHERE session_id = $1',
+          [session]
+        );
+        return parseInt(result.rows[0].count) > 0;
+      } else {
+        const stmt = this.db.prepare('SELECT COUNT(*) as count FROM whatsapp_sessions WHERE session_id = ?');
+        const row = stmt.get(session);
+        return row.count > 0;
+      }
+    } catch (error) {
+      console.error('Error checking session existence:', error);
+      return false;
+    }
+  }
+
+  async save(options) {
+    const { session, data } = options;
+    try {
+      const sessionData = JSON.stringify(data);
+      
+      if (this.isProduction) {
+        await this.db.query(
+          `INSERT INTO whatsapp_sessions (session_id, session_data, updated_at)
+           VALUES ($1, $2, CURRENT_TIMESTAMP)
+           ON CONFLICT (session_id) DO UPDATE SET
+           session_data = EXCLUDED.session_data,
+           updated_at = CURRENT_TIMESTAMP`,
+          [session, sessionData]
+        );
+      } else {
+        const stmt = this.db.prepare(
+          `INSERT INTO whatsapp_sessions (session_id, session_data, updated_at)
+           VALUES (?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT (session_id) DO UPDATE SET
+           session_data = excluded.session_data,
+           updated_at = CURRENT_TIMESTAMP`
+        );
+        stmt.run(session, sessionData);
+      }
+      console.log(`✅ Session saved for ${session}`);
+    } catch (error) {
+      console.error('Error saving session:', error);
+      throw error;
+    }
+  }
+
+  async extract(options) {
+    const { session } = options;
+    try {
+      if (this.isProduction) {
+        const result = await this.db.query(
+          'SELECT session_data FROM whatsapp_sessions WHERE session_id = $1',
+          [session]
+        );
+        if (result.rows.length > 0) {
+          return JSON.parse(result.rows[0].session_data);
+        }
+      } else {
+        const stmt = this.db.prepare('SELECT session_data FROM whatsapp_sessions WHERE session_id = ?');
+        const row = stmt.get(session);
+        if (row) {
+          return JSON.parse(row.session_data);
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Error extracting session:', error);
+      return null;
+    }
+  }
+
+  async delete(options) {
+    const { session } = options;
+    try {
+      if (this.isProduction) {
+        await this.db.query('DELETE FROM whatsapp_sessions WHERE session_id = $1', [session]);
+      } else {
+        const stmt = this.db.prepare('DELETE FROM whatsapp_sessions WHERE session_id = ?');
+        stmt.run(session);
+      }
+      console.log(`🗑️ Session deleted for ${session}`);
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      throw error;
+    }
+  }
+}
 
 class WhatsAppService {
   constructor() {
@@ -14,12 +114,18 @@ class WhatsAppService {
     this.disabledUsers = new Map(); // userId -> Set of disabled phone numbers
     this.sendingStatus = new Map(); // userId -> sending status
     this.pollingIntervals = new Map(); // userId -> polling interval
-    this.botStartTimes = new Map(); // 🔥 NEW: Track bot start time per user
+    this.botStartTimes = new Map(); // userId -> bot start timestamp
+    this.postgresStore = null;
   }
 
   initialize(io) {
     this.io = io;
-    console.log('📱 WhatsApp Service initialized for multi-tenant');
+    
+    // Initialize PostgreSQL store for RemoteAuth
+    const db = databaseService.getDatabase();
+    this.postgresStore = new PostgresStore(db);
+    
+    console.log('📱 WhatsApp Service initialized for multi-tenant with RemoteAuth');
   }
 
   async connect(userId, users = null) {
@@ -29,23 +135,20 @@ class WhatsAppService {
         await this.disconnect(userId);
       }
 
-      // Clear disabled users for this user
       this.disabledUsers.set(userId, new Set());
-
-      // 🔥 CRITICAL FIX: Set bot start time for this user
       this.botStartTimes.set(userId, Date.now());
+      
       console.log(`⏰ Bot start time set for user ${userId}: ${new Date(Date.now()).toISOString()}`);
 
-      // Initialize sending status
       this.sendingStatus.set(userId, {
         isSendingMessages: false,
         progress: null
       });
 
-      const client = new Client({
-        authStrategy: new LocalAuth({
-          clientId: `user-${userId}` // Unique session per user
-        }),
+      // 🔥 USE REMOTE AUTH FOR PRODUCTION, LOCAL AUTH FOR DEVELOPMENT
+      const useRemoteAuth = process.env.DATABASE_URL !== undefined;
+      
+      const clientConfig = {
         puppeteer: {
           headless: true,
           args: [
@@ -58,7 +161,27 @@ class WhatsAppService {
             '--disable-gpu'
           ]
         }
-      });
+      };
+
+      if (useRemoteAuth) {
+        // Production: Use RemoteAuth with PostgreSQL
+        const { RemoteAuth } = require('whatsapp-web.js');
+        clientConfig.authStrategy = new RemoteAuth({
+          store: this.postgresStore,
+          clientId: `user-${userId}`,
+          backupSyncIntervalMs: 300000 // Backup every 5 minutes
+        });
+        console.log(`📦 Using RemoteAuth for user ${userId}`);
+      } else {
+        // Development: Use LocalAuth
+        const { LocalAuth } = require('whatsapp-web.js');
+        clientConfig.authStrategy = new LocalAuth({
+          clientId: `user-${userId}`
+        });
+        console.log(`📁 Using LocalAuth for user ${userId}`);
+      }
+
+      const client = new Client(clientConfig);
 
       this.clients.set(userId, client);
       this.userSessions.set(userId, new Map());
@@ -66,8 +189,6 @@ class WhatsAppService {
       this.setupEventHandlers(userId, client);
 
       await client.initialize();
-      
-      // 🔥 CRITICAL FIX: Start polling for this user AFTER client is ready
       this.startPolling(userId);
       
       return { success: true, message: 'WhatsApp client starting...' };
@@ -93,6 +214,11 @@ class WhatsAppService {
       } catch (error) {
         console.error('❌ QR code generation error:', error);
       }
+    });
+
+    // 🔥 NEW: Listen for remote_session_saved event
+    client.on('remote_session_saved', () => {
+      console.log(`💾 RemoteAuth session saved for user ${userId}`);
     });
 
     client.on('ready', () => {
@@ -134,8 +260,8 @@ class WhatsAppService {
       this.userQRCodes.delete(userId);
       this.disabledUsers.delete(userId);
       this.sendingStatus.delete(userId);
-      this.botStartTimes.delete(userId); // 🔥 NEW: Clean up bot start time
-      this.stopPolling(userId); // 🔥 NEW: Stop polling for this user
+      this.botStartTimes.delete(userId);
+      this.stopPolling(userId);
       
       if (this.io) {
         this.io.to(`user-${userId}`).emit('bot-disconnected', { 
@@ -145,7 +271,6 @@ class WhatsAppService {
       }
     });
 
-    // Message handler
     client.on('message', async (message) => {
       await this.handleMessage(userId, message);
     });
@@ -157,7 +282,6 @@ class WhatsAppService {
       const messageBody = message.body;
       const phoneNumber = this.formatPhoneNumber(sender);
 
-      // Get user's disabled users
       const userDisabled = this.disabledUsers.get(userId) || new Set();
       if (userDisabled.has(sender)) {
         if (messageBody === 'sair') {
@@ -170,29 +294,24 @@ class WhatsAppService {
         }
       }
 
-      // 🔥 CRITICAL FIX: Skip old messages using bot start time
-      const messageTimestamp = message.timestamp * 1000; // Convert to milliseconds
+      const messageTimestamp = message.timestamp * 1000;
       const currentTime = Date.now();
       const botStartTime = this.botStartTimes.get(userId) || currentTime;
-      
-      const safetyMargin = 10000; // 10 seconds
+      const safetyMargin = 10000;
       
       if (messageTimestamp < (botStartTime - safetyMargin)) {
-        console.log(`⏪ Skipping old message for user ${userId} from ${phoneNumber} - sent ${Math.round((botStartTime - messageTimestamp) / 1000)}s before bot started`);
+        console.log(`⏪ Skipping old message for user ${userId} from ${phoneNumber}`);
         return;
       }
 
-      // Skip future messages
       if (messageTimestamp > (currentTime + 30000)) {
         console.log(`⏩ Skipping future message for user ${userId} from ${phoneNumber}`);
         return;
       }
 
-      // Get user's clients from their folder
       const clientUsers = await databaseService.getUserClients(userId);
       const userInfo = this.findUserInfo(clientUsers, phoneNumber);
 
-      // Update answered status if needed
       if (userInfo) {
         await databaseService.updateClientAnsweredStatusInFolder(
           userId,
@@ -202,7 +321,6 @@ class WhatsAppService {
         );
       }
 
-      // Get or create session
       const userSessions = this.userSessions.get(userId);
       if (!userSessions.has(sender)) {
         const sessionId = uuidv4();
@@ -214,7 +332,6 @@ class WhatsAppService {
 
       const sessionId = userSessions.get(sender);
 
-      // Process message through order service
       const response = await orderService.processMessage({
         userId,
         sessionId,
@@ -225,12 +342,10 @@ class WhatsAppService {
         orderType: userInfo?.type
       });
 
-      // Send response if available
       if (response && response.message) {
         await this.sendMessage(userId, sender, response.message);
       }
 
-      // Handle user choosing to talk to person
       if (response && response.isChatBot === false) {
         console.log(`🚫 Disabling bot for user ${userId}: ${phoneNumber}`);
         userDisabled.add(sender);
@@ -304,7 +419,6 @@ class WhatsAppService {
             continue;
           }
 
-          // Create session if not exists
           const userSessions = this.userSessions.get(userId);
           if (!userSessions.has(phoneId)) {
             const sessionId = uuidv4();
@@ -312,7 +426,6 @@ class WhatsAppService {
             await orderService.startSession(sessionId, userId);
           }
 
-          // Send initial message
           const message = this.generateInitialMessage(user.name);
           await this.sendMessage(userId, phoneId, message);
 
@@ -362,9 +475,7 @@ class WhatsAppService {
     };
   }
 
-  // 🔥 CRITICAL FIX: Per-user polling
   startPolling(userId) {
-    // Stop existing polling if any
     this.stopPolling(userId);
 
     const pollingInterval = setInterval(async () => {

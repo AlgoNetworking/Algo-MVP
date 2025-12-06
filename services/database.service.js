@@ -49,9 +49,9 @@ class DatabaseService {
 
   async initializePostgres() {
     try {
-      console.log('🔄 Creating PostgreSQL tables...');
+      console.log('📄 Creating PostgreSQL tables...');
       
-      // Create users table FIRST
+      // 1️⃣ CREATE USERS TABLE FIRST
       await db.query(`
         CREATE TABLE IF NOT EXISTS users (
           id SERIAL PRIMARY KEY,
@@ -62,8 +62,37 @@ class DatabaseService {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      console.log('✅ Users table created');
 
-      // Create folders table with user_id
+      // 2️⃣ CREATE WHATSAPP SESSIONS TABLE (independent, no foreign keys)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS whatsapp_sessions (
+          id SERIAL PRIMARY KEY,
+          session_id VARCHAR(255) UNIQUE NOT NULL,
+          session_data TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_whatsapp_sessions_session_id 
+        ON whatsapp_sessions(session_id)
+      `);
+      console.log('✅ WhatsApp sessions table created');
+
+      // 3️⃣ CREATE DEFAULT_PRODUCTS TABLE (independent, no foreign keys)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS default_products (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) UNIQUE NOT NULL,
+          akas JSONB DEFAULT '[]',
+          enabled BOOLEAN DEFAULT TRUE
+        )
+      `);
+      console.log('✅ Default products table created');
+
+      // 4️⃣ CREATE FOLDERS TABLE (depends on users)
       await db.query(`
         CREATE TABLE IF NOT EXISTS folders (
           id SERIAL PRIMARY KEY,
@@ -74,8 +103,9 @@ class DatabaseService {
           UNIQUE(user_id, name)
         )
       `);
+      console.log('✅ Folders table created');
 
-      // Create clients table with user_id
+      // 5️⃣ CREATE CLIENTS TABLE (depends on users and folders)
       await db.query(`
         CREATE TABLE IF NOT EXISTS clients (
           id SERIAL PRIMARY KEY,
@@ -91,8 +121,9 @@ class DatabaseService {
           UNIQUE(user_id, phone, folder_id)
         )
       `);
+      console.log('✅ Clients table created');
 
-      // Create products table with user_id
+      // 6️⃣ CREATE PRODUCTS TABLE (depends on users)
       await db.query(`
         CREATE TABLE IF NOT EXISTS products (
           id SERIAL PRIMARY KEY,
@@ -105,8 +136,9 @@ class DatabaseService {
           UNIQUE(user_id, name)
         )
       `);
+      console.log('✅ Products table created');
 
-      // Create product_totals table with user_id
+      // 7️⃣ CREATE PRODUCT_TOTALS TABLE (depends on users)
       await db.query(`
         CREATE TABLE IF NOT EXISTS product_totals (
           user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -115,8 +147,9 @@ class DatabaseService {
           PRIMARY KEY (user_id, product)
         )
       `);
+      console.log('✅ Product totals table created');
 
-      // Create user_orders table with user_id
+      // 8️⃣ CREATE USER_ORDERS TABLE (depends on users)
       await db.query(`
         CREATE TABLE IF NOT EXISTS user_orders (
           id SERIAL PRIMARY KEY,
@@ -132,20 +165,14 @@ class DatabaseService {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      console.log('✅ User orders table created');
 
-      // Create default_products table (shared template)
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS default_products (
-          id SERIAL PRIMARY KEY,
-          name VARCHAR(100) UNIQUE NOT NULL,
-          akas JSONB DEFAULT '[]',
-          enabled BOOLEAN DEFAULT TRUE
-        )
-      `);
-
-      // Insert default products if table is empty
-      const defaultResult = await db.query('SELECT COUNT(*) FROM default_products');
-      if (parseInt(defaultResult.rows[0].count) === 0) {
+      // 9️⃣ INSERT DEFAULT PRODUCTS (now table exists!)
+      const defaultProductsCheck = await db.query('SELECT COUNT(*) FROM default_products');
+      
+      if (parseInt(defaultProductsCheck.rows[0].count) === 0) {
+        console.log('📦 Inserting default products...');
+        
         const defaultProducts = [
           ['abacaxi', '[]', true],
           ['abacaxi com hortelã', '[]', true],
@@ -168,23 +195,33 @@ class DatabaseService {
         for (const [name, akas, enabled] of defaultProducts) {
           await db.query(
             `INSERT INTO default_products (name, akas, enabled) 
-            VALUES ($1, $2::jsonb, $3)`,
+            VALUES ($1, $2::jsonb, $3)
+            ON CONFLICT (name) DO NOTHING`,
             [name, akas, enabled]
           );
         }
-        console.log('✅ Default products template inserted');
+        console.log('✅ Default products inserted (16 products)');
+      } else {
+        console.log('ℹ️  Default products already exist, skipping insert');
       }
 
-      console.log('✅ PostgreSQL tables created successfully');
+      console.log('✅ PostgreSQL database initialization complete!');
+      
     } catch (error) {
       console.error('❌ Error creating PostgreSQL tables:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        table: error.table,
+        position: error.position
+      });
       throw error;
     }
   }
 
   initializeSQLite() {
     try {
-      console.log('🔄 Creating SQLite tables...');
+      console.log('📄 Creating SQLite tables...');
       
       // Create users table
       db.exec(`
@@ -197,6 +234,24 @@ class DatabaseService {
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
+
+      // 🔥 NEW: Create WhatsApp sessions table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS whatsapp_sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT UNIQUE NOT NULL,
+          session_data TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_whatsapp_sessions_session_id 
+        ON whatsapp_sessions(session_id)
+      `);
+
+      console.log('✅ WhatsApp sessions table created');
 
       // Create folders table with user_id
       db.exec(`
@@ -309,9 +364,21 @@ class DatabaseService {
         for (const [name, akas, enabled] of defaultProducts) {
           insertStmt.run(name, akas, enabled);
         }
-        console.log('✅ Default products template inserted');
+        console.log('✅ Default products inserted');
       }
 
+      // Clear any existing data and initialize product totals
+      db.exec('DELETE FROM product_totals');
+      
+      const products = this.getAllProducts();
+      const stmt = db.prepare(
+        'INSERT INTO product_totals (product, total_quantity) VALUES (?, 0)'
+      );
+
+      for (const product of products) {
+        stmt.run(product.name);
+      }
+      
       console.log('✅ SQLite tables created successfully');
     } catch (error) {
       console.error('❌ Error creating SQLite tables:', error);
