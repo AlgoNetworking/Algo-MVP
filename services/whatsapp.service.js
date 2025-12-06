@@ -377,12 +377,28 @@ class WhatsAppService {
       };
 
       if (useRemoteAuth) {
-        clientConfig.authStrategy = new RemoteAuth({
-          store: this.postgresStore,
-          clientId: `user-${userId}`,
-          backupSyncIntervalMs: 300000 // 5 minutes
+        // Production: try to restore session files from DB into local auth dir
+        // and use LocalAuth pointing to that clientId. This keeps compatibility
+        // with filesystem-based auth while persisting sessions in Postgres.
+        try {
+          const normalizedSession = `user-${userId}`;
+          const extractPath = path.join(this.postgresStore.authDir, normalizedSession);
+          console.log(`📂 Attempting to extract session ${normalizedSession} to ${extractPath}`);
+          const extracted = await this.postgresStore.extract({ session: normalizedSession, path: extractPath });
+          if (extracted) {
+            console.log(`📁 Session extracted to ${extractPath}`);
+          } else {
+            console.log(`ℹ️ No session data to extract for ${normalizedSession}`);
+          }
+        } catch (err) {
+          console.error('❌ Error extracting session before LocalAuth:', err.message);
+        }
+
+        const { LocalAuth } = require('whatsapp-web.js');
+        clientConfig.authStrategy = new LocalAuth({
+          clientId: `user-${userId}`
         });
-        console.log(`📦 Using RemoteAuth for user ${userId}`);
+        console.log(`📁 Using LocalAuth (restored from Postgres if available) for user ${userId}`);
       } else {
         const { LocalAuth } = require('whatsapp-web.js');
         clientConfig.authStrategy = new LocalAuth({
