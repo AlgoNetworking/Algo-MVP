@@ -89,7 +89,13 @@ class PostgresStore {
       // Look for the session directory
       // RemoteAuth may call with 'RemoteAuth-<clientId>' or '<clientId>'.
       // Try multiple possible local session directory names for robustness.
-      const candidates = [session, normalized, `RemoteAuth-${normalized}`].filter(Boolean);
+      const candidates = [
+        session,
+        normalized,
+        `RemoteAuth-${normalized}`,
+        `LocalAuth-${normalized}`,
+        `LocalAuth-${session}`
+      ].filter(Boolean);
       let sessionDir = null;
 
       // Retry loop: sometimes RemoteAuth triggers save before writing files to disk.
@@ -119,6 +125,13 @@ class PostgresStore {
         if (!fs.existsSync(this.authDir)) {
           console.log(`📁 Creating auth directory: ${this.authDir}`);
           fs.mkdirSync(this.authDir, { recursive: true });
+        }
+
+        try {
+          const entries = fs.readdirSync(this.authDir);
+          console.log(`📂 Auth dir contents: ${entries.join(', ')}`);
+        } catch (e) {
+          console.log('⚠️ Could not read auth dir contents:', e.message);
         }
 
         // If RemoteAuth provided session data directly in options, save it.
