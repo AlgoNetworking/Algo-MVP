@@ -447,6 +447,32 @@ class WhatsAppService {
     const db = databaseService.getDatabase();
     this.postgresStore = new PostgresStore(db);
     
+    // Try to prepare a dedicated pg client for remote-auth packages (optional)
+    this.remoteAuthPgClient = null;
+    if (process.env.DATABASE_URL) {
+      try {
+        const { Client: PgClient } = require('pg');
+        const isLocalDB = process.env.DATABASE_URL &&
+                          (process.env.DATABASE_URL.includes('localhost') ||
+                           process.env.DATABASE_URL.includes('127.0.0.1'));
+
+        this.remoteAuthPgClient = new PgClient({
+          connectionString: process.env.DATABASE_URL,
+          ssl: isLocalDB ? false : { rejectUnauthorized: false }
+        });
+
+        this.remoteAuthPgClient.connect().then(() => {
+          console.log('📦 RemoteAuth pg client connected');
+        }).catch(err => {
+          console.warn('⚠️ Could not connect remote-auth pg client:', err.message);
+          this.remoteAuthPgClient = null;
+        });
+      } catch (err) {
+        console.log('⚠️ pg client not available for remote-auth (will fallback to LocalAuth)');
+        this.remoteAuthPgClient = null;
+      }
+    }
+
     console.log('📱 WhatsApp Service initialized with RemoteAuth + PostgreSQL');
   }
 
@@ -484,49 +510,76 @@ class WhatsAppService {
       };
 
       if (useRemoteAuth) {
-        // Production: try to restore session files from DB into local auth dir
-        // and use LocalAuth pointing to that clientId. This keeps compatibility
-        // with filesystem-based auth while persisting sessions in Postgres.
+        // Production: prefer using `whatsapp-web.js-remote-auth` if available.
+        // This package implements a RemoteAuth strategy that stores session
+        // data directly in Postgres. If it's not available or fails, we
+        // fallback to the previous LocalAuth + DB extraction approach.
+        let usedRemoteAuthPackage = false;
         try {
-          const normalizedSession = `user-${userId}`;
-          // Try multiple plausible locations where LocalAuth/RemoteAuth may write files
-          const candidatePaths = [
-            path.join(this.postgresStore.authDir, `LocalAuth-${normalizedSession}`),
-            path.join(this.postgresStore.authDir, `RemoteAuth-${normalizedSession}`),
-            path.join(this.postgresStore.authDir, normalizedSession),
-            path.join(this.postgresStore.authDir, 'session', normalizedSession),
-            path.join(this.postgresStore.authDir, 'session', `RemoteAuth-${normalizedSession}`),
-            path.join(this.postgresStore.authDir, 'session', `LocalAuth-${normalizedSession}`)
-          ];
-
-          console.log(`📂 Attempting to extract session ${normalizedSession} to candidate paths`);
-          let anyExtracted = false;
-          for (const extractPath of candidatePaths) {
+          const { RemoteAuthStrategy } = require('whatsapp-web.js-remote-auth');
+          if (this.remoteAuthPgClient) {
             try {
-              const extracted = await this.postgresStore.extract({ session: normalizedSession, path: extractPath });
-              if (extracted) {
-                console.log(`📁 Session extracted to ${extractPath}`);
-                anyExtracted = true;
-              } else {
-                console.log(`ℹ️ No session data to extract for ${normalizedSession} at ${extractPath}`);
-              }
-            } catch (e) {
-              console.error(`❌ Error extracting to ${extractPath}:`, e.message);
+              clientConfig.authStrategy = new RemoteAuthStrategy({
+                clientId: `user-${userId}`,
+                store: this.remoteAuthPgClient,
+                tableName: 'wwebjs_sessions'
+              });
+              usedRemoteAuthPackage = true;
+              console.log('🔌 Using whatsapp-web.js-remote-auth RemoteAuthStrategy for user', userId);
+            } catch (err) {
+              console.warn('⚠️ RemoteAuthStrategy init failed, falling back:', err.message);
+              usedRemoteAuthPackage = false;
             }
-          }
-
-          if (!anyExtracted) {
-            console.log(`ℹ️ No session data extracted for ${normalizedSession} to any candidate path`);
+          } else {
+            console.warn('⚠️ remoteAuthPgClient not available, cannot use remote-auth package');
           }
         } catch (err) {
-          console.error('❌ Error extracting session before LocalAuth:', err.message);
+          // package not installed or failed to load
+          console.log('⚠️ whatsapp-web.js-remote-auth not installed or failed to load, falling back to LocalAuth');
         }
 
-        const { LocalAuth } = require('whatsapp-web.js');
-        clientConfig.authStrategy = new LocalAuth({
-          clientId: `user-${userId}`
-        });
-        console.log(`📁 Using LocalAuth (restored from Postgres if available) for user ${userId}`);
+        if (!usedRemoteAuthPackage) {
+          try {
+            const normalizedSession = `user-${userId}`;
+            // Try multiple plausible locations where LocalAuth/RemoteAuth may write files
+            const candidatePaths = [
+              path.join(this.postgresStore.authDir, `LocalAuth-${normalizedSession}`),
+              path.join(this.postgresStore.authDir, `RemoteAuth-${normalizedSession}`),
+              path.join(this.postgresStore.authDir, normalizedSession),
+              path.join(this.postgresStore.authDir, 'session', normalizedSession),
+              path.join(this.postgresStore.authDir, 'session', `RemoteAuth-${normalizedSession}`),
+              path.join(this.postgresStore.authDir, 'session', `LocalAuth-${normalizedSession}`)
+            ];
+
+            console.log(`📂 Attempting to extract session ${normalizedSession} to candidate paths`);
+            let anyExtracted = false;
+            for (const extractPath of candidatePaths) {
+              try {
+                const extracted = await this.postgresStore.extract({ session: normalizedSession, path: extractPath });
+                if (extracted) {
+                  console.log(`📁 Session extracted to ${extractPath}`);
+                  anyExtracted = true;
+                } else {
+                  console.log(`ℹ️ No session data to extract for ${normalizedSession} at ${extractPath}`);
+                }
+              } catch (e) {
+                console.error(`❌ Error extracting to ${extractPath}:`, e.message);
+              }
+            }
+
+            if (!anyExtracted) {
+              console.log(`ℹ️ No session data extracted for ${normalizedSession} to any candidate path`);
+            }
+          } catch (err) {
+            console.error('❌ Error extracting session before LocalAuth:', err.message);
+          }
+
+          const { LocalAuth } = require('whatsapp-web.js');
+          clientConfig.authStrategy = new LocalAuth({
+            clientId: `user-${userId}`
+          });
+          console.log(`📁 Using LocalAuth (restored from Postgres if available) for user ${userId}`);
+        }
       } else {
         const { LocalAuth } = require('whatsapp-web.js');
         clientConfig.authStrategy = new LocalAuth({

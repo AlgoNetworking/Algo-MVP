@@ -81,6 +81,16 @@ class DatabaseService {
       `);
       console.log('✅ WhatsApp sessions table created');
 
+      // Additional table used by some RemoteAuth stores/packages
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS wwebjs_sessions (
+          session_id TEXT PRIMARY KEY,
+          session_data TEXT,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✅ wwebjs_sessions table created (for remote-auth compatibility)');
+
       // 3️⃣ CREATE DEFAULT_PRODUCTS TABLE (independent, no foreign keys)
       await db.query(`
         CREATE TABLE IF NOT EXISTS default_products (
