@@ -6,6 +6,7 @@ const orderService = require('./order.service');
 const databaseService = require('./database.service');
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 // 🔥 WORKING: Hybrid PostgreSQL Store
 // Let RemoteAuth handle file operations, we just store the data in PostgreSQL
@@ -194,33 +195,46 @@ class PostgresStore {
         return;
       }
       
-      // Read all files in the session directory
-      console.log(`📂 Reading session directory: ${sessionDir}`);
-      const files = this.readDirectoryRecursive(sessionDir);
-      
-      if (files.length === 0) {
-        console.log(`⚠️ No files found in session directory`);
-        return;
+      // Create a tar.gz of the session directory and store as base64
+      try {
+        console.log(`📂 Archiving session directory for DB save: ${sessionDir}`);
+        const parentDir = path.dirname(sessionDir);
+        const baseName = path.basename(sessionDir);
+
+        // Use system 'tar' to create a gzipped tar to stdout
+        const tar = spawnSync('tar', ['-czf', '-', '-C', parentDir, baseName], { maxBuffer: 50 * 1024 * 1024 });
+
+        if (tar.status !== 0 || !tar.stdout) {
+          console.warn('⚠️ Tar process failed, fallback to file-by-file save');
+          // fallback: try reading files individually
+          const files = this.readDirectoryRecursive(sessionDir);
+          if (files.length === 0) {
+            console.log(`⚠️ No files found in session directory`);
+            return;
+          }
+          const sessionData = {
+            files: files.map(file => ({
+              path: path.relative(sessionDir, file.fullPath),
+              data: file.data,
+              isBase64: file.isBase64
+            }))
+          };
+          const jsonData = JSON.stringify(sessionData);
+          console.log(`💾 Saving ${(jsonData.length / 1024).toFixed(2)} KB to database (fallback)`);
+          await this.saveToDatabase(normalized, jsonData);
+          console.log(`✅ Session saved successfully (fallback): ${session}`);
+          return;
+        }
+
+        const tarBuffer = tar.stdout;
+        const b64 = tarBuffer.toString('base64');
+        const payload = JSON.stringify({ type: 'tar.gz', data: b64 });
+        console.log(`💾 Saving ${(payload.length / 1024).toFixed(2)} KB tarball to database`);
+        await this.saveToDatabase(normalized, payload);
+        console.log(`✅ Session saved successfully (tar): ${session}`);
+      } catch (err) {
+        console.error('❌ Error archiving session dir:', err.message);
       }
-      
-      console.log(`📦 Found ${files.length} files to save`);
-      
-      // Create a JSON structure with all files
-      const sessionData = {
-        files: files.map(file => ({
-          path: path.relative(sessionDir, file.fullPath),
-          data: file.data,
-          isBase64: file.isBase64
-        }))
-      };
-      
-      const jsonData = JSON.stringify(sessionData);
-      console.log(`💾 Saving ${(jsonData.length / 1024).toFixed(2)} KB to database`);
-      
-      // Save to database using normalized session id
-      await this.saveToDatabase(normalized, jsonData);
-      
-      console.log(`✅ Session saved successfully: ${session}`);
       
     } catch (error) {
       console.error('❌ Error saving session:', error);
@@ -317,37 +331,72 @@ class PostgresStore {
       }
       
       console.log(`📦 Retrieved session data (${(sessionDataJson.length / 1024).toFixed(2)} KB)`);
-      
+
       const sessionData = JSON.parse(sessionDataJson);
-      
+
+      // If payload is a tar.gz blob (created by our save), extract it directly
+      if (sessionData && sessionData.type === 'tar.gz' && sessionData.data) {
+        try {
+          const tarB64 = sessionData.data;
+          const buffer = Buffer.from(tarB64, 'base64');
+
+          // Ensure target parent exists
+          const targetDir = extractPath; // we expect extractPath to be the full session directory path
+          const parent = path.dirname(targetDir);
+          if (!fs.existsSync(parent)) {
+            fs.mkdirSync(parent, { recursive: true });
+          }
+
+          // Create target dir if not exists
+          if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+
+          console.log(`📦 Extracting tarball into ${parent}`);
+
+          const tar = spawnSync('tar', ['-xzf', '-', '-C', parent], { input: buffer, maxBuffer: 50 * 1024 * 1024 });
+          if (tar.status !== 0) {
+            console.error('❌ Tar extraction failed:', tar.stderr ? tar.stderr.toString() : 'unknown');
+            return false;
+          }
+
+          console.log(`✅ Session extracted successfully to ${extractPath}`);
+          return true;
+        } catch (err) {
+          console.error('❌ Error extracting tarball session:', err.message);
+          return false;
+        }
+      }
+
+      // Fallback: older format with files array
       if (!sessionData.files || sessionData.files.length === 0) {
         console.log(`⚠️ No files in session data`);
         return false;
       }
-      
+
       console.log(`📁 Extracting ${sessionData.files.length} files to ${extractPath}`);
-      
+
       // Create the session directory
       if (!fs.existsSync(extractPath)) {
         fs.mkdirSync(extractPath, { recursive: true });
       }
-      
+
       // Write all files
       for (const file of sessionData.files) {
         const filePath = path.join(extractPath, file.path);
         const fileDir = path.dirname(filePath);
-        
+
         if (!fs.existsSync(fileDir)) {
           fs.mkdirSync(fileDir, { recursive: true });
         }
-        
+
         if (file.isBase64) {
           fs.writeFileSync(filePath, Buffer.from(file.data, 'base64'));
         } else {
           fs.writeFileSync(filePath, file.data, 'utf8');
         }
       }
-      
+
       console.log(`✅ Session extracted successfully to ${extractPath}`);
       return true;
       
