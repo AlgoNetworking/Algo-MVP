@@ -134,6 +134,49 @@ class PostgresStore {
           console.log('⚠️ Could not read auth dir contents:', e.message);
         }
 
+        // Aggressive scan: search .wwebjs_auth for any folder with files.
+        try {
+          const baseAuth = path.join(__dirname, '..', '.wwebjs_auth');
+          const foundDirs = [];
+
+          function scanDir(dir) {
+            try {
+              const items = fs.readdirSync(dir);
+              for (const it of items) {
+                const full = path.join(dir, it);
+                let stat;
+                try { stat = fs.statSync(full); } catch (e) { continue; }
+                if (stat.isDirectory()) {
+                  // check if directory has any files
+                  const inner = fs.readdirSync(full);
+                  if (inner && inner.length > 0) {
+                    foundDirs.push(full);
+                  }
+                  // recurse
+                  scanDir(full);
+                }
+              }
+            } catch (e) {
+              // ignore
+            }
+          }
+
+          scanDir(baseAuth);
+
+          if (foundDirs.length > 0) {
+            console.log(`🔎 Found auth candidate dirs: ${foundDirs.join(' | ')}`);
+            // Prefer directories that include the normalized session id
+            const prefer = foundDirs.find(d => d.includes(normalized) || d.includes(session));
+            const pick = prefer || foundDirs[0];
+            console.log(`🔍 Picking ${pick} as session dir candidate`);
+            sessionDir = pick;
+          } else {
+            console.log('🔎 No auth dirs found during aggressive scan');
+          }
+        } catch (e) {
+          console.log('⚠️ Aggressive scan failed:', e.message);
+        }
+
         // If RemoteAuth provided session data directly in options, save it.
         if (options && options.data) {
           try {
@@ -395,13 +438,31 @@ class WhatsAppService {
         // with filesystem-based auth while persisting sessions in Postgres.
         try {
           const normalizedSession = `user-${userId}`;
-          const extractPath = path.join(this.postgresStore.authDir, normalizedSession);
-          console.log(`📂 Attempting to extract session ${normalizedSession} to ${extractPath}`);
-          const extracted = await this.postgresStore.extract({ session: normalizedSession, path: extractPath });
-          if (extracted) {
-            console.log(`📁 Session extracted to ${extractPath}`);
-          } else {
-            console.log(`ℹ️ No session data to extract for ${normalizedSession}`);
+          const candidatePaths = [
+            path.join(this.postgresStore.authDir, 'session', normalizedSession),
+            path.join(this.postgresStore.authDir, normalizedSession),
+            path.join(this.postgresStore.authDir, `RemoteAuth-${normalizedSession}`),
+            path.join(this.postgresStore.authDir, `LocalAuth-${normalizedSession}`)
+          ];
+
+          console.log(`📂 Attempting to extract session ${normalizedSession} to candidate paths`);
+          let anyExtracted = false;
+          for (const extractPath of candidatePaths) {
+            try {
+              const extracted = await this.postgresStore.extract({ session: normalizedSession, path: extractPath });
+              if (extracted) {
+                console.log(`📁 Session extracted to ${extractPath}`);
+                anyExtracted = true;
+              } else {
+                console.log(`ℹ️ No session data to extract for ${normalizedSession} at ${extractPath}`);
+              }
+            } catch (e) {
+              console.error(`❌ Error extracting to ${extractPath}:`, e.message);
+            }
+          }
+
+          if (!anyExtracted) {
+            console.log(`ℹ️ No session data extracted for ${normalizedSession} to any candidate path`);
           }
         } catch (err) {
           console.error('❌ Error extracting session before LocalAuth:', err.message);
