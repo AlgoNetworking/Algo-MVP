@@ -329,8 +329,11 @@ class OrderService {
         for (const [product, qty] of session.currentDb) {
           const [productName, akas, enabled] = product;
           if (enabled) {
-            productList += `• ${productName}\n`;
+            productList += `• ${productName} - ✅\n`;
             hasProducts = true;
+          }
+          else {
+            productList += `• ${productName} - ❌ (Fora de estoque no momento)\n`;
           }
         }
         

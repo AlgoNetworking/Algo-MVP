@@ -673,7 +673,7 @@ class WhatsAppService {
         userSessions.set(sender, sessionId);
         console.log(`🆕 Session created for user ${userId}: ${sessionId} for ${phoneNumber}`);
         
-        await orderService.startSession(sessionId, userId);
+      //await orderService.startSession(sessionId, userId);
       }
 
       const sessionId = userSessions.get(sender);
@@ -923,7 +923,12 @@ class WhatsAppService {
   }
 
   findUserInfo(users, phoneNumber) {
-    return users.find(u => u.phone === phoneNumber) || null;
+   const user = users.find(u => u.phone === phoneNumber);
+   console.log(phoneNumber);
+    return {
+      name: user ? user.name : 'Cliente sem nome',
+      type: user ? user.type : 'normal'
+    };
   }
 
   formatPhoneNumber(whatsappId) {
