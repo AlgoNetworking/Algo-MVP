@@ -5,6 +5,8 @@ const path = require('path');
 const cors = require('cors');
 const session = require('express-session');
 require('dotenv').config();
+const pgSession = require('connect-pg-simple')(session);
+const { Pool } = require('pg');
 
 // Import routes and services
 const authRoutes = require('./routes/auth.routes');
@@ -28,6 +30,13 @@ const io = socketIO(server, {
   }
 });
 
+const pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false
+    }
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -42,15 +51,18 @@ if (process.env.NODE_ENV === 'production') {
 
 // Session configuration
 const sessionMiddleware = session({
-  secret: process.env.SESSION_SECRET || 'multi-tenant-secret-key-change-in-production',
-  resave: false,
-  saveUninitialized: false,
-  proxy: process.env.NODE_ENV === 'production',
-  cookie: { 
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
+    store: new pgSession({
+        pool: pgPool,                // Connection pool
+        tableName: 'session',        // You can rename this if you want
+        createTableIfMissing: true,  // Auto-create table
+    }),
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        maxAge: 1000 * 60 * 60 * 24 * 7, // 1 week
+        sameSite: 'lax'
+    }
 });
 
 app.use(sessionMiddleware);
