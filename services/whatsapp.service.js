@@ -600,6 +600,7 @@ class RemoteAuthStoreAdapter {
         // Try to create a zip archive at destPath so RemoteAuth can unCompressSession
         try {
           const archiver = require('archiver');
+          const unzipper = require('unzipper');
           const output = fs.createWriteStream(destPath);
           const archive = archiver('zip', { zlib: { level: 9 } });
 
@@ -611,6 +612,24 @@ class RemoteAuthStoreAdapter {
             archive.on('error', reject);
             archive.finalize();
           });
+
+          // Also extract the created zip into the expected RemoteAuth session directory
+          try {
+            const sessionDirName = `RemoteAuth-${normalized}`;
+            const extractTarget = path.join(this.pgStore.authDir, sessionDirName);
+            if (!fs.existsSync(extractTarget)) fs.mkdirSync(extractTarget, { recursive: true });
+
+            await new Promise((resolve, reject) => {
+              fs.createReadStream(destPath)
+                .pipe(unzipper.Extract({ path: extractTarget }))
+                .on('close', resolve)
+                .on('error', reject);
+            });
+
+            console.log(`✅ RemoteAuthStoreAdapter extracted zip into ${extractTarget}`);
+          } catch (e) {
+            console.warn('⚠️ Failed to self-extract zip into auth dir:', e?.message || e);
+          }
 
           // cleanup temp dir
           try { fs.rmSync(targetDir, { recursive: true, force: true }); } catch (e) {}
