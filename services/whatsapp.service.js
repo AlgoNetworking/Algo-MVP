@@ -6,7 +6,6 @@ const orderService = require('./order.service');
 const databaseService = require('./database.service');
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
 
 // 🔥 WORKING: Hybrid PostgreSQL Store
 // Let RemoteAuth handle file operations, we just store the data in PostgreSQL
@@ -16,9 +15,7 @@ class PostgresStore {
     this.isProduction = process.env.DATABASE_URL !== undefined;
     
     // Directory where RemoteAuth stores files
-    // Use base .wwebjs_auth directory. Individual strategies may create
-    // `LocalAuth-<id>` or `RemoteAuth-<id>` or a `session/<id>` subfolder.
-    this.authDir = path.join(__dirname, '..', '.wwebjs_auth');
+    this.authDir = path.join(__dirname, '..', '.wwebjs_auth', 'session');
   }
 
   normalizeSession(session) {
@@ -139,7 +136,7 @@ class PostgresStore {
 
         // Aggressive scan: search .wwebjs_auth for any folder with files.
         try {
-          const baseAuth = this.authDir;
+          const baseAuth = path.join(__dirname, '..', '.wwebjs_auth');
           const foundDirs = [];
 
           function scanDir(dir) {
@@ -195,46 +192,33 @@ class PostgresStore {
         return;
       }
       
-      // Create a tar.gz of the session directory and store as base64
-      try {
-        console.log(`📂 Archiving session directory for DB save: ${sessionDir}`);
-        const parentDir = path.dirname(sessionDir);
-        const baseName = path.basename(sessionDir);
-
-        // Use system 'tar' to create a gzipped tar to stdout
-        const tar = spawnSync('tar', ['-czf', '-', '-C', parentDir, baseName], { maxBuffer: 50 * 1024 * 1024 });
-
-        if (tar.status !== 0 || !tar.stdout) {
-          console.warn('⚠️ Tar process failed, fallback to file-by-file save');
-          // fallback: try reading files individually
-          const files = this.readDirectoryRecursive(sessionDir);
-          if (files.length === 0) {
-            console.log(`⚠️ No files found in session directory`);
-            return;
-          }
-          const sessionData = {
-            files: files.map(file => ({
-              path: path.relative(sessionDir, file.fullPath),
-              data: file.data,
-              isBase64: file.isBase64
-            }))
-          };
-          const jsonData = JSON.stringify(sessionData);
-          console.log(`💾 Saving ${(jsonData.length / 1024).toFixed(2)} KB to database (fallback)`);
-          await this.saveToDatabase(normalized, jsonData);
-          console.log(`✅ Session saved successfully (fallback): ${session}`);
-          return;
-        }
-
-        const tarBuffer = tar.stdout;
-        const b64 = tarBuffer.toString('base64');
-        const payload = JSON.stringify({ type: 'tar.gz', data: b64 });
-        console.log(`💾 Saving ${(payload.length / 1024).toFixed(2)} KB tarball to database`);
-        await this.saveToDatabase(normalized, payload);
-        console.log(`✅ Session saved successfully (tar): ${session}`);
-      } catch (err) {
-        console.error('❌ Error archiving session dir:', err.message);
+      // Read all files in the session directory
+      console.log(`📂 Reading session directory: ${sessionDir}`);
+      const files = this.readDirectoryRecursive(sessionDir);
+      
+      if (files.length === 0) {
+        console.log(`⚠️ No files found in session directory`);
+        return;
       }
+      
+      console.log(`📦 Found ${files.length} files to save`);
+      
+      // Create a JSON structure with all files
+      const sessionData = {
+        files: files.map(file => ({
+          path: path.relative(sessionDir, file.fullPath),
+          data: file.data,
+          isBase64: file.isBase64
+        }))
+      };
+      
+      const jsonData = JSON.stringify(sessionData);
+      console.log(`💾 Saving ${(jsonData.length / 1024).toFixed(2)} KB to database`);
+      
+      // Save to database using normalized session id
+      await this.saveToDatabase(normalized, jsonData);
+      
+      console.log(`✅ Session saved successfully: ${session}`);
       
     } catch (error) {
       console.error('❌ Error saving session:', error);
@@ -331,89 +315,37 @@ class PostgresStore {
       }
       
       console.log(`📦 Retrieved session data (${(sessionDataJson.length / 1024).toFixed(2)} KB)`);
-
+      
       const sessionData = JSON.parse(sessionDataJson);
-
-      // If payload is a tar.gz blob (created by our save), extract it directly
-      if (sessionData && sessionData.type === 'tar.gz' && sessionData.data) {
-        try {
-          const tarB64 = sessionData.data;
-          const buffer = Buffer.from(tarB64, 'base64');
-
-          // Ensure target parent exists
-          const targetDir = extractPath; // we expect extractPath to be the full session directory path
-          const parent = path.dirname(targetDir);
-          if (!fs.existsSync(parent)) {
-            fs.mkdirSync(parent, { recursive: true });
-          }
-
-          // Create target dir if not exists
-          if (!fs.existsSync(targetDir)) {
-            fs.mkdirSync(targetDir, { recursive: true });
-          }
-
-          console.log(`📦 Extracting tarball into ${parent}`);
-
-          const tar = spawnSync('tar', ['-xzf', '-', '-C', parent], { input: buffer, maxBuffer: 50 * 1024 * 1024 });
-          if (tar.status !== 0) {
-            console.error('❌ Tar extraction failed:', tar.stderr ? tar.stderr.toString() : 'unknown');
-            return false;
-          }
-
-          console.log(`✅ Session extracted successfully to ${extractPath}`);
-          return true;
-        } catch (err) {
-          console.error('❌ Error extracting tarball session:', err.message);
-          return false;
-        }
-          // If payload is a zip blob (created by RemoteAuth.compressSession), write the zip file to disk
-          if (sessionData && sessionData.type === 'zip' && sessionData.data) {
-            try {
-              const zipB64 = sessionData.data;
-              const buffer = Buffer.from(zipB64, 'base64');
-
-              const targetFile = extractPath; // RemoteAuth passes compressedSessionPath (e.g., 'RemoteAuth-user-1.zip')
-              const targetDir = path.dirname(targetFile) || '.';
-              if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-              fs.writeFileSync(targetFile, buffer);
-              console.log(`✅ Zip session written to ${targetFile}`);
-              return true;
-            } catch (err) {
-              console.error('❌ Error writing zip session file:', err.message);
-              return false;
-            }
-          }
-      }
-
-      // Fallback: older format with files array
+      
       if (!sessionData.files || sessionData.files.length === 0) {
         console.log(`⚠️ No files in session data`);
         return false;
       }
-
+      
       console.log(`📁 Extracting ${sessionData.files.length} files to ${extractPath}`);
-
+      
       // Create the session directory
       if (!fs.existsSync(extractPath)) {
         fs.mkdirSync(extractPath, { recursive: true });
       }
-
+      
       // Write all files
       for (const file of sessionData.files) {
         const filePath = path.join(extractPath, file.path);
         const fileDir = path.dirname(filePath);
-
+        
         if (!fs.existsSync(fileDir)) {
           fs.mkdirSync(fileDir, { recursive: true });
         }
-
+        
         if (file.isBase64) {
           fs.writeFileSync(filePath, Buffer.from(file.data, 'base64'));
         } else {
           fs.writeFileSync(filePath, file.data, 'utf8');
         }
       }
-
+      
       console.log(`✅ Session extracted successfully to ${extractPath}`);
       return true;
       
@@ -444,214 +376,6 @@ class PostgresStore {
   }
 }
 
-// Adapter to match the RemoteAuth store interface expected by whatsapp-web.js
-class RemoteAuthStoreAdapter {
-  constructor(pgStore) {
-    this.pgStore = pgStore;
-  }
-
-  // Check if a session exists (RemoteAuth may call this)
-  async exists(session) {
-    try {
-      return await this.pgStore.sessionExists({ session });
-    } catch (err) {
-      console.warn('RemoteAuthStoreAdapter.exists error:', err?.message || err);
-      return false;
-    }
-  }
-
-  // Get session data from DB. Return parsed object if possible.
-  async get(session) {
-    try {
-      const normalized = this.pgStore.normalizeSession(session);
-      // Query DB directly using pgStore logic
-      if (this.pgStore.isProduction) {
-        const res = await this.pgStore.db.query('SELECT session_data FROM whatsapp_sessions WHERE session_id = $1', [normalized]);
-        if (!res || res.rows.length === 0) return null;
-        try { return JSON.parse(res.rows[0].session_data); } catch (e) { return res.rows[0].session_data; }
-      } else {
-        const stmt = this.pgStore.db.prepare('SELECT session_data FROM whatsapp_sessions WHERE session_id = ?');
-        const row = stmt.get(normalized);
-        if (!row) return null;
-        try { return JSON.parse(row.session_data); } catch (e) { return row.session_data; }
-      }
-    } catch (err) {
-      console.error('RemoteAuthStoreAdapter.get error:', err?.message || err);
-      return null;
-    }
-  }
-
-  // Save session data into DB. Accepts any value and stores as JSON/string.
-  async set(session, value) {
-    try {
-      const normalized = this.pgStore.normalizeSession(session);
-      let payload;
-      if (typeof value === 'string') payload = value;
-      else payload = JSON.stringify(value);
-
-      await this.pgStore.saveToDatabase(normalized, payload);
-      return true;
-    } catch (err) {
-      console.error('RemoteAuthStoreAdapter.set error:', err?.message || err);
-      return false;
-    }
-  }
-
-  // Delete session from DB
-  async delete(session) {
-    try {
-      await this.pgStore.delete({ session });
-      return true;
-    } catch (err) {
-      console.error('RemoteAuthStoreAdapter.delete error:', err?.message || err);
-      return false;
-    }
-  }
-  // Compatibility: RemoteAuth expects sessionExists/save/extract/delete methods
-  async sessionExists(options) {
-    try {
-      // RemoteAuth calls with an object { session: 'RemoteAuth-<id>' }
-      if (typeof options === 'string') return await this.exists(options);
-      return await this.pgStore.sessionExists(options);
-    } catch (err) {
-      console.error('RemoteAuthStoreAdapter.sessionExists error:', err?.message || err);
-      return false;
-    }
-  }
-
-  async save(options) {
-    try {
-      // RemoteAuth creates a zip file named `<session>.zip` in cwd before calling save
-      // Try to read that file and store as base64 zip payload
-      const session = options && options.session ? options.session : options;
-      const zipName = `${session}.zip`;
-      if (fs.existsSync(zipName)) {
-        const buf = fs.readFileSync(zipName);
-        const b64 = buf.toString('base64');
-        const payload = JSON.stringify({ type: 'zip', data: b64 });
-        await this.pgStore.saveToDatabase(this.pgStore.normalizeSession(session), payload);
-        return true;
-      }
-      // Fallback: let pgStore.save try to find session dir
-      if (this.pgStore.save) {
-        await this.pgStore.save({ session });
-        return true;
-      }
-      return false;
-    } catch (err) {
-      console.error('RemoteAuthStoreAdapter.save error:', err?.message || err);
-      return false;
-    }
-  }
-
-  async extract(options) {
-    try {
-      // RemoteAuth calls extract({ session, path }) where path is the expected archive filename
-      const session = options && options.session ? options.session : options;
-      const destPath = options && options.path ? options.path : options;
-
-      const normalized = this.pgStore.normalizeSession(session);
-      let sessionDataJson;
-
-      if (this.pgStore.isProduction) {
-        const res = await this.pgStore.db.query('SELECT session_data FROM whatsapp_sessions WHERE session_id = $1', [normalized]);
-        if (!res || res.rows.length === 0) return false;
-        sessionDataJson = res.rows[0].session_data;
-      } else {
-        const stmt = this.pgStore.db.prepare('SELECT session_data FROM whatsapp_sessions WHERE session_id = ?');
-        const row = stmt.get(normalized);
-        if (!row) return false;
-        sessionDataJson = row.session_data;
-      }
-
-      // Try parse; if parsing fails, treat as raw base64
-      let parsed;
-      try { parsed = JSON.parse(sessionDataJson); } catch (e) { parsed = sessionDataJson; }
-
-      // If payload explicitly contains type+data (zip or tar.gz), write the raw bytes to destPath
-      if (parsed && typeof parsed === 'object' && parsed.type && parsed.data) {
-        const buf = Buffer.from(parsed.data, 'base64');
-        fs.writeFileSync(destPath, buf);
-        console.log(`✅ RemoteAuthStoreAdapter wrote archive to ${destPath}`);
-        return true;
-      }
-
-      // If parsed is a plain base64 string, write it out as destPath
-      if (typeof parsed === 'string') {
-        const buf = Buffer.from(parsed, 'base64');
-        fs.writeFileSync(destPath, buf);
-        console.log(`✅ RemoteAuthStoreAdapter wrote base64 blob to ${destPath}`);
-        return true;
-      }
-
-      // Fallback: if we stored files array, write them into a directory named after destPath (without .zip/.tar.gz)
-      if (parsed && parsed.files && parsed.files.length > 0) {
-        let targetDir = destPath.replace(/\.zip$|\.tar\.gz$/i, '');
-        if (!targetDir || targetDir === destPath) targetDir = `${normalized}_session`;
-        if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-
-        for (const file of parsed.files) {
-          const filePath = path.join(targetDir, file.path);
-          const fileDir = path.dirname(filePath);
-          if (!fs.existsSync(fileDir)) fs.mkdirSync(fileDir, { recursive: true });
-          if (file.isBase64) fs.writeFileSync(filePath, Buffer.from(file.data, 'base64'));
-          else fs.writeFileSync(filePath, file.data, 'utf8');
-        }
-        // Try to create a zip archive at destPath so RemoteAuth can unCompressSession
-        try {
-          const archiver = require('archiver');
-          const unzipper = require('unzipper');
-          const output = fs.createWriteStream(destPath);
-          const archive = archiver('zip', { zlib: { level: 9 } });
-
-          archive.directory(targetDir, false);
-          archive.pipe(output);
-
-          await new Promise((resolve, reject) => {
-            output.on('close', resolve);
-            archive.on('error', reject);
-            archive.finalize();
-          });
-
-          // Also extract the created zip into the expected RemoteAuth session directory
-          try {
-            const sessionDirName = `RemoteAuth-${normalized}`;
-            const extractTarget = path.join(this.pgStore.authDir, sessionDirName);
-            if (!fs.existsSync(extractTarget)) fs.mkdirSync(extractTarget, { recursive: true });
-
-            await new Promise((resolve, reject) => {
-              fs.createReadStream(destPath)
-                .pipe(unzipper.Extract({ path: extractTarget }))
-                .on('close', resolve)
-                .on('error', reject);
-            });
-
-            console.log(`✅ RemoteAuthStoreAdapter extracted zip into ${extractTarget}`);
-          } catch (e) {
-            console.warn('⚠️ Failed to self-extract zip into auth dir:', e?.message || e);
-          }
-
-          // cleanup temp dir
-          try { fs.rmSync(targetDir, { recursive: true, force: true }); } catch (e) {}
-
-          console.log(`✅ RemoteAuthStoreAdapter created zip archive at ${destPath}`);
-          return true;
-        } catch (err) {
-          console.error('❌ Failed to create zip archive for session extract:', err?.message || err);
-          // If zipping fails, leave extracted files on disk as fallback
-          console.log(`✅ RemoteAuthStoreAdapter extracted ${parsed.files.length} files into ${targetDir}`);
-          return true;
-        }
-      }
-
-      return false;
-    } catch (err) {
-      console.error('RemoteAuthStoreAdapter.extract error:', err?.message || err);
-      return false;
-    }
-  }
-}
-
 class WhatsAppService {
   constructor() {
     this.clients = new Map();
@@ -672,8 +396,7 @@ class WhatsAppService {
     const db = databaseService.getDatabase();
     this.postgresStore = new PostgresStore(db);
     
-    // Postgres-backed store will be used by RemoteAuth when available
-    console.log('📱 WhatsApp Service initialized');
+    console.log('📱 WhatsApp Service initialized with RemoteAuth + PostgreSQL');
   }
 
   async connect(userId, users = null) {
@@ -710,37 +433,46 @@ class WhatsAppService {
       };
 
       if (useRemoteAuth) {
-        // Use built-in RemoteAuth backed by our PostgresStore in production (DATABASE_URL present)
+        // Production: try to restore session files from DB into local auth dir
+        // and use LocalAuth pointing to that clientId. This keeps compatibility
+        // with filesystem-based auth while persisting sessions in Postgres.
         try {
-          // Use an adapter so RemoteAuth gets the methods it expects (get/set/delete/exists)
-          const remoteStore = new RemoteAuthStoreAdapter(this.postgresStore);
-          clientConfig.authStrategy = new RemoteAuth({
-              clientId: `user-${userId}`,
-              store: remoteStore,
-              // RemoteAuth enforces a minimum backup sync interval (1 minute)
-              backupSyncIntervalMs: 60000
-            });
-          console.log('Using built-in RemoteAuth with PostgresStore');
+          const normalizedSession = `user-${userId}`;
+          const candidatePaths = [
+            path.join(this.postgresStore.authDir, 'session', normalizedSession),
+            path.join(this.postgresStore.authDir, normalizedSession),
+            path.join(this.postgresStore.authDir, `RemoteAuth-${normalizedSession}`),
+            path.join(this.postgresStore.authDir, `LocalAuth-${normalizedSession}`)
+          ];
+
+          console.log(`📂 Attempting to extract session ${normalizedSession} to candidate paths`);
+          let anyExtracted = false;
+          for (const extractPath of candidatePaths) {
+            try {
+              const extracted = await this.postgresStore.extract({ session: normalizedSession, path: extractPath });
+              if (extracted) {
+                console.log(`📁 Session extracted to ${extractPath}`);
+                anyExtracted = true;
+              } else {
+                console.log(`ℹ️ No session data to extract for ${normalizedSession} at ${extractPath}`);
+              }
+            } catch (e) {
+              console.error(`❌ Error extracting to ${extractPath}:`, e.message);
+            }
+          }
+
+          if (!anyExtracted) {
+            console.log(`ℹ️ No session data extracted for ${normalizedSession} to any candidate path`);
+          }
+        } catch (err) {
+          console.error('❌ Error extracting session before LocalAuth:', err.message);
         }
-        catch (err) {
-          console.warn('Failed to initialize built-in RemoteAuth, falling back to LocalAuth with DB extract:', err?.message || err);
-          // fallback: attempt to extract session files from DB into LocalAuth path and use LocalAuth
-          const extractPath = path.join(this.postgresStore.authDir);
-          try {
-            await this.postgresStore.extract({ session: `RemoteAuth-user-${userId}`, path: extractPath });
-          }
-          catch (err2) {
-            console.warn('Could not extract session from DB for LocalAuth fallback', err2?.message || err2);
-          }
-          // Ensure LocalAuth is available before using it
-          try {
-            const { LocalAuth } = require('whatsapp-web.js');
-            clientConfig.authStrategy = new LocalAuth({ clientId: `user-${userId}` });
-          } catch (errLocal) {
-            console.error('❌ LocalAuth is not available:', errLocal?.message || errLocal);
-            throw errLocal;
-          }
-        }
+
+        const { LocalAuth } = require('whatsapp-web.js');
+        clientConfig.authStrategy = new LocalAuth({
+          clientId: `user-${userId}`
+        });
+        console.log(`📁 Using LocalAuth (restored from Postgres if available) for user ${userId}`);
       } else {
         const { LocalAuth } = require('whatsapp-web.js');
         clientConfig.authStrategy = new LocalAuth({
@@ -890,24 +622,23 @@ class WhatsAppService {
     try {
       const sender = message.from;
       const messageBody = message.body;
-      
-            // If payload is a zip blob (created by RemoteAuth.compressSession), write the zip file to disk
-            if (sessionData && sessionData.type === 'zip' && sessionData.data) {
-              try {
-                const zipB64 = sessionData.data;
-                const buffer = Buffer.from(zipB64, 'base64');
+      const phoneNumber = this.formatPhoneNumber(sender);
 
-                const targetFile = extractPath; // RemoteAuth passes compressedSessionPath (e.g., 'RemoteAuth-user-1.zip')
-                const targetDir = path.dirname(targetFile) || '.';
-                if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-                fs.writeFileSync(targetFile, buffer);
-                console.log(`✅ Zip session written to ${targetFile}`);
-                return true;
-              } catch (err) {
-                console.error('❌ Error writing zip session file:', err.message);
-                return false;
-              }
-            }
+      const userDisabled = this.disabledUsers.get(userId) || new Set();
+      if (userDisabled.has(sender)) {
+        if (messageBody === 'sair') {
+          console.log(`✅ Enabling bot for user ${userId}: ${phoneNumber}`);
+          userDisabled.delete(sender);
+          return;
+        } else {
+          console.log(`⏸️ Skipping message from ${phoneNumber} - user chose to talk to person`);
+          return;
+        }
+      }
+
+      const messageTimestamp = message.timestamp * 1000;
+      const currentTime = Date.now();
+      const botStartTime = this.botStartTimes.get(userId) || currentTime;
       const safetyMargin = 10000;
       
       if (messageTimestamp < (botStartTime - safetyMargin)) {
@@ -936,8 +667,6 @@ class WhatsAppService {
       if (!userSessions.has(sender)) {
         const sessionId = uuidv4();
         userSessions.set(sender, sessionId);
-
-        
         console.log(`🆕 Session created for user ${userId}: ${sessionId} for ${phoneNumber}`);
         
         await orderService.startSession(sessionId, userId);
