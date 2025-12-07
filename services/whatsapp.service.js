@@ -366,6 +366,23 @@ class PostgresStore {
           console.error('❌ Error extracting tarball session:', err.message);
           return false;
         }
+          // If payload is a zip blob (created by RemoteAuth.compressSession), write the zip file to disk
+          if (sessionData && sessionData.type === 'zip' && sessionData.data) {
+            try {
+              const zipB64 = sessionData.data;
+              const buffer = Buffer.from(zipB64, 'base64');
+
+              const targetFile = extractPath; // RemoteAuth passes compressedSessionPath (e.g., 'RemoteAuth-user-1.zip')
+              const targetDir = path.dirname(targetFile) || '.';
+              if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+              fs.writeFileSync(targetFile, buffer);
+              console.log(`✅ Zip session written to ${targetFile}`);
+              return true;
+            } catch (err) {
+              console.error('❌ Error writing zip session file:', err.message);
+              return false;
+            }
+          }
       }
 
       // Fallback: older format with files array
@@ -487,6 +504,55 @@ class RemoteAuthStoreAdapter {
       return true;
     } catch (err) {
       console.error('RemoteAuthStoreAdapter.delete error:', err?.message || err);
+      return false;
+    }
+  }
+  // Compatibility: RemoteAuth expects sessionExists/save/extract/delete methods
+  async sessionExists(options) {
+    try {
+      // RemoteAuth calls with an object { session: 'RemoteAuth-<id>' }
+      if (typeof options === 'string') return await this.exists(options);
+      return await this.pgStore.sessionExists(options);
+    } catch (err) {
+      console.error('RemoteAuthStoreAdapter.sessionExists error:', err?.message || err);
+      return false;
+    }
+  }
+
+  async save(options) {
+    try {
+      // RemoteAuth creates a zip file named `<session>.zip` in cwd before calling save
+      // Try to read that file and store as base64 zip payload
+      const session = options && options.session ? options.session : options;
+      const zipName = `${session}.zip`;
+      if (fs.existsSync(zipName)) {
+        const buf = fs.readFileSync(zipName);
+        const b64 = buf.toString('base64');
+        const payload = JSON.stringify({ type: 'zip', data: b64 });
+        await this.pgStore.saveToDatabase(this.pgStore.normalizeSession(session), payload);
+        return true;
+      }
+      // Fallback: let pgStore.save try to find session dir
+      if (this.pgStore.save) {
+        await this.pgStore.save({ session });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('RemoteAuthStoreAdapter.save error:', err?.message || err);
+      return false;
+    }
+  }
+
+  async extract(options) {
+    try {
+      // RemoteAuth calls extract({ session, path }) where path is the .zip filename
+      if (this.pgStore.extract) {
+        return await this.pgStore.extract(options);
+      }
+      return false;
+    } catch (err) {
+      console.error('RemoteAuthStoreAdapter.extract error:', err?.message || err);
       return false;
     }
   }
@@ -775,6 +841,8 @@ class WhatsAppService {
       if (!userSessions.has(sender)) {
         const sessionId = uuidv4();
         userSessions.set(sender, sessionId);
+
+        
         console.log(`🆕 Session created for user ${userId}: ${sessionId} for ${phoneNumber}`);
         
         await orderService.startSession(sessionId, userId);
