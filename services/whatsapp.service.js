@@ -427,6 +427,71 @@ class PostgresStore {
   }
 }
 
+// Adapter to match the RemoteAuth store interface expected by whatsapp-web.js
+class RemoteAuthStoreAdapter {
+  constructor(pgStore) {
+    this.pgStore = pgStore;
+  }
+
+  // Check if a session exists (RemoteAuth may call this)
+  async exists(session) {
+    try {
+      return await this.pgStore.sessionExists({ session });
+    } catch (err) {
+      console.warn('RemoteAuthStoreAdapter.exists error:', err?.message || err);
+      return false;
+    }
+  }
+
+  // Get session data from DB. Return parsed object if possible.
+  async get(session) {
+    try {
+      const normalized = this.pgStore.normalizeSession(session);
+      // Query DB directly using pgStore logic
+      if (this.pgStore.isProduction) {
+        const res = await this.pgStore.db.query('SELECT session_data FROM whatsapp_sessions WHERE session_id = $1', [normalized]);
+        if (!res || res.rows.length === 0) return null;
+        try { return JSON.parse(res.rows[0].session_data); } catch (e) { return res.rows[0].session_data; }
+      } else {
+        const stmt = this.pgStore.db.prepare('SELECT session_data FROM whatsapp_sessions WHERE session_id = ?');
+        const row = stmt.get(normalized);
+        if (!row) return null;
+        try { return JSON.parse(row.session_data); } catch (e) { return row.session_data; }
+      }
+    } catch (err) {
+      console.error('RemoteAuthStoreAdapter.get error:', err?.message || err);
+      return null;
+    }
+  }
+
+  // Save session data into DB. Accepts any value and stores as JSON/string.
+  async set(session, value) {
+    try {
+      const normalized = this.pgStore.normalizeSession(session);
+      let payload;
+      if (typeof value === 'string') payload = value;
+      else payload = JSON.stringify(value);
+
+      await this.pgStore.saveToDatabase(normalized, payload);
+      return true;
+    } catch (err) {
+      console.error('RemoteAuthStoreAdapter.set error:', err?.message || err);
+      return false;
+    }
+  }
+
+  // Delete session from DB
+  async delete(session) {
+    try {
+      await this.pgStore.delete({ session });
+      return true;
+    } catch (err) {
+      console.error('RemoteAuthStoreAdapter.delete error:', err?.message || err);
+      return false;
+    }
+  }
+}
+
 class WhatsAppService {
   constructor() {
     this.clients = new Map();
@@ -487,10 +552,14 @@ class WhatsAppService {
       if (useRemoteAuth) {
         // Use built-in RemoteAuth backed by our PostgresStore in production (DATABASE_URL present)
         try {
+          // Use an adapter so RemoteAuth gets the methods it expects (get/set/delete/exists)
+          const remoteStore = new RemoteAuthStoreAdapter(this.postgresStore);
           clientConfig.authStrategy = new RemoteAuth({
-            clientId: `user-${userId}`,
-            store: this.postgresStore,
-          });
+              clientId: `user-${userId}`,
+              store: remoteStore,
+              // RemoteAuth enforces a minimum backup sync interval (1 minute)
+              backupSyncIntervalMs: 60000
+            });
           console.log('Using built-in RemoteAuth with PostgresStore');
         }
         catch (err) {
@@ -503,7 +572,14 @@ class WhatsAppService {
           catch (err2) {
             console.warn('Could not extract session from DB for LocalAuth fallback', err2?.message || err2);
           }
-          clientConfig.authStrategy = new LocalAuth({ clientId: `user-${userId}` });
+          // Ensure LocalAuth is available before using it
+          try {
+            const { LocalAuth } = require('whatsapp-web.js');
+            clientConfig.authStrategy = new LocalAuth({ clientId: `user-${userId}` });
+          } catch (errLocal) {
+            console.error('❌ LocalAuth is not available:', errLocal?.message || errLocal);
+            throw errLocal;
+          }
         }
       } else {
         const { LocalAuth } = require('whatsapp-web.js');
