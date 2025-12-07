@@ -597,9 +597,32 @@ class RemoteAuthStoreAdapter {
           if (file.isBase64) fs.writeFileSync(filePath, Buffer.from(file.data, 'base64'));
           else fs.writeFileSync(filePath, file.data, 'utf8');
         }
-        // Indicate success; RemoteAuth may expect an archive file, but writing the directory at least restores files
-        console.log(`✅ RemoteAuthStoreAdapter extracted ${parsed.files.length} files into ${targetDir}`);
-        return true;
+        // Try to create a zip archive at destPath so RemoteAuth can unCompressSession
+        try {
+          const archiver = require('archiver');
+          const output = fs.createWriteStream(destPath);
+          const archive = archiver('zip', { zlib: { level: 9 } });
+
+          archive.directory(targetDir, false);
+          archive.pipe(output);
+
+          await new Promise((resolve, reject) => {
+            output.on('close', resolve);
+            archive.on('error', reject);
+            archive.finalize();
+          });
+
+          // cleanup temp dir
+          try { fs.rmSync(targetDir, { recursive: true, force: true }); } catch (e) {}
+
+          console.log(`✅ RemoteAuthStoreAdapter created zip archive at ${destPath}`);
+          return true;
+        } catch (err) {
+          console.error('❌ Failed to create zip archive for session extract:', err?.message || err);
+          // If zipping fails, leave extracted files on disk as fallback
+          console.log(`✅ RemoteAuthStoreAdapter extracted ${parsed.files.length} files into ${targetDir}`);
+          return true;
+        }
       }
 
       return false;
