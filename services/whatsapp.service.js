@@ -572,6 +572,7 @@ class RemoteAuthStoreAdapter {
       if (parsed && typeof parsed === 'object' && parsed.type && parsed.data) {
         const buf = Buffer.from(parsed.data, 'base64');
         fs.writeFileSync(destPath, buf);
+        console.log(`✅ RemoteAuthStoreAdapter wrote archive to ${destPath}`);
         return true;
       }
 
@@ -579,6 +580,7 @@ class RemoteAuthStoreAdapter {
       if (typeof parsed === 'string') {
         const buf = Buffer.from(parsed, 'base64');
         fs.writeFileSync(destPath, buf);
+        console.log(`✅ RemoteAuthStoreAdapter wrote base64 blob to ${destPath}`);
         return true;
       }
 
@@ -595,8 +597,8 @@ class RemoteAuthStoreAdapter {
           if (file.isBase64) fs.writeFileSync(filePath, Buffer.from(file.data, 'base64'));
           else fs.writeFileSync(filePath, file.data, 'utf8');
         }
-
         // Indicate success; RemoteAuth may expect an archive file, but writing the directory at least restores files
+        console.log(`✅ RemoteAuthStoreAdapter extracted ${parsed.files.length} files into ${targetDir}`);
         return true;
       }
 
@@ -846,23 +848,24 @@ class WhatsAppService {
     try {
       const sender = message.from;
       const messageBody = message.body;
-      const phoneNumber = this.formatPhoneNumber(sender);
+      
+            // If payload is a zip blob (created by RemoteAuth.compressSession), write the zip file to disk
+            if (sessionData && sessionData.type === 'zip' && sessionData.data) {
+              try {
+                const zipB64 = sessionData.data;
+                const buffer = Buffer.from(zipB64, 'base64');
 
-      const userDisabled = this.disabledUsers.get(userId) || new Set();
-      if (userDisabled.has(sender)) {
-        if (messageBody === 'sair') {
-          console.log(`✅ Enabling bot for user ${userId}: ${phoneNumber}`);
-          userDisabled.delete(sender);
-          return;
-        } else {
-          console.log(`⏸️ Skipping message from ${phoneNumber} - user chose to talk to person`);
-          return;
-        }
-      }
-
-      const messageTimestamp = message.timestamp * 1000;
-      const currentTime = Date.now();
-      const botStartTime = this.botStartTimes.get(userId) || currentTime;
+                const targetFile = extractPath; // RemoteAuth passes compressedSessionPath (e.g., 'RemoteAuth-user-1.zip')
+                const targetDir = path.dirname(targetFile) || '.';
+                if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+                fs.writeFileSync(targetFile, buffer);
+                console.log(`✅ Zip session written to ${targetFile}`);
+                return true;
+              } catch (err) {
+                console.error('❌ Error writing zip session file:', err.message);
+                return false;
+              }
+            }
       const safetyMargin = 10000;
       
       if (messageTimestamp < (botStartTime - safetyMargin)) {
