@@ -447,33 +447,8 @@ class WhatsAppService {
     const db = databaseService.getDatabase();
     this.postgresStore = new PostgresStore(db);
     
-    // Try to prepare a dedicated pg client for remote-auth packages (optional)
-    this.remoteAuthPgClient = null;
-    if (process.env.DATABASE_URL) {
-      try {
-        const { Client: PgClient } = require('pg');
-        const isLocalDB = process.env.DATABASE_URL &&
-                          (process.env.DATABASE_URL.includes('localhost') ||
-                           process.env.DATABASE_URL.includes('127.0.0.1'));
-
-        this.remoteAuthPgClient = new PgClient({
-          connectionString: process.env.DATABASE_URL,
-          ssl: isLocalDB ? false : { rejectUnauthorized: false }
-        });
-
-        this.remoteAuthPgClient.connect().then(() => {
-          console.log('📦 RemoteAuth pg client connected');
-        }).catch(err => {
-          console.warn('⚠️ Could not connect remote-auth pg client:', err.message);
-          this.remoteAuthPgClient = null;
-        });
-      } catch (err) {
-        console.log('⚠️ pg client not available for remote-auth (will fallback to LocalAuth)');
-        this.remoteAuthPgClient = null;
-      }
-    }
-
-    console.log('📱 WhatsApp Service initialized with RemoteAuth + PostgreSQL');
+    // Postgres-backed store will be used by RemoteAuth when available
+    console.log('📱 WhatsApp Service initialized');
   }
 
   async connect(userId, users = null) {
@@ -510,75 +485,25 @@ class WhatsAppService {
       };
 
       if (useRemoteAuth) {
-        // Production: prefer using `whatsapp-web.js-remote-auth` if available.
-        // This package implements a RemoteAuth strategy that stores session
-        // data directly in Postgres. If it's not available or fails, we
-        // fallback to the previous LocalAuth + DB extraction approach.
-        let usedRemoteAuthPackage = false;
+        // Use built-in RemoteAuth backed by our PostgresStore in production (DATABASE_URL present)
         try {
-          const { RemoteAuthStrategy } = require('whatsapp-web.js-remote-auth');
-          if (this.remoteAuthPgClient) {
-            try {
-              clientConfig.authStrategy = new RemoteAuthStrategy({
-                clientId: `user-${userId}`,
-                store: this.remoteAuthPgClient,
-                tableName: 'wwebjs_sessions'
-              });
-              usedRemoteAuthPackage = true;
-              console.log('🔌 Using whatsapp-web.js-remote-auth RemoteAuthStrategy for user', userId);
-            } catch (err) {
-              console.warn('⚠️ RemoteAuthStrategy init failed, falling back:', err.message);
-              usedRemoteAuthPackage = false;
-            }
-          } else {
-            console.warn('⚠️ remoteAuthPgClient not available, cannot use remote-auth package');
-          }
-        } catch (err) {
-          // package not installed or failed to load
-          console.log('⚠️ whatsapp-web.js-remote-auth not installed or failed to load, falling back to LocalAuth');
-        }
-
-        if (!usedRemoteAuthPackage) {
-          try {
-            const normalizedSession = `user-${userId}`;
-            // Try multiple plausible locations where LocalAuth/RemoteAuth may write files
-            const candidatePaths = [
-              path.join(this.postgresStore.authDir, `LocalAuth-${normalizedSession}`),
-              path.join(this.postgresStore.authDir, `RemoteAuth-${normalizedSession}`),
-              path.join(this.postgresStore.authDir, normalizedSession),
-              path.join(this.postgresStore.authDir, 'session', normalizedSession),
-              path.join(this.postgresStore.authDir, 'session', `RemoteAuth-${normalizedSession}`),
-              path.join(this.postgresStore.authDir, 'session', `LocalAuth-${normalizedSession}`)
-            ];
-
-            console.log(`📂 Attempting to extract session ${normalizedSession} to candidate paths`);
-            let anyExtracted = false;
-            for (const extractPath of candidatePaths) {
-              try {
-                const extracted = await this.postgresStore.extract({ session: normalizedSession, path: extractPath });
-                if (extracted) {
-                  console.log(`📁 Session extracted to ${extractPath}`);
-                  anyExtracted = true;
-                } else {
-                  console.log(`ℹ️ No session data to extract for ${normalizedSession} at ${extractPath}`);
-                }
-              } catch (e) {
-                console.error(`❌ Error extracting to ${extractPath}:`, e.message);
-              }
-            }
-
-            if (!anyExtracted) {
-              console.log(`ℹ️ No session data extracted for ${normalizedSession} to any candidate path`);
-            }
-          } catch (err) {
-            console.error('❌ Error extracting session before LocalAuth:', err.message);
-          }
-
-          const { LocalAuth } = require('whatsapp-web.js');
-          clientConfig.authStrategy = new LocalAuth({
-            clientId: `user-${userId}`
+          clientConfig.authStrategy = new RemoteAuth({
+            clientId: `user-${userId}`,
+            store: this.postgresStore,
           });
-          console.log(`📁 Using LocalAuth (restored from Postgres if available) for user ${userId}`);
+          console.log('Using built-in RemoteAuth with PostgresStore');
+        }
+        catch (err) {
+          console.warn('Failed to initialize built-in RemoteAuth, falling back to LocalAuth with DB extract:', err?.message || err);
+          // fallback: attempt to extract session files from DB into LocalAuth path and use LocalAuth
+          const extractPath = path.join(this.postgresStore.authDir);
+          try {
+            await this.postgresStore.extract({ session: `RemoteAuth-user-${userId}`, path: extractPath });
+          }
+          catch (err2) {
+            console.warn('Could not extract session from DB for LocalAuth fallback', err2?.message || err2);
+          }
+          clientConfig.authStrategy = new LocalAuth({ clientId: `user-${userId}` });
         }
       } else {
         const { LocalAuth } = require('whatsapp-web.js');
