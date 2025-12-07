@@ -7,6 +7,8 @@ const databaseService = require('./database.service');
 const fs = require('fs');
 const path = require('path');
 
+const AUTH_DIR = process.env.WWEBJS_AUTH_PATH || path.join(process.cwd(), '.wwebjs_auth');
+
 // 🔥 WORKING: Hybrid PostgreSQL Store
 // Let RemoteAuth handle file operations, we just store the data in PostgreSQL
 class PostgresStore {
@@ -15,7 +17,7 @@ class PostgresStore {
     this.isProduction = process.env.DATABASE_URL !== undefined;
     
     // Directory where RemoteAuth stores files
-    this.authDir = path.join(__dirname, '..', '.wwebjs_auth', 'session');
+    this.authDir = path.join(AUTH_DIR, 'session'); // PostgresStore constructor
   }
 
   normalizeSession(session) {
@@ -470,13 +472,15 @@ class WhatsAppService {
 
         const { LocalAuth } = require('whatsapp-web.js');
         clientConfig.authStrategy = new LocalAuth({
-          clientId: `user-${userId}`
+          clientId: `user-${userId}`,
+          dataPath: AUTH_DIR // ensure LocalAuth writes into the mounted dir
         });
         console.log(`📁 Using LocalAuth (restored from Postgres if available) for user ${userId}`);
       } else {
         const { LocalAuth } = require('whatsapp-web.js');
         clientConfig.authStrategy = new LocalAuth({
-          clientId: `user-${userId}`
+          clientId: `user-${userId}`,
+          dataPath: AUTH_DIR // ensure LocalAuth writes into the mounted dir
         });
         console.log(`📁 Using LocalAuth for user ${userId}`);
       }
