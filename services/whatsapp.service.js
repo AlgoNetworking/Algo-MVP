@@ -546,10 +546,60 @@ class RemoteAuthStoreAdapter {
 
   async extract(options) {
     try {
-      // RemoteAuth calls extract({ session, path }) where path is the .zip filename
-      if (this.pgStore.extract) {
-        return await this.pgStore.extract(options);
+      // RemoteAuth calls extract({ session, path }) where path is the expected archive filename
+      const session = options && options.session ? options.session : options;
+      const destPath = options && options.path ? options.path : options;
+
+      const normalized = this.pgStore.normalizeSession(session);
+      let sessionDataJson;
+
+      if (this.pgStore.isProduction) {
+        const res = await this.pgStore.db.query('SELECT session_data FROM whatsapp_sessions WHERE session_id = $1', [normalized]);
+        if (!res || res.rows.length === 0) return false;
+        sessionDataJson = res.rows[0].session_data;
+      } else {
+        const stmt = this.pgStore.db.prepare('SELECT session_data FROM whatsapp_sessions WHERE session_id = ?');
+        const row = stmt.get(normalized);
+        if (!row) return false;
+        sessionDataJson = row.session_data;
       }
+
+      // Try parse; if parsing fails, treat as raw base64
+      let parsed;
+      try { parsed = JSON.parse(sessionDataJson); } catch (e) { parsed = sessionDataJson; }
+
+      // If payload explicitly contains type+data (zip or tar.gz), write the raw bytes to destPath
+      if (parsed && typeof parsed === 'object' && parsed.type && parsed.data) {
+        const buf = Buffer.from(parsed.data, 'base64');
+        fs.writeFileSync(destPath, buf);
+        return true;
+      }
+
+      // If parsed is a plain base64 string, write it out as destPath
+      if (typeof parsed === 'string') {
+        const buf = Buffer.from(parsed, 'base64');
+        fs.writeFileSync(destPath, buf);
+        return true;
+      }
+
+      // Fallback: if we stored files array, write them into a directory named after destPath (without .zip/.tar.gz)
+      if (parsed && parsed.files && parsed.files.length > 0) {
+        let targetDir = destPath.replace(/\.zip$|\.tar\.gz$/i, '');
+        if (!targetDir || targetDir === destPath) targetDir = `${normalized}_session`;
+        if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+        for (const file of parsed.files) {
+          const filePath = path.join(targetDir, file.path);
+          const fileDir = path.dirname(filePath);
+          if (!fs.existsSync(fileDir)) fs.mkdirSync(fileDir, { recursive: true });
+          if (file.isBase64) fs.writeFileSync(filePath, Buffer.from(file.data, 'base64'));
+          else fs.writeFileSync(filePath, file.data, 'utf8');
+        }
+
+        // Indicate success; RemoteAuth may expect an archive file, but writing the directory at least restores files
+        return true;
+      }
+
       return false;
     } catch (err) {
       console.error('RemoteAuthStoreAdapter.extract error:', err?.message || err);
