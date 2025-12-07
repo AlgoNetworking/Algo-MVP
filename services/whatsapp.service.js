@@ -15,7 +15,9 @@ class PostgresStore {
     this.isProduction = process.env.DATABASE_URL !== undefined;
     
     // Directory where RemoteAuth stores files
-    this.authDir = path.join(__dirname, '..', '.wwebjs_auth', 'session');
+    // Use base .wwebjs_auth directory. Individual strategies may create
+    // `LocalAuth-<id>` or `RemoteAuth-<id>` or a `session/<id>` subfolder.
+    this.authDir = path.join(__dirname, '..', '.wwebjs_auth');
   }
 
   normalizeSession(session) {
@@ -136,7 +138,7 @@ class PostgresStore {
 
         // Aggressive scan: search .wwebjs_auth for any folder with files.
         try {
-          const baseAuth = path.join(__dirname, '..', '.wwebjs_auth');
+          const baseAuth = this.authDir;
           const foundDirs = [];
 
           function scanDir(dir) {
@@ -438,11 +440,14 @@ class WhatsAppService {
         // with filesystem-based auth while persisting sessions in Postgres.
         try {
           const normalizedSession = `user-${userId}`;
+          // Try multiple plausible locations where LocalAuth/RemoteAuth may write files
           const candidatePaths = [
-            path.join(this.postgresStore.authDir, 'session', normalizedSession),
-            path.join(this.postgresStore.authDir, normalizedSession),
+            path.join(this.postgresStore.authDir, `LocalAuth-${normalizedSession}`),
             path.join(this.postgresStore.authDir, `RemoteAuth-${normalizedSession}`),
-            path.join(this.postgresStore.authDir, `LocalAuth-${normalizedSession}`)
+            path.join(this.postgresStore.authDir, normalizedSession),
+            path.join(this.postgresStore.authDir, 'session', normalizedSession),
+            path.join(this.postgresStore.authDir, 'session', `RemoteAuth-${normalizedSession}`),
+            path.join(this.postgresStore.authDir, 'session', `LocalAuth-${normalizedSession}`)
           ];
 
           console.log(`📂 Attempting to extract session ${normalizedSession} to candidate paths`);
