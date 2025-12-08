@@ -4,6 +4,7 @@ const qrcode = require('qrcode');
 const { v4: uuidv4 } = require('uuid');
 const orderService = require('./order.service');
 const databaseService = require('./database.service');
+const productsConfig = require('../utils/products-config');
 const fs = require('fs');
 const path = require('path');
 
