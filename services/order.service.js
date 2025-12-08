@@ -92,7 +92,7 @@ class OrderSession {
     this.cancelTimer();
     // Only start timer if there are enabled items
     if (this.hasEnabledItems() && !this.hasDisabledItems()) {
-      this.activeTimer = setTimeout(() => this.sendSummary(), 30000);
+      this.activeTimer = setTimeout(() => this.sendSummary(), 30000); //30 seconds
     }
   }
 
@@ -131,7 +131,7 @@ class OrderSession {
   startReminderCycle() {
     this.reminderCount = 1;
     this.cancelTimer();
-    this.activeTimer = setTimeout(() => this.sendReminder(), 1800000); // 30 minutes
+    this.activeTimer = setTimeout(() => this.sendReminder(), 10000); // 30 minutes
   }
 
   sendReminder() {
@@ -144,7 +144,7 @@ class OrderSession {
       } else {
         this.reminderCount++;
         this.cancelTimer();
-        this.activeTimer = setTimeout(() => this.sendReminder(), 1800000);
+        this.activeTimer = setTimeout(() => this.sendReminder(), 10000); //30 minutes
       }
     }
   }

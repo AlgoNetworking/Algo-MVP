@@ -351,6 +351,14 @@ tr:hover {
     font-size: 0.9em;
 }
 
+.order-type-badge {
+    background: #9DB044;
+    color: white;
+    padding: 5px 12px;
+    border-radius: 15px;
+    font-size: 0.9em;
+}
+
 .order-actions {
     display: flex;
     gap: 10px;

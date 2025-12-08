@@ -1272,6 +1272,7 @@ function renderUserOrders(orders) {
                         `<span class="order-item-badge">${item.qty}x ${item.productName}</span>`
                     ).join('')}
                 </div>
+                <span class="order-type-badge">${order.order_type}</span>
                 <div class="order-actions">
                     ${order.status === 'pending' ? `
                         <button class="btn btn-sm btn-success" onclick="confirmOrder(${order.id})">✅ Confirmar</button>

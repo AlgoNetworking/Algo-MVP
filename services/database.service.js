@@ -572,7 +572,7 @@ class DatabaseService {
       // Update product totals
       for (const item of parsedOrders) {
         if (item.qty > 0) {
-          await this.updateProductTotal(userId, item.product, item.qty);
+          await this.updateProductTotal(userId, item.productName, item.qty);
         }
       }
 

@@ -646,7 +646,6 @@ class WhatsAppService {
         ) { // Status updates
         await this.handleMessage(userId, message);
       }
-      console.log('📨 Message type:', message.type);
     });
   }
 
@@ -968,14 +967,48 @@ class WhatsAppService {
   generateInitialMessage(userName) {
     const user = userName !== 'Cliente sem nome' ? ' ' + userName : '';
     const messages = [
-      `Opa${user}! Estamos no aguardo do seu pedido!`,
+      `Opa${user}! Estamos no aguardo do seu pedido!`, 
       `Olá${user}! Estamos no aguardo do seu pedido!`,
-      `Oi${user}! Estamos no aguardo do seu pedido!`
+      `Oi${user}! Estamos no aguardo do seu pedido!`,
+      `Opa${user}! Já estamos no aguardo do seu pedido!`,
+      `Olá${user}! Já estamos no aguardo do seu pedido!`,
+      `Oi${user}! Já estamos no aguardo do seu pedido!`,
+      `Opa${user}! Já estamos no aguardo do pedido!`,
+      `Olá${user}! Já estamos no aguardo do pedido!`,
+      `Oi${user}! Já estamos no aguardo do pedido!`,
+      `Opa${user}! Estamos aguardando o pedido!`,
+      `Olá${user}! Estamos aguardando o pedido!`,
+      `Oi${user}! Estamos aguardando o pedido!`,
+      `Opa${user}! Já estamos aguardando o pedido!`,
+      `Olá${user}! Já estamos aguardando o pedido!`,
+      `Oi${user}! Já estamos aguardando o pedido!`,
+      // "nós" section
+      `Opa${user}! Nós estamos no aguardo do seu pedido!`, 
+      `Olá${user}! Nós estamos no aguardo do seu pedido!`,
+      `Oi${user}! Nós estamos no aguardo do seu pedido!`,
+      `Opa${user}! Nós já estamos no aguardo do seu pedido!`,
+      `Olá${user}! Nós já estamos no aguardo do seu pedido!`,
+      `Oi${user}! Nós já estamos no aguardo do seu pedido!`,
+      `Opa${user}! Nós já estamos no aguardo do pedido!`,
+      `Olá${user}! Nós já estamos no aguardo do pedido!`,
+      `Oi${user}! Nós já estamos no aguardo do pedido!`,
+      `Opa${user}! Nós estamos aguardando o pedido!`,
+      `Olá${user}! Nós estamos aguardando o pedido!`,
+      `Oi${user}! Nós estamos aguardando o pedido!`,
+      `Opa${user}! Nós já estamos aguardando o pedido!`,
+      `Olá${user}! Nós já estamos aguardando o pedido!`,
+      `Oi${user}! Nós já estamos aguardando o pedido!`
     ];
-    
-    const example = "2 mangas e 3 queijos";
+
+    const products = productsConfig.PRODUCTS;
+
+    const idx1 = Math.floor(Math.random() * products.length);
+    const idx2 = Math.floor(Math.random() * products.length);
+    const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
+
+    const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0]}`;
     let warning = `\n\n(Isto é uma mensagem automática para a sua conveniência 😊, digite naturalmente como: ${example})`;
-    warning += '\ndigite "pronto" quando terminar seu pedido ou aguarde a mensagem automática!';
+    warning += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!';
 
     return messages[Math.floor(Math.random() * messages.length)] + warning;
   }

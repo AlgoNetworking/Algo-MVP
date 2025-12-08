@@ -120,7 +120,7 @@ router.post('/manual-order', async (req, res) => {
     // Update product totals
     for (const order of parsedOrders) {
       if (order.qty > 0) {
-        await databaseService.updateProductTotal(req.userId, order.product, order.qty);
+        await databaseService.updateProductTotal(req.userId, order.productName, order.qty);
       }
     }
 

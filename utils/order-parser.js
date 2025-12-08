@@ -330,7 +330,7 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
             // Only add to workingDb if product is enabled
             workingDb[originalIndex][1] += quantity;
             parsedOrders.push({
-              product: akaMatch.mainProduct,
+              productName: akaMatch.mainProduct,
               qty: quantity,
               score: 100.0
             });
@@ -382,7 +382,7 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         // Product is enabled - add to order
         workingDb[bestOriginalIdx][1] += quantity;
         parsedOrders.push({
-          product: bestProduct,
+          productName: bestProduct,
           qty: quantity,
           score: Math.round(bestScore * 100) / 100
         });
@@ -447,7 +447,7 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         // Product is enabled - add to order
         workingDb[bestOriginalIdx][1] += quantity;
         parsedOrders.push({
-          product: bestMatch,
+          productName: bestMatch,
           qty: quantity,
           score: Math.round(bestScore * 100) / 100
         });
@@ -461,7 +461,7 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
       i++;
     }
   }
-
+  console.log(parsedOrders);
   return { parsedOrders, updatedDb: workingDb, disabledProductsFound };
 }
 
