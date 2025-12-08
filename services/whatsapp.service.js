@@ -391,6 +391,7 @@ class WhatsAppService {
     this.botStartTimes = new Map();
     this.postgresStore = null;
     this.saveTimers = new Map(); // Timer to trigger manual saves
+    this.usersInSelectedFolder = null;
   }
 
   initialize(io) {
@@ -406,6 +407,9 @@ class WhatsAppService {
     try {
       if (this.clients.has(userId)) {
         await this.disconnect(userId);
+      }
+      if(users) {
+        this.usersInSelectedFolder = users;
       }
 
       this.disabledUsers.set(userId, new Set());
@@ -650,7 +654,6 @@ class WhatsAppService {
     });
   }
 
-  // ... Rest of your methods stay exactly the same ...
   // (handleMessage, sendMessage, sendBulkMessages, etc.)
 
   async handleMessage(userId, message) {
@@ -659,12 +662,17 @@ class WhatsAppService {
       const messageBody = message.body;
       const phoneNumber = this.formatPhoneNumber(sender);
 
+      const clientUsers = this.usersInSelectedFolder || await databaseService.getClientUsers(userId);
+      if(!clientUsers.find(u => u.phone === phoneNumber)) {
+        console.log(`🚫 Ignoring message from unregistered number for user ${userId}: ${phoneNumber}`);
+        return;
+      }
+
       const userDisabled = this.disabledUsers.get(userId) || new Set();
       if (userDisabled.has(sender)) {
-        if (messageBody === 'sair') {
+        if (messageBody.toLowerCase() === 'sair') {
           console.log(`✅ Enabling bot for user ${userId}: ${phoneNumber}`);
           userDisabled.delete(sender);
-          return;
         } else {
           console.log(`⏸️ Skipping message from ${phoneNumber} - user chose to talk to person`);
           return;
@@ -686,7 +694,6 @@ class WhatsAppService {
         return;
       }
 
-      const clientUsers = await databaseService.getUserClients(userId);
       const userInfo = this.findUserInfo(clientUsers, phoneNumber);
 
       if (userInfo) {
@@ -1009,7 +1016,8 @@ class WhatsAppService {
 
     const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0][0]}`;
     let warning = `\n\n(Isto é uma mensagem automática para a sua conveniência 😊, digite naturalmente como: ${example})`;
-    warning += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!';
+    warning += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n';
+    warning += '*Caso não queira pedir, digite \"cancelar\".*';
     return messages[Math.floor(Math.random() * messages.length)] + warning;
   }
 }

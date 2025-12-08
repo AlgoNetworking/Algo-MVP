@@ -19,6 +19,8 @@ class OrderSession {
     this.hasDisabledProducts = false;
     this.productsLoaded = false;
     this.loadingPromise = null; // To handle concurrent loading
+    this.parseOrderAttempts = 0;
+    this.chooseOptionAttempts = 0;
   }
 
   // Async method to load products
@@ -233,6 +235,20 @@ class OrderService {
 
   async processMessage({ userId, sessionId, message, messageType, phoneNumber, name, orderType }) {
     const session = this.getSession(sessionId, userId);
+
+    if(message.endsWith('?')) {
+      session.waitingForOption = false;
+      session.state = 'waiting_for_next';
+      for(let i = 0; i < session.currentDb.length; i++) {
+        session.currentDb[i][1] = 0;
+      }
+      console.log(session.currentDb);
+      return {
+        success: true,
+        message: 'O bot detectou que você quer tirar uma dúvida com um funcionário. Assim que podermos terá uma resposta!\n\n(digite "sair" caso queira voltar a conversar com o bot ou caso acredite que isto é um erro)',
+        isChatBot: false
+      };
+    }
     
     // Ensure products are loaded before processing
     if (!session.productsLoaded) {
@@ -250,16 +266,17 @@ class OrderService {
     if (session.checkCancelCommand(messageLower) && session.state !== 'confirming') {
       session.resetCurrent();
       session.state = 'waiting_for_next';
+      session.parseOrderAttempts = 0;
       return { success: true, message: null, isChatBot: true};
     }
 
     if(messageType !== 'chat') {
-      session.state = 'option';
-      session.waitingForOption = true;
+      session.state = 'waiting_for_next';
+      session.waitingForOption = false;
       return {
         success: true,
-        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê deseja:\nrealizar um pedido (digite "*1*");\ntirar dúvida com uma pessoa (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
-        isChatBot: true
+        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê será redirecionado para um funcionário responder.\n\n(digite "sair" caso queira voltar a conversar com o bot)`,
+        isChatBot: false
       };
     }
 
@@ -270,7 +287,7 @@ class OrderService {
       const greeting = name !== 'Cliente sem nome' ? `Olá ${name}!` : 'Olá!';
       return {
         success: true,
-        message: `${greeting} Isso é uma mensagem automática.\n\nVocê deseja:\nrealizar um pedido (digite "*1*");\ntirar dúvida com uma pessoa (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
+        message: `${greeting} Isso é uma mensagem automática. 😁\n\nVocê deseja:\nrealizar um pedido (digite "*1*");\nconversar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
         isChatBot: true
       };
     }
@@ -341,7 +358,7 @@ class OrderService {
           productList += 'Nenhum produto disponível no momento.\n';
         }
         
-        productList += '\nE agora? Você deseja:\nrealizar um pedido (digite "*1*");\ntirar uma dúvida com uma pessoa (digite "*2*");\nver novamente a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?';
+        productList += '\nE agora? Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver novamente a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?';
         
         return {
           success: true,
@@ -369,10 +386,10 @@ class OrderService {
         session.waitingForOption = true;
         session.state = 'option';
         let info = 'Ok, aqui temos instruções de como utilizar o programa e mais sobre ele!\n\n';
-        info += 'O programa oferece quatro opções quando está no menu inicial: "*1*" para realizar um pedido, "*2*" para tirar uma dúvida com uma pessoa, "*3*" para ver a lista de produtos e "*4*" para ler a mensagem que você está lendo agora.\n\n';
+        info += 'O programa oferece quatro opções quando está no menu inicial: "*1*" para realizar um pedido, "*2*" para conversar com um funcionário, "*3*" para ver a lista de produtos e "*4*" para ler a mensagem que você está lendo agora.\n\n';
         info += `Para realizar um pedido, basta digitar mensagens de texto de forma natural, como: ${example}. Pois o programa consegue entender mensagens em linguagem natural.\n\n`;
         info += 'O programa foi feito por Guilherme Moura Mororó, Nicolas Pinheiro e Marcos Bastos para originalmente ajudar a empresa dos avós de Guilherme. No entanto, ainda está em fase de testes e pode ser adicionado ao seu negócio gratuitamente. Basta contatar o número (+55 85 7400-2430) e recebrá mais informações sobre o produto.\n\n';
-        info += 'E agora? Você deseja:\nrealizar um pedido (digite "*1*");\ntirar uma dúvida com uma pessoa (digite "*2*");\nler a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo novamente(digite "*4*")?';
+        info += 'E agora? Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nler a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo novamente(digite "*4*")?';
         
         return {
           success: true,
@@ -380,9 +397,19 @@ class OrderService {
           isChatBot: true
         };
       } else {
+        chooseOptionAttempts++;
+        if(chooseOptionAttempts >= 1) {
+          session.waitingForOption = false;
+          session.state = 'waiting_for_next';
+          return {
+            success: true,
+            message: 'O bot detectou que você quer falar com um funcionário. Assim que podermos terá uma resposta!\n\n(digite "sair" caso queira voltar a conversar com o bot ou caso acredite que isto é um erro)',
+            isChatBot: false
+          };
+        }
         return {
           success: false,
-          message: 'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para tirar uma dúvida com uma pessoa;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo',
+          message: 'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo',
           isChatBot: true
         };
       }
@@ -637,6 +664,16 @@ class OrderService {
           return { success: true, isChatBot: true };
         } else {
           session.startInactivityTimer();
+          session.parseOrderAttempts++;
+          if(session.parseOrderAttempts >= 2 && !session.hasItems()) {
+            session.waitingForOption = false;
+            session.state = 'waiting_for_next';
+            return {
+              success: true,
+              message: 'O bot detectou que você quer falar com um funcionário. Assim que podermos terá uma resposta!\n\n(digite "sair" caso queira voltar a conversar com o bot ou caso acredite que isto é um erro)',
+              isChatBot: false
+            };
+          }
           return {
             success: false,
             message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. Se desejar cancelar o pedido, digite "cancelar".',
