@@ -803,7 +803,7 @@ class WhatsAppService {
             await orderService.startSession(sessionId, userId);
           }
 
-          const message = this.generateInitialMessage(user.name);
+          const message = await this.generateInitialMessage(userId, user.name);
           await this.sendMessage(userId, phoneId, message);
 
           results.push({ phone: user.phone, status: 'sent' });
@@ -965,7 +965,7 @@ class WhatsAppService {
     return numbers;
   }
 
-  generateInitialMessage(userName) {
+  async generateInitialMessage(userId, userName) {
     const user = userName !== 'Cliente sem nome' ? ' ' + userName : '';
     const messages = [
       `Opa${user}! Estamos no aguardo do seu pedido!`, 
@@ -1001,16 +1001,15 @@ class WhatsAppService {
       `Oi${user}! Nós já estamos aguardando o pedido!`
     ];
 
-    const products = productsConfig.PRODUCTS;
+    const products = await productsConfig.getUserEmptyProductsDb(userId);
 
     const idx1 = Math.floor(Math.random() * products.length);
     const idx2 = Math.floor(Math.random() * products.length);
     const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
 
-    const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0]}`;
+    const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0][0]}`;
     let warning = `\n\n(Isto é uma mensagem automática para a sua conveniência 😊, digite naturalmente como: ${example})`;
     warning += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!';
-
     return messages[Math.floor(Math.random() * messages.length)] + warning;
   }
 }
