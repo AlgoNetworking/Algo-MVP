@@ -1055,13 +1055,16 @@ async function connectWhatsApp() {
 
 async function disconnectWhatsApp() {
     try {
-        addLog('🔌 Desconectando WhatsApp...');
-        const response = await fetch('/api/whatsapp/disconnect', { method: 'POST' });
-        const data = await response.json();
-        
-        if (data.success) {
-            addLog('✅ WhatsApp desconectado');
-        }
+      const confirmed = await confirmAction('Desconectar Bot', 'Isso vai excluir todas as sessões de seus clientes, tem certeza de que deseja desconectar?');
+      if (!confirmed) return;
+
+      addLog('🔌 Desconectando WhatsApp...');
+      const response = await fetch('/api/whatsapp/disconnect', { method: 'POST' });
+      const data = await response.json();
+      
+      if (data.success) {
+          addLog('✅ WhatsApp desconectado');
+      }
     } catch (error) {
         addLog('❌ Erro: ' + error.message, 'error');
     }
