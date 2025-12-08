@@ -92,7 +92,7 @@ class OrderSession {
     this.cancelTimer();
     // Only start timer if there are enabled items
     if (this.hasEnabledItems() && !this.hasDisabledItems()) {
-      this.activeTimer = setTimeout(() => this.sendSummary(), 5000);
+      this.activeTimer = setTimeout(() => this.sendSummary(), 30000);
     }
   }
 
@@ -131,20 +131,20 @@ class OrderSession {
   startReminderCycle() {
     this.reminderCount = 1;
     this.cancelTimer();
-    this.activeTimer = setTimeout(() => this.sendReminder(), 5000);
+    this.activeTimer = setTimeout(() => this.sendReminder(), 1800000); // 30 minutes
   }
 
   sendReminder() {
-    if (this.state === 'confirming' && this.reminderCount <= 5) {
+    if (this.state === 'confirming' && this.reminderCount <= 3) {
       const summary = this.buildSummary();
-      this.messageQueue.push(`🔔 **LEMBRETE (${this.reminderCount}/5):**\n${summary}`);
+      this.messageQueue.push(`🔔 **LEMBRETE (${this.reminderCount}/3):**\n${summary}`);
 
-      if (this.reminderCount === 5) {
+      if (this.reminderCount === 3) {
         this.markAsPending();
       } else {
         this.reminderCount++;
         this.cancelTimer();
-        this.activeTimer = setTimeout(() => this.sendReminder(), 5000);
+        this.activeTimer = setTimeout(() => this.sendReminder(), 1800000);
       }
     }
   }
@@ -371,7 +371,7 @@ class OrderService {
         let info = 'Ok, aqui temos instruções de como utilizar o programa e mais sobre ele!\n\n';
         info += 'O programa oferece quatro opções quando está no menu inicial: "*1*" para realizar um pedido, "*2*" para tirar uma dúvida com uma pessoa, "*3*" para ver a lista de produtos e "*4*" para ler a mensagem que você está lendo agora.\n\n';
         info += `Para realizar um pedido, basta digitar mensagens de texto de forma natural, como: ${example}. Pois o programa consegue entender mensagens em linguagem natural.\n\n`;
-        info += 'O programa foi feito por Guilherme Moura Mororó e amigos para originalmente ajudar a empresa de seus avós. No entanto, ainda está em fase de testes e pode ser adicionado ao seu negócio gratuitamente. Basta contatar o número (+55 85 7400-2430) e recebrá mais informações sobre o produto.\n\n';
+        info += 'O programa foi feito por Guilherme Moura Mororó, Nicolas Pinheiro e Marcos Bastos para originalmente ajudar a empresa dos avós de Guilherme. No entanto, ainda está em fase de testes e pode ser adicionado ao seu negócio gratuitamente. Basta contatar o número (+55 85 7400-2430) e recebrá mais informações sobre o produto.\n\n';
         info += 'E agora? Você deseja:\nrealizar um pedido (digite "*1*");\ntirar uma dúvida com uma pessoa (digite "*2*");\nler a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo novamente(digite "*4*")?';
         
         return {

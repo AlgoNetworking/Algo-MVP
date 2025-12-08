@@ -467,7 +467,7 @@ function addFolderClient() {
     <h4 style="margin-bottom: 15px; color: #2c3e50;">➕ Adicionar Cliente à Pasta</h4>
     <div class="form-group">
       <label for="newFolderClientPhone">Telefone*:</label>
-      <input type="text" id="newFolderClientPhone" placeholder="+55 85 99999-9999" required style="width: 100%; padding: 10px; border: 2px solid #e9ecef; border-radius: 8px; font-size: 14px; font-family: inherit;">
+      <input type="text" id="newFolderClientPhone" placeholder="+55 85 9999-9999" required style="width: 100%; padding: 10px; border: 2px solid #e9ecef; border-radius: 8px; font-size: 14px; font-family: inherit;">
     </div>
     <div class="form-group">
       <label for="newFolderClientName">Nome:</label>
@@ -509,13 +509,15 @@ async function saveNewFolderClient() {
     customAlert('Erro', 'O telefone é obrigatório!');
     return;
   }
+
+  const normalizedPhone = normalizePhoneNumber(phone);
   
   try {
     const response = await fetch('/api/clients', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        phone,
+        phone: normalizedPhone,
         name: name || 'Cliente sem nome',
         type,
         folderId: currentFolder.id
@@ -1188,9 +1190,10 @@ function renderOrdersTable(orders) {
     `;
     
     products.forEach(([product, quantity]) => {
+      const [productName, akas, enabled] = product.split(',');
         html += `
             <tr>
-                <td>${product}</td>
+                <td>${productName}</td>
                 <td>${quantity}</td>
             </tr>
         `;
@@ -1256,7 +1259,7 @@ function renderUserOrders(orders) {
             ? JSON.parse(order.parsed_orders) 
             : order.parsed_orders;
 
-        const phoneNumber = `+${order.phone_number.slice(0, 2)} ${order.phone_number.slice(2, 4)} ${order.phone_number.slice(4, 8)}-${order.phone_number.slice(8, 12)}`;
+        const phoneNumber = normalizePhoneNumber(order.phone_number);
             
         html += `
             <div class="order-box ${order.status}">
@@ -1544,7 +1547,7 @@ function addClient() {
         <h3 style="margin-bottom: 15px; color: #2c3e50;">➕ Adicionar Novo Cliente</h3>
         <div class="form-group">
             <label for="newClientPhone">Telefone*:</label>
-            <input type="text" id="newClientPhone" placeholder="+55 85 99999-9999" required>
+            <input type="text" id="newClientPhone" placeholder="+55 85 9999-9999" required>
         </div>
         <div class="form-group">
             <label for="newClientName">Nome:</label>

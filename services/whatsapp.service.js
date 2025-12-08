@@ -615,7 +615,38 @@ class WhatsAppService {
     });
 
     client.on('message', async (message) => {
-      await this.handleMessage(userId, message);
+
+      const chat = await message.getChat();
+      const type = message.type;  
+      // More comprehensive filtering of system messages
+      if(!(message.from === 'status@broadcast' || 
+          message.fromMe || 
+          chat.isGroup ||
+          type === 'ack' || // Delivery receipts
+          type === 'protocol' || // System messages
+          type === 'e2e_notification' ||
+          message.isStatus) && (
+          type === 'chat' ||
+          type === 'image' ||
+          type === 'video' ||
+          type === 'audio' ||
+          type === 'document' ||
+          type === 'sticker' ||
+          type === 'location' ||
+          type === 'vcard' ||
+          type === 'contacts_array' ||
+          type === 'list_response' ||
+          type === 'buttons_response' ||
+          type === 'poll_creation' ||
+          type === 'template_button_reply' ||
+          type === 'template_button_list_reply' ||
+          type === 'event_creation' ||
+          type === 'ptt'
+          )
+        ) { // Status updates
+        await this.handleMessage(userId, message);
+      }
+      console.log('📨 Message type:', message.type);
     });
   }
 
@@ -673,7 +704,7 @@ class WhatsAppService {
         userSessions.set(sender, sessionId);
         console.log(`🆕 Session created for user ${userId}: ${sessionId} for ${phoneNumber}`);
         
-      //await orderService.startSession(sessionId, userId);
+        // await orderService.startSession(sessionId, userId);
       }
 
       const sessionId = userSessions.get(sender);
@@ -684,8 +715,8 @@ class WhatsAppService {
         message: messageBody,
         messageType: message.type,
         phoneNumber: sender,
-        name: userInfo?.name,
-        orderType: userInfo?.type
+        name: userInfo?.name || 'Cliente sem nome',
+        orderType: userInfo?.type || 'normal'
       });
 
       if (response && response.message) {
@@ -923,12 +954,7 @@ class WhatsAppService {
   }
 
   findUserInfo(users, phoneNumber) {
-   const user = users.find(u => u.phone === phoneNumber);
-   console.log(phoneNumber);
-    return {
-      name: user ? user.name : 'Cliente sem nome',
-      type: user ? user.type : 'normal'
-    };
+    return users.find(u => u.phone === phoneNumber) || null;
   }
 
   formatPhoneNumber(whatsappId) {
