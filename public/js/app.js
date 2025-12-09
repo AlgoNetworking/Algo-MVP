@@ -2389,6 +2389,7 @@ function updateConnectionStatus(isConnected, isSendingMessages = false, sendingP
         statusBadge.classList.add('online');
         document.getElementById('connectBtn').disabled = true;
         document.getElementById('disconnectBtn').disabled = false;
+        document.getElementById('folderSelect').disabled = true;
         
         if (isSendingMessages) {
             sendBulkBtn.textContent = '📤 Enviando...';
@@ -2407,6 +2408,7 @@ function updateConnectionStatus(isConnected, isSendingMessages = false, sendingP
         statusBadge.classList.add('offline');
         document.getElementById('connectBtn').disabled = false;
         document.getElementById('disconnectBtn').disabled = true;
+        document.getElementById('folderSelect').disabled = false;
         sendBulkBtn.textContent = '📤 Enviar Mensagens em Massa';
         sendBulkBtn.disabled = true;
     }

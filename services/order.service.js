@@ -190,7 +190,7 @@ class OrderSession {
         }
       }
     }
-    summary += '\n⚠️ **Confirma o pedido?** (responda com \'confirmar\' ou \'nao\')';
+    summary += '\n⚠️ **Confirma o pedido?** (responda com \"sim\" ou \"nao\")';
     return summary;
   }
 
@@ -294,11 +294,6 @@ class OrderService {
     if (!session.productsLoaded) {
       await session.loadProducts();
     }
-
-    const config = await databaseService.getUserConfig(userId);
-    const callByName = config ? config.callByName : true;
-
-    name = callByName ? name : 'Cliente sem nome';
     
     if (phoneNumber) session.phoneNumber = phoneNumber;
     if (name) session.name = name;
@@ -328,7 +323,11 @@ class OrderService {
     if (session.state === 'waiting_for_next') {
       session.state = 'option';
       session.waitingForOption = true;
-      const greeting = name !== 'Cliente sem nome' ? `Olá ${name}!` : 'Olá!';
+      const config = await databaseService.getUserConfig(userId);
+        const callByName = config ? config.callByName : true;
+
+      const callName = callByName ? name : 'Cliente sem nome';
+      const greeting = name !== 'Cliente sem nome' ? `Olá ${callName}!` : 'Olá!';
       return {
         success: true,
         message: `${greeting} Isso é uma mensagem automática. 😁\n\nVocê deseja:\nrealizar um pedido (digite "*1*");\nconversar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
@@ -380,7 +379,11 @@ class OrderService {
           isChatBot: false
         };
       } else if (messageLower === '3') {
-        const okay = name !== 'Cliente sem nome' ? `Certo, ${name}. Aqui` : 'Certo, aqui';
+        const config = await databaseService.getUserConfig(userId);
+        const callByName = config ? config.callByName : true;
+
+        const callName = callByName ? name : 'Cliente sem nome';
+        const okay = name !== 'Cliente sem nome' ? `Certo, ${callName}. Aqui` : 'Certo, aqui';
         session.waitingForOption = true;
         session.state = 'option';
         session.chooseOptionAttempts = 0;
@@ -555,9 +558,13 @@ class OrderService {
           const productName = splittedProduct[0];
           response += `• ${qty}x ${productName}\n`;
         }
+        const config = await databaseService.getUserConfig(userId);
+        const callByName = config ? config.callByName : true;
+
+        const callName = callByName ? session.name : 'Cliente sem nome';
         
-        const thankYou = session.name !== 'Cliente sem nome' 
-          ? `\nObrigado pelo pedido, ${session.name}! 🎉\n\n`
+        const thankYou = callName !== 'Cliente sem nome' 
+          ? `\nObrigado pelo pedido, ${callName}! 🎉\n\n`
           : '\nObrigado pelo pedido! 🎉\n\n';
         response += thankYou;
 
@@ -722,7 +729,7 @@ class OrderService {
           }
           return {
             success: false,
-            message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. Se desejar cancelar o pedido, digite "cancelar".',
+            message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. *Se desejar cancelar o pedido, digite "cancelar".*',
             isChatBot: true
           };
         }

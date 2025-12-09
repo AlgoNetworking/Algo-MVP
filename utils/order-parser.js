@@ -276,7 +276,7 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
   while (i < tokens.length) {
     const token = tokens[i];
 
-    const fillerWords = new Set(['quero', 'manda', 'amanha']);
+    const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada']);
     if ((fillerWords.has(token) && !productWords.has(token)) ||
       /^\d+$/.test(token) ||
       allNumberWords[token]) {
