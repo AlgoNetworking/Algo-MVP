@@ -236,7 +236,39 @@ class OrderService {
   async processMessage({ userId, sessionId, message, messageType, phoneNumber, name, orderType }) {
     const session = this.getSession(sessionId, userId);
 
-    if(message.endsWith('?')) {
+    const messageLower = message.toLowerCase().trim();
+
+    // Get user's product names for example
+    const productNames = session.getProductNames();
+
+    const greetingWords = ['olá', 'ola', 'oi', 'boa dia', 'bom dia', 'bon dia', 'boa tarde', 'bom tarde', 'bon tarde', 'boa noite', 'bom noite', 'bon noite', 'opa', 'eae', 'salve', 'saudações', 'saudacoes', 'hello', 'hi', 'hey'];
+    if(greetingWords.includes(messageLower) && session.state === 'collecting' && !session.hasItems()) {
+
+      const idx1 = Math.floor(Math.random() * productNames.length);
+      const idx2 = Math.floor(Math.random() * productNames.length);
+      const differentIdx = idx1 === idx2 ? (idx1 + 1 < productNames.length ? idx1 + 1 :  idx1 - 1) : idx2;
+  
+      const firstUpperCase = message.trim().charAt(0).toUpperCase() + message.trim().slice(1);
+      let greeting = firstUpperCase;
+      if(firstUpperCase === 'Boa dia' || firstUpperCase === 'Bon dia') { greeting = 'Bom dia'; }
+      if(firstUpperCase === 'Bom tarde' || firstUpperCase === 'Bon tarde') { greeting = 'Boa tarde'; }
+      if(firstUpperCase === 'Bom noite' || firstUpperCase === 'Bon noite') { greeting = 'Boa noite'; }
+
+      const example = productNames[0] ?
+      `${Math.floor(Math.random() * 10) + 1} ${productNames[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${productNames[differentIdx]}`
+      : null;
+      const hint = example
+        ? `(digite seu pedido naturalmente como: ${example})\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n'*Caso não queira pedir, digite \"cancelar\".*`
+        : '(não há produtos disponíveis no momento)';
+      session.waitingForOption = false;
+      return {
+        success: true,
+        message: `${greeting}! Isto é uma mensagem automática para a sua conveniência 😊\n\n${hint}`,
+        isChatBot: true
+      }
+    }
+
+    if(messageLower.endsWith('?')) {
       session.waitingForOption = false;
       session.state = 'waiting_for_next';
       for(let i = 0; i < session.currentDb.length; i++) {
@@ -264,7 +296,6 @@ class OrderService {
     if (name) session.name = name;
     if (orderType) session.orderType = orderType;
 
-    const messageLower = message.toLowerCase().trim();
     session.lastActivity = Date.now();
 
     // Check for cancel
@@ -305,9 +336,6 @@ class OrderService {
         session.startInactivityTimer();
         session.parseOrderAttempts = 0;
         session.chooseOptionAttempts = 0;
-
-        // Get user's product names for example
-        const productNames = session.getProductNames();
         
         if (productNames.length === 0) {
           return {

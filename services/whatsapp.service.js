@@ -1029,13 +1029,13 @@ class WhatsAppService {
     const example = filteredProducts[0] ?
     `${Math.floor(Math.random() * 10) + 1} ${filteredProducts[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${filteredProducts[differentIdx]}`
     : null;
-    let warning = `\n\n(Isto é uma mensagem automática para a sua conveniência 😊`;
-    warning += example
+    let hint = `\n\n(Isto é uma mensagem automática para a sua conveniência 😊`;
+    hint += example
       ? `, digite naturalmente como: ${example})` 
       : `)`;
-    warning += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n';
-    warning += '*Caso não queira pedir, digite \"cancelar\".*';
-    return messages[Math.floor(Math.random() * messages.length)] + warning;
+    hint += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n';
+    hint += '*Caso não queira pedir, digite \"cancelar\".*';
+    return messages[Math.floor(Math.random() * messages.length)] + hint;
   }
 }
 
