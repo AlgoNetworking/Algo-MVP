@@ -38,6 +38,7 @@
             <button class="tab" data-tab="notifications">🔔 Notificações
                 <span id="notificationBadge" class="notification-badge" style="display: none;">0</span>
             </button>
+            <button class="tab" data-tab="config">⚙️ Configurações</button>
         </div>
 
         <!-- Bot Controls Tab -->
@@ -207,7 +208,30 @@
                     <div class="empty-state">Nenhuma notificação</div>
                 </div>
             </div>
-        </div>        
+        </div>
+        
+        <!-- Configuration Tab -->
+        <div id="config" class="tab-content">
+            <div class="panel" style="display:flex; align-items:center; justify-content:space-between;">
+                <h2>⚙️ Configurações</h2>
+                <button id="saveConfigBtn" class="btn btn-primary">💾 Salvar</button>
+            </div>
+
+            <div class="panel">
+                <h3>Opções do Bot</h3>
+
+                <div class="form-group" style="margin-top: 15px;">
+                    <label style="font-weight:700; margin-bottom:8px;">👤 Chamar usuários pelo nome</label>
+                    <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+                        <button id="toggleCallByName" class="toggle-btn"></button>
+                        <span id="toggleCallByNameLabel" class="toggle-status">Ativado</span>
+                    </div>
+                    <small style="display:block; margin-top:8px; color:#7f8c8d;">
+                        Quando desativado, o bot não usará o nome dos usuários nas mensagens.
+                    </small>
+                </div>
+            </div>
+        </div>
     </div>
     
     <!-- Custom Modal Dialog System -->
@@ -220,8 +244,8 @@
                 <p id="modalMessage">Você tem certeza?</p>
             </div>
             <div class="modal-footer">
-                <button id="modalCancelBtn" class="btn btn-sm btn-danger">Cancelar</button>
-                <button id="modalConfirmBtn" class="btn btn-sm btn-success">Confirmar</button>
+                <button id="modalCancelBtn" class="btn btn-sm btn-danger">Não</button>
+                <button id="modalConfirmBtn" class="btn btn-sm btn-success">Sim</button>
             </div>
         </div>
     </div>

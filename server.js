@@ -20,6 +20,7 @@ const foldersRoutes = require('./routes/folders.routes');
 const authMiddleware = require('./auth/auth.middleware');
 const authService = require('./auth/auth.service');
 const productsConfig = require('./utils/products-config');
+const configRoutes = require('./routes/config.routes');
 
 const app = express();
 const server = http.createServer(app);
@@ -101,6 +102,7 @@ app.use('/api/whatsapp', authMiddleware.isAuthenticated, authMiddleware.attachUs
 app.use('/api/clients', authMiddleware.isAuthenticated, authMiddleware.attachUserId, clientsRoutes);
 app.use('/api/products', authMiddleware.isAuthenticated, authMiddleware.attachUserId, productsRoutes);
 app.use('/api/folders', authMiddleware.isAuthenticated, authMiddleware.attachUserId, foldersRoutes);
+app.use('/api/config', authMiddleware.isAuthenticated, authMiddleware.attachUserId, configRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

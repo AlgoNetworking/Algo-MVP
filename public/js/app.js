@@ -1886,7 +1886,6 @@ async function saveProductEdit(index) {
     }
 }
 
-
 async function deleteProduct(index) {
     const confirmed = await confirmAction('Deletar Produto', `Deletar "${products[index].name}"?`);
     if (!confirmed) return;
@@ -2219,20 +2218,20 @@ async function importFromTxt() {
     }
     
     // Show results
-    let resultMessage = `✅ Importação concluída!<br><br>`;
-    resultMessage += `✅ Sucesso: ${successCount} cliente(s)<br>`;
+    let resultMessage = `✅ Importação concluída!`;
+    resultMessage += `✅ Sucesso: ${successCount} cliente(s)`;
     if (duplicateCount > 0) {
-      resultMessage += `⚠️ Duplicados: ${duplicateCount} cliente(s) (já existiam)<br>`;
+      resultMessage += `⚠️ Duplicados: ${duplicateCount} cliente(s) (já existiam)`;
     }
     if (errorCount > 0) {
-      resultMessage += `❌ Erros: ${errorCount} cliente(s)<br>`;
+      resultMessage += `❌ Erros: ${errorCount} cliente(s)`;
     }
     
     if (errors.length > 0) {
-      resultMessage += `<br><strong>Detalhes dos erros:</strong><br>`;
+      resultMessage += `Detalhes dos erros:`;
       resultMessage += errors.slice(0, 5).map(e => `• ${e}`).join('<br>');
       if (errors.length > 5) {
-        resultMessage += `<br>• ... e mais ${errors.length - 5} erro(s)`;
+        resultMessage += `• ... e mais ${errors.length - 5} erro(s)`;
       }
     }
     
@@ -2410,6 +2409,77 @@ function updateConnectionStatus(isConnected, isSendingMessages = false, sendingP
         sendBulkBtn.disabled = true;
     }
 }
+
+// ---------------------- Configuration UI / persistence ----------------------
+let userConfig = {
+  callByName: true // default
+};
+
+async function loadUserConfig() {
+  try {
+    const res = await fetch('/api/config', { method: 'GET' });
+    const data = await res.json();
+    if (data && data.success && data.config) {
+      userConfig = Object.assign(userConfig, data.config);
+    }
+  } catch (err) {
+    console.error('Failed to load user config:', err);
+  } finally {
+    renderConfigUI();
+  }
+}
+
+function renderConfigUI() {
+  const toggle = document.getElementById('toggleCallByName');
+  const label = document.getElementById('toggleCallByNameLabel');
+  if (!toggle || !label) return;
+
+  if (userConfig.callByName) {
+    toggle.classList.add('active');
+    label.textContent = 'Ativado';
+  } else {
+    toggle.classList.remove('active');
+    label.textContent = 'Desativado';
+  }
+}
+
+// Toggle click handler (does NOT save automatically)
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'toggleCallByName') {
+    userConfig.callByName = !userConfig.callByName;
+    renderConfigUI();
+  }
+});
+
+// Save button handler
+document.addEventListener('click', async (e) => {
+  if (e.target && e.target.id === 'saveConfigBtn') {
+    try {
+      const resp = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: userConfig })
+      });
+      const data = await resp.json();
+      if (data && data.success) {
+        customAlert('Salvo', 'Configurações salvas com sucesso.');
+      } else {
+        customAlert('Erro', 'Falha ao salvar configurações.');
+      }
+    } catch (err) {
+      console.error('Failed to save config:', err);
+      customAlert('Erro', 'Falha ao salvar configurações.');
+    }
+  }
+});
+
+// Ensure we load config after auth check
+const _orig_checkAuthentication = checkAuthentication;
+checkAuthentication = async function() {
+  const ok = await _orig_checkAuthentication();
+  if (ok) await loadUserConfig();
+  return ok;
+};
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {

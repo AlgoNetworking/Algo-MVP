@@ -137,11 +137,11 @@ class OrderSession {
   }
 
   sendReminder() {
-    if (this.state === 'confirming' && this.reminderCount <= 3) {
+    if (this.state === 'confirming' && this.reminderCount <= 2) {
       const summary = this.buildSummary();
-      this.messageQueue.push(`🔔 **LEMBRETE (${this.reminderCount}/3):**\n${summary}`);
+      this.messageQueue.push(`🔔 **LEMBRETE (${this.reminderCount}/2):**\n${summary}`);
 
-      if (this.reminderCount === 3) {
+      if (this.reminderCount === 2) {
         this.markAsPending();
       } else {
         this.reminderCount++;
@@ -245,7 +245,7 @@ class OrderService {
       console.log(session.currentDb);
       return {
         success: true,
-        message: 'O bot detectou que você quer tirar uma dúvida com um funcionário. Assim que podermos terá uma resposta!\n\n(digite "sair" caso queira voltar a conversar com o bot ou caso acredite que isto é um erro)',
+        message: 'O programa detectou que você quer tirar uma dúvida com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira fazer um pedido)',
         isChatBot: false
       };
     }
@@ -254,6 +254,11 @@ class OrderService {
     if (!session.productsLoaded) {
       await session.loadProducts();
     }
+
+    const config = await databaseService.getUserConfig(userId);
+    const callByName = config ? config.callByName : true;
+
+    name = callByName ? name : 'Cliente sem nome';
     
     if (phoneNumber) session.phoneNumber = phoneNumber;
     if (name) session.name = name;
@@ -275,7 +280,7 @@ class OrderService {
       session.waitingForOption = false;
       return {
         success: true,
-        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê será redirecionado para um funcionário responder.\n\n(digite "sair" caso queira voltar a conversar com o bot)`,
+        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê será redirecionado para um funcionário responder.\n\n(digite "sair" caso queira fazer um pedido)`,
         isChatBot: false
       };
     }
@@ -298,6 +303,8 @@ class OrderService {
         session.waitingForOption = false;
         session.state = 'collecting';
         session.startInactivityTimer();
+        session.parseOrderAttempts = 0;
+        session.chooseOptionAttempts = 0;
 
         // Get user's product names for example
         const productNames = session.getProductNames();
@@ -330,15 +337,17 @@ class OrderService {
       } else if (messageLower === '2') {
         session.waitingForOption = false;
         session.state = 'waiting_for_next';
+        session.chooseOptionAttempts = 0;
         return {
           success: true,
-          message: 'Ok, assim que podermos terá uma resposta!\n\n(digite "sair" caso queira voltar a conversar com o bot)',
+          message: 'Ok, assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira fazer um pedido)',
           isChatBot: false
         };
       } else if (messageLower === '3') {
         const okay = name !== 'Cliente sem nome' ? `Certo, ${name}. Aqui` : 'Certo, aqui';
         session.waitingForOption = true;
         session.state = 'option';
+        session.chooseOptionAttempts = 0;
         
         let productList = `${okay} está nossa lista de produtos!\n\n`;
         let hasProducts = false;
@@ -369,6 +378,7 @@ class OrderService {
         // Get product names for example
         const productNames = session.getProductNames();
         let example = '';
+        session.chooseOptionAttempts = 0;
         
         if (productNames.length >= 2) {
           const idx1 = Math.floor(Math.random() * productNames.length);
@@ -397,13 +407,13 @@ class OrderService {
           isChatBot: true
         };
       } else {
-        chooseOptionAttempts++;
-        if(chooseOptionAttempts >= 1) {
+        session.chooseOptionAttempts++;
+        if(session.chooseOptionAttempts >= 2) {
           session.waitingForOption = false;
           session.state = 'waiting_for_next';
           return {
             success: true,
-            message: 'O bot detectou que você quer falar com um funcionário. Assim que podermos terá uma resposta!\n\n(digite "sair" caso queira voltar a conversar com o bot ou caso acredite que isto é um erro)',
+            message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira fazer um pedido)',
             isChatBot: false
           };
         }
@@ -417,7 +427,7 @@ class OrderService {
 
     // Handle confirmation
     if (session.state === 'confirming') {
-      const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima','sim', 's'];
+      const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima','sim', 's', 'ok', 'okey', 'claro', 'pode ser', 'pronto'];
       const denyWords = ['nao', 'não', 'n', 'cancelar'];
 
       if (confirmWords.includes(messageLower)) {
@@ -453,7 +463,7 @@ class OrderService {
           ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
           : 'O seguinte produto está temporariamente fora de estoque:\n';
           disabledProductsFound.forEach(item => {
-            errorMessage += `• ${item.product}\n`;
+            errorMessage += `*• ${item.product}*\n`;
           });
           errorMessage += '\nEstes itens foram removidos. Você pode:\n';
           errorMessage += '1. Continuar adicionando outros produtos\n';
@@ -566,7 +576,7 @@ class OrderService {
         } else {
           return {
             success: false,
-            message: '❌ Item não reconhecido. Digite \'confirmar\' para confirmar ou \'nao\' para cancelar.',
+            message: '☹️ Perdão, o item não foi reconhecido. Digite \'confirmar\' para confirmar ou \'nao\' para cancelar.',
             isChatBot: true,
           };
         }
@@ -575,7 +585,7 @@ class OrderService {
 
     // Handle collection
     if (session.state === 'collecting') {
-      if (['pronto', 'confirmar'].includes(messageLower)) {
+      if (['confirmar', 'confimar', 'confirma', 'confima','sim', 's', 'ok', 'okey', 'claro', 'pode ser', 'pronto'].includes(messageLower)) {
         if (session.hasItems()) {
           // Check if there are any disabled products in current orders
           const hasDisabledProducts = session.currentDb.some(([product, qty]) => {
@@ -670,7 +680,7 @@ class OrderService {
             session.state = 'waiting_for_next';
             return {
               success: true,
-              message: 'O bot detectou que você quer falar com um funcionário. Assim que podermos terá uma resposta!\n\n(digite "sair" caso queira voltar a conversar com o bot ou caso acredite que isto é um erro)',
+              message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira fazer um pedido)',
               isChatBot: false
             };
           }

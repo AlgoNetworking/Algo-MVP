@@ -47,6 +47,53 @@ class DatabaseService {
     return db;
   }
 
+  // Get user's config (returns an object or null)
+  async getUserConfig(userId) {
+    try {
+      if (isProduction) {
+        const result = await db.query('SELECT config_data FROM user_configurations WHERE user_id = $1', [userId]);
+        return result.rows && result.rows[0] ? result.rows[0].config_data : null;
+      } else {
+        const stmt = db.prepare('SELECT config_data FROM user_configurations WHERE user_id = ?');
+        const row = stmt.get(userId);
+        return row ? JSON.parse(row.config_data) : null;
+      }
+    } catch (err) {
+      console.error('getUserConfig error:', err);
+      throw err;
+    }
+  }
+
+  // Save (upsert) user's config (config is an object)
+  async saveUserConfig(userId, config) {
+    try {
+      if (isProduction) {
+        await db.query(`
+          INSERT INTO user_configurations (user_id, config_data)
+          VALUES ($1, $2)
+          ON CONFLICT (user_id) DO UPDATE
+            SET config_data = EXCLUDED.config_data,
+                updated_at = CURRENT_TIMESTAMP
+        `, [userId, config]);
+      } else {
+        // SQLite upsert
+        const selectStmt = db.prepare('SELECT id FROM user_configurations WHERE user_id = ?');
+        const existing = selectStmt.get(userId);
+        if (existing) {
+          const updateStmt = db.prepare('UPDATE user_configurations SET config_data = ? WHERE user_id = ?');
+          updateStmt.run(JSON.stringify(config), userId);
+        } else {
+          const insertStmt = db.prepare('INSERT INTO user_configurations (user_id, config_data) VALUES (?, ?)');
+          insertStmt.run(userId, JSON.stringify(config));
+        }
+      }
+    } catch (err) {
+      console.error('saveUserConfig error:', err);
+      throw err;
+    }
+  }
+
+
   async initializePostgres() {
     try {
       console.log('📄 Creating PostgreSQL tables...');
@@ -176,6 +223,17 @@ class DatabaseService {
         )
       `);
       console.log('✅ User orders table created');
+      
+      // 8️⃣ CREATE USER_CONFIGURATIONS TABLE (depends on users)
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS user_configurations (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+          config_data JSONB NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
 
       // 9️⃣ INSERT DEFAULT PRODUCTS (now table exists!)
       const defaultProductsCheck = await db.query('SELECT COUNT(*) FROM default_products');

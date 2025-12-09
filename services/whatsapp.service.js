@@ -973,6 +973,12 @@ class WhatsAppService {
   }
 
   async generateInitialMessage(userId, userName) {
+
+    const config = await databaseService.getUserConfig(userId);
+    const callByName = config ? config.callByName : true;
+
+    const enabled = true;
+    userName = callByName ? userName : 'Cliente sem nome';
     const user = userName !== 'Cliente sem nome' ? ' ' + userName : '';
     const messages = [
       `Opa${user}! Estamos no aguardo do seu pedido!`, 
@@ -1009,13 +1015,24 @@ class WhatsAppService {
     ];
 
     const products = await productsConfig.getUserEmptyProductsDb(userId);
+    let filteredProducts = [];
+    for(const [product, qty] of products) {
+      if(product[2] && enabled){
+        filteredProducts.push([product[0]]);
+      }
+    }
 
-    const idx1 = Math.floor(Math.random() * products.length);
-    const idx2 = Math.floor(Math.random() * products.length);
-    const differentIdx = idx1 === idx2 ? (idx1 + 1 < products.length ? idx1 + 1 :  idx1 - 1) : idx2;
+    const idx1 = Math.floor(Math.random() * filteredProducts.length);
+    const idx2 = Math.floor(Math.random() * filteredProducts.length);
+    const differentIdx = idx1 === idx2 ? (idx1 + 1 < filteredProducts.length ? idx1 + 1 :  idx1 - 1) : idx2;
 
-    const example = `${Math.floor(Math.random() * 10) + 1} ${products[idx1][0][0]} e ${Math.floor(Math.random() * 10) + 1} ${products[differentIdx][0][0]}`;
-    let warning = `\n\n(Isto é uma mensagem automática para a sua conveniência 😊, digite naturalmente como: ${example})`;
+    const example = filteredProducts[0] ?
+    `${Math.floor(Math.random() * 10) + 1} ${filteredProducts[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${filteredProducts[differentIdx]}`
+    : null;
+    let warning = `\n\n(Isto é uma mensagem automática para a sua conveniência 😊`;
+    warning += example
+      ? `, digite naturalmente como: ${example})` 
+      : `)`;
     warning += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n';
     warning += '*Caso não queira pedir, digite \"cancelar\".*';
     return messages[Math.floor(Math.random() * messages.length)] + warning;
