@@ -241,8 +241,16 @@ class OrderService {
     // Get user's product names for example
     const productNames = session.getProductNames();
 
-    const greetingWords = ['olá', 'ola', 'oi', 'boa dia', 'bom dia', 'bon dia', 'boa tarde', 'bom tarde', 'bon tarde', 'boa noite', 'bom noite', 'bon noite', 'opa', 'eae', 'salve', 'saudações', 'saudacoes', 'hello', 'hi', 'hey'];
-    if(greetingWords.includes(messageLower) && session.state === 'collecting' && !session.hasItems()) {
+    const greetingWords = ['olá', 'ola', 'oi', 'boa dia', 'bom dia', 'bon dia',
+                          'boa tarde', 'bom tarde', 'bon tarde', 'boa noite', 
+                          'bom noite', 'bon noite', 'opa', 'eae', 'salve', 
+                          'saudações', 'saudacoes', 'hello', 'hi', 'hey', 
+                          'opa bom dia', 'opa boa tarde', 'opa boa noite', 
+                          'oi bom dia', 'oi boa tarde', 'oi boa noite', 
+                          'ola bom dia', 'ola boa tarde', 'ola boa noite', 
+                          'olá bom dia', 'olá boa tarde', 'olá boa noite', 
+                          'eae bom dia','eae boa tarde', 'eae boa noite'];
+    if(greetingWords.includes(messageLower.replace(/[!,.]/g, '')) && session.state === 'collecting' && !session.hasItems()) {
 
       const idx1 = Math.floor(Math.random() * productNames.length);
       const idx2 = Math.floor(Math.random() * productNames.length);
@@ -489,14 +497,14 @@ class OrderService {
           let errorMessage = '❌ **ATENÇÃO:**\n\n';
           errorMessage += disabledProductsFound.length > 1 
           ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
-          : 'O seguinte produto está temporariamente fora de estoque:\n';
+          : 'O seguinte produto está temporariamente fora de estoque:\n\n';
           disabledProductsFound.forEach(item => {
-            errorMessage += `*• ${item.product}*\n`;
+            errorMessage += `• *${item.product}*\n`;
           });
           errorMessage += '\nEstes itens foram removidos. Você pode:\n';
-          errorMessage += '1. Continuar adicionando outros produtos\n';
-          errorMessage += '2. Digitar "pronto" para enviar o pedido\n';
-          errorMessage += '3. Digitar "cancelar" para cancelar o seu pedido';
+          errorMessage += '- Continuar adicionando outros produtos\n';
+          errorMessage += '- Digitar "pronto" para enviar o pedido\n';
+          errorMessage += '- Digitar "cancelar" para cancelar o seu pedido';
           
           return {
             success: false,
@@ -580,12 +588,12 @@ class OrderService {
           ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
           : 'O seguinte produto está temporariamente fora de estoque:\n';
           disabledProductsFound.forEach(item => {
-            errorMessage += `• ${item.product}\n`;
+            errorMessage += `*• ${item.product}*\n`;
           });
           errorMessage += '\nConfirmação interrompida. Você pode:\n';
-          errorMessage += '1. Continuar adicionando outros produtos\n';
-          errorMessage += '2. Digitar "pronto" para enviar o pedido sem estes itens\n';
-          errorMessage += '3. Digitar "cancelar" para cancelar o seu pedido';
+          errorMessage += '- Continuar adicionando outros produtos\n';
+          errorMessage += '- Digitar "pronto" para enviar o pedido sem estes itens\n';
+          errorMessage += '- Digitar "cancelar" para cancelar o seu pedido';
           
           return {
             success: false,
@@ -682,12 +690,12 @@ class OrderService {
           ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
           : 'O seguinte produto está temporariamente fora de estoque:\n';
           disabledProductsFound.forEach(item => {
-            errorMessage += `• ${item.product}\n`;
+            errorMessage += `*• ${item.product}\n*`;
           });
           errorMessage += '\nVocê pode:\n';
-          errorMessage += '1. Continuar adicionando outros produtos\n';
-          errorMessage += '2. Digitar "pronto" para enviar o pedido sem estes itens\n';
-          errorMessage += '3. Digitar "cancelar" para cancelar o seu pedido';
+          errorMessage += '- Continuar adicionando outros produtos\n';
+          errorMessage += '- Digitar "pronto" para enviar o pedido sem estes itens\n';
+          errorMessage += '- Digitar "cancelar" para cancelar o seu pedido';
           
           return {
             success: false,

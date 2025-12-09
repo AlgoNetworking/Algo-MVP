@@ -2287,6 +2287,7 @@ function initializeSocket() {
     document.getElementById('sendBulkBtn').disabled = false;
     document.getElementById('disconnectBtn').disabled = false;
     document.getElementById('connectBtn').disabled = true;
+    document.getElementById('folderSelect').disabled = true;
   });
 
   socket.on('bot-authenticated', () => {
@@ -2300,9 +2301,10 @@ function initializeSocket() {
   socket.on('bot-disconnected', (data) => {
     addLog(`🔌 WhatsApp desconectado: ${data.reason}`);
     updateConnectionStatus(false);
-    document.getElementById('connectBtn').disabled = false;
-    document.getElementById('disconnectBtn').disabled = true;
     document.getElementById('sendBulkBtn').disabled = true;
+    document.getElementById('disconnectBtn').disabled = true;
+    document.getElementById('connectBtn').disabled = false;
+    document.getElementById('folderSelect').disabled = false;
   });
 
   socket.on('bot-stopped', () => {
