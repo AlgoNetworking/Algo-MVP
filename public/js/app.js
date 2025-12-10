@@ -250,7 +250,11 @@ function renderFolderClients() {
             <button class="btn btn-sm btn-danger" onclick="deleteFolderClient(${index})" ${isEditing ? 'disabled' : ''}>
               🗑️ Deletar
             </button>
-            ${!client.answered ? `<button class="btn btn-sm btn-success" onclick="markFolderClientAsAnswered(${index})" ${isEditing ? 'disabled' : ''}>✅ Respondeu</button>` : ''}
+            ${client.answered ? 
+                `<button class="btn btn-sm" style="background: #95a5a6; color: white;" onclick="markFolderClientAsNotAnswered(${index})" ${isEditing ? 'disabled' : ''}>❌ Não Respondeu</button>` 
+                : 
+                `<button class="btn btn-sm btn-success" onclick="markFolderClientAsAnswered(${index})" ${isEditing ? 'disabled' : ''}>✅ Respondeu</button>`
+            }
           </div>
         </div>
       `;
@@ -290,6 +294,34 @@ function renderFolderClients() {
   `;
   
   container.innerHTML = html;
+}
+
+// Add this new function for folder clients
+async function markFolderClientAsNotAnswered(index) {
+  if (!currentFolder) return;
+  
+  const client = folderClients[index];
+  if (client.answered === true) {
+    try {
+      const response = await fetch(`/api/clients/${encodeURIComponent(client.phone)}/answered`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          answered: false,
+          folderId: currentFolder.id 
+        })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        addLog(`⏳ ${client.name} marcado como não respondeu`);
+        folderHasUnsavedChanges = true;
+        await loadFolderClients(currentFolder.id);
+      }
+    } catch (error) {
+      console.error('Error updating folder client status:', error);
+    }
+  }
 }
 
 // Show add folder form
@@ -1135,10 +1167,20 @@ function showBulkMessageOptions(clients) {
   
   overlay.style.display = 'flex';
   
+  // Click outside to close - cancel action
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      overlay.style.display = 'none';
+      resetModalFooter();
+      overlay.onclick = null; // Remove handler
+    }
+  };
+  
   // Cancel button
   document.getElementById('modalCancelBtn').onclick = () => {
     overlay.style.display = 'none';
     resetModalFooter();
+    overlay.onclick = null;
   };
   
   // Custom message button - goes to Window 2
@@ -1150,12 +1192,14 @@ function showBulkMessageOptions(clients) {
   document.getElementById('modalConfirmBtn').onclick = async () => {
     overlay.style.display = 'none';
     resetModalFooter();
+    overlay.onclick = null;
     await sendTraditionalBulkMessages(clients);
   };
 }
 
 // Window 2 - Custom message input
 function showCustomMessageInput(clients) {
+  const overlay = document.getElementById('modalOverlay');
   const modal = document.querySelector('.modal');
   modal.style.maxWidth = '600px';
   
@@ -1181,6 +1225,15 @@ function showCustomMessageInput(clients) {
     <button id="modalSendCustomBtn" class="btn btn-sm btn-success">Enviar Mensagem</button>
   `;
   
+  // Click outside to close - cancel action
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      overlay.style.display = 'none';
+      resetModalFooter();
+      overlay.onclick = null; // Remove handler
+    }
+  };
+  
   // Back button - goes to Window 1
   document.getElementById('modalBackBtn').onclick = () => {
     modal.style.maxWidth = '500px';
@@ -1205,6 +1258,7 @@ function showCustomMessageInput(clients) {
 
 // Window 3 - Custom message confirmation with preview
 function showCustomMessageConfirmation(clients, message) {
+  const overlay = document.getElementById('modalOverlay');
   const modal = document.querySelector('.modal');
   modal.style.maxWidth = '500px';
   
@@ -1234,6 +1288,15 @@ function showCustomMessageConfirmation(clients, message) {
     <button id="modalConfirmSendBtn" class="btn btn-sm btn-success">✅ Sim, Enviar</button>
   `;
   
+  // Click outside to close - cancel action
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      overlay.style.display = 'none';
+      resetModalFooter();
+      overlay.onclick = null; // Remove handler
+    }
+  };
+  
   // Cancel button - goes back to Window 2
   document.getElementById('modalCancelConfirmBtn').onclick = () => {
     showCustomMessageInput(clients);
@@ -1245,9 +1308,9 @@ function showCustomMessageConfirmation(clients, message) {
   
   // Confirm send button - actually sends messages
   document.getElementById('modalConfirmSendBtn').onclick = async () => {
-    const overlay = document.getElementById('modalOverlay');
     overlay.style.display = 'none';
     resetModalFooter();
+    overlay.onclick = null;
     await sendCustomBulkMessages(clients, message);
   };
 }
@@ -1680,7 +1743,11 @@ function renderClients() {
                     <button class="btn btn-sm btn-danger" onclick="deleteClient(${index})" ${isEditing ? 'disabled' : ''}>
                         🗑️ Deletar
                     </button>
-                    ${!client.answered ? `<button class="btn btn-sm btn-success" onclick="markAsAnswered(${index})" ${isEditing ? 'disabled' : ''}>✅ Respondeu</button>` : ''}
+                    ${client.answered ? 
+                        `<button class="btn btn-sm" style="background: #95a5a6; color: white;" onclick="markAsNotAnswered(${index})" ${isEditing ? 'disabled' : ''}>❌ Não Respondeu</button>` 
+                        : 
+                        `<button class="btn btn-sm btn-success" onclick="markAsAnswered(${index})" ${isEditing ? 'disabled' : ''}>✅ Respondeu</button>`
+                    }
                 </div>
             </div>
         `;
@@ -1714,6 +1781,14 @@ function renderClients() {
     });
     
     container.innerHTML = html;
+}
+
+// Add this new function for marking as not answered
+async function markAsNotAnswered(index) {
+    if (clients[index].answered === true) {
+        await updateClientAnsweredStatus(clients[index].phone, false);
+        addLog(`⏳ ${clients[index].name} marcado como não respondeu`);
+    }
 }
 
 // Product rendering and management

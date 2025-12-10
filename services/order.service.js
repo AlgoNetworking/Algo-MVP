@@ -172,7 +172,7 @@ class OrderSession {
         status: 'pending'
       });
 
-      this.messageQueue.push('🟡 **PEDIDO SALVO COMO PENDENTE** - Aguardando confirmação manual.');
+      this.messageQueue.push('🟡 **PEDIDO SALVO COMO PENDENTE** - *Pedido confirmado automaticamente.*');
       this.resetCurrent();
       this.state = 'waiting_for_next';
     }
@@ -595,7 +595,7 @@ class OrderService {
 
         return { success: true, message: response, isChatBot: true };
 
-      } else if (checkCancelCommand(messageLower)) {
+      } else if (session.checkCancelCommand(messageLower)) {
         session.cancelTimer();
 
         try {
