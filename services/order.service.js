@@ -195,7 +195,7 @@ class OrderSession {
   }
 
   checkCancelCommand(message) {
-    const cancelCommands = ['nao', 'não', 'n', 'cancelar', 'nao vou pedir', 'não vou pedir', 
+    const cancelCommands = ['nao', 'não', 'n', 'cancelar', 'cancela', 'nao vou pedir', 'não vou pedir', 
                           'nao quero', 'não quero', 'ainda tenho', 'obrigado, não quero hoje',
                           'não vou querer', 'não vou querer hoje', 'não quero hoje', 'só próxima semana', 
                           'só proxima semana', 'so proxima semana','obrigado, nao quero hoje', 

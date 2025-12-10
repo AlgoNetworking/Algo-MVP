@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS clients (
     order_type VARCHAR(20) DEFAULT 'normal',
     answered BOOLEAN DEFAULT FALSE,
     is_chatbot BOOLEAN DEFAULT TRUE,
+    interpret_messages BOOLEAN DEFAULT TRUE,
     folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

@@ -1764,18 +1764,26 @@ function renderClients() {
                         <input type="text" id="editClientName-${index}" value="${client.name}" placeholder="Cliente sem nome">
                     </div>
                     <div class="form-group">
-                        <label for="editClientType-${index}">Tipo de Pedido:</label>
+                        <label for="editClientType-${index}">Tipo de pedido:</label>
                         <select id="editClientType-${index}">
-                            <option value="normal" ${client.type === 'normal' ? 'selected' : ''}>Normal</option>
-                            <option value="quilo" ${client.type === 'quilo' ? 'selected' : ''}>Quilo</option>
-                            <option value="dosado" ${client.type === 'dosado' ? 'selected' : ''}>Dosado</option>
+                          <option value="normal" ${client.type === 'normal' ? 'selected' : ''}>Normal</option>
+                          <option value="delivery" ${client.type === 'delivery' ? 'selected' : ''}>Delivery</option>
+                          <option value="pickup" ${client.type === 'pickup' ? 'selected' : ''}>Retirada</option>
                         </select>
-                    </div>
-                    <div class="edit-form-actions">
-                        <button class="btn btn-sm btn-danger" onclick="cancelEditClient()">Cancelar</button>
-                        <button class="btn btn-sm btn-success" onclick="saveClientEdit(${index})">Salvar Alterações</button>
-                    </div>
+                      </div>
+
+                      <!-- NEW: Interpret toggle -->
+                      <div class="form-group" style="margin-top:8px;">
+                        <label for="editClientInterpret-${index}" style="display:block; margin-bottom:4px;">Interpretar Mensagens</label>
+                        <label style="display:flex; align-items:center; gap:8px;">
+                          <input type="checkbox" id="editClientInterpret-${index}" ${client.interpret === false ? '' : 'checked'}>
+                          <span style="font-size:0.95rem;">Ativo (o bot interpreta as mensagens deste cliente)</span>
+                        </label>
+                        <small style="display:block; margin-top:4px; color:#666;">
+                          Se desligado, o bot NÃO interpretará mensagens deste cliente (eles ainda recebem mensagens em massa e o sistema marcará como respondido quando eles enviarem qualquer mensagem).
+                        </small>
                 </div>
+            </div>
             `;
         }
     });
@@ -1910,9 +1918,10 @@ async function saveNewClient() {
     }
     
     await saveClient({
-        phone: phone,
-        name: name || 'Cliente sem nome',
-        type: type
+      phone: phone,
+      name: name || 'Cliente sem nome',
+      type: type,
+      interpret: true // default ON for new clients
     });
     
     cancelAddClient();
@@ -1941,26 +1950,28 @@ async function deleteClient(index) {
 }
 
 async function saveClientEdit(index) {
-    const phone = document.getElementById(`editClientPhone-${index}`).value.trim();
-    const name = document.getElementById(`editClientName-${index}`).value.trim();
-    const type = document.getElementById(`editClientType-${index}`).value;
-    
-    if (!phone) {
-        customAlert('Erro', 'O telefone é obrigatório!');
-        return;
-    }
-    
-    const success = await saveClient({
-        phone: phone,
-        name: name || 'Cliente sem nome',
-        type: type
-    }, true);
-    
-    if (success) {
-        currentEditingIndex = -1;
-        currentEditingType = null;
-        renderClients();
-    }
+  const phone = document.getElementById(`editClientPhone-${index}`).value.trim();
+  const name  = document.getElementById(`editClientName-${index}`).value.trim();
+  const type  = document.getElementById(`editClientType-${index}`).value;
+  const interpret = document.getElementById(`editClientInterpret-${index}`).checked; // NEW
+
+  if (!phone) {
+    customAlert('Erro', 'O telefone é obrigatório!');
+    return;
+  }
+
+  const success = await saveClient({
+    phone: phone,
+    name: name || 'Cliente sem nome',
+    type: type,
+    interpret // pass it along
+  }, true);
+
+  if (success) {
+    currentEditingIndex = -1;
+    currentEditingType = null;
+    renderClients();
+  }
 }
 
 // Delete client from database

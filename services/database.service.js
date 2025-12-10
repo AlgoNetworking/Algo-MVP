@@ -166,17 +166,18 @@ class DatabaseService {
       await db.query(`
         CREATE TABLE IF NOT EXISTS clients (
           id SERIAL PRIMARY KEY,
-          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-          phone VARCHAR(20) NOT NULL,
-          name VARCHAR(100) NOT NULL,
-          order_type VARCHAR(20) DEFAULT 'normal',
+          user_id INTEGER NOT NULL,
+          phone TEXT NOT NULL,
+          name TEXT,
+          order_type TEXT DEFAULT 'normal',
           answered BOOLEAN DEFAULT FALSE,
           is_chatbot BOOLEAN DEFAULT TRUE,
-          folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+          interpret_messages BOOLEAN DEFAULT TRUE,
+          folder_id INTEGER,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(user_id, phone, folder_id)
-        )
+        );
       `);
       console.log('✅ Clients table created');
 
@@ -343,6 +344,7 @@ class DatabaseService {
           order_type TEXT DEFAULT 'normal',
           answered INTEGER DEFAULT 0,
           is_chatbot INTEGER DEFAULT 1,
+          interpret_messages INTEGER DEFAULT 1,
           folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -833,13 +835,14 @@ class DatabaseService {
           [userId]
         );
         
-        return result.rows.map(client => ({
+        return rows.map(client => ({
           id: client.id,
           phone: client.phone,
           name: client.name,
           type: client.order_type,
           answered: client.answered,
           isChatBot: client.is_chatbot,
+          interpret: client.interpret_messages === undefined ? true : !!client.interpret_messages,
           folderId: client.folder_id,
           folderName: client.folder_name
         }));
@@ -863,6 +866,7 @@ class DatabaseService {
           type: client.order_type,
           answered: client.answered,
           isChatBot: client.is_chatbot,
+          interpret: client.interpret_messages === undefined ? true : !!client.interpret_messages,
           folderId: client.folder_id,
           folderName: client.folder_name
         }));
@@ -908,45 +912,45 @@ class DatabaseService {
 
   async addClient(userId, client) {
     try {
-      const { phone, name, type, answered, isChatBot, folderId } = client;
-      
+      const { phone, name, type, answered, isChatBot, folderId, interpret } = client;
+
       if (isProduction) {
         await db.query(
-          `INSERT INTO clients (user_id, phone, name, order_type, answered, is_chatbot, folder_id)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `INSERT INTO clients (user_id, phone, name, order_type, answered, is_chatbot, interpret_messages, folder_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
           ON CONFLICT (user_id, phone, folder_id) DO UPDATE SET
-          name = EXCLUDED.name,
-          order_type = EXCLUDED.order_type,
-          answered = EXCLUDED.answered,
-          is_chatbot = EXCLUDED.is_chatbot,
-          updated_at = CURRENT_TIMESTAMP`,
-          [userId, phone, name, type, answered, isChatBot, folderId]
+            name = EXCLUDED.name,
+            order_type = EXCLUDED.order_type,
+            answered = EXCLUDED.answered,
+            is_chatbot = EXCLUDED.is_chatbot,
+            interpret_messages = EXCLUDED.interpret_messages,
+            updated_at = CURRENT_TIMESTAMP`,
+          [userId, phone, name, type, answered, isChatBot, interpret !== undefined ? interpret : true, folderId]
         );
       } else {
         const stmt = db.prepare(
-          `INSERT INTO clients (user_id, phone, name, order_type, answered, is_chatbot, folder_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO clients (user_id, phone, name, order_type, answered, is_chatbot, interpret_messages, folder_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (user_id, phone, folder_id) DO UPDATE SET
-          name = excluded.name,
-          order_type = excluded.order_type,
-          answered = excluded.answered,
-          is_chatbot = excluded.is_chatbot,
-          updated_at = CURRENT_TIMESTAMP`
+            name = excluded.name,
+            order_type = excluded.order_type,
+            answered = excluded.answered,
+            is_chatbot = excluded.is_chatbot,
+            interpret_messages = excluded.interpret_messages,
+            updated_at = CURRENT_TIMESTAMP`
         );
-        stmt.run(userId, phone, name, type, answered, isChatBot, folderId);
+        stmt.run(userId, phone, name, type, answered, isChatBot, interpret !== undefined ? (interpret ? 1 : 0) : 1, folderId);
       }
-      
+
       return { success: true };
     } catch (error) {
       console.error('❌ Error adding client:', error);
-      
       let message = error.message;
       if (error.message.includes('unique constraint') || error.message.includes('UNIQUE constraint')) {
         message = `Cliente com telefone ${client.phone} já existe nesta pasta`;
       } else if (error.message.includes('foreign key constraint')) {
         message = 'Pasta não encontrada';
       }
-      
       throw new Error(message);
     }
   }
@@ -992,6 +996,26 @@ class DatabaseService {
       throw error;
     }
   }
+
+  async updateClientInterpretStatus(userId, phone, interpret) {
+  try {
+    if (isProduction) {
+      await db.query(
+        'UPDATE clients SET interpret_messages = $1, updated_at = CURRENT_TIMESTAMP WHERE phone = $2 AND user_id = $3',
+        [interpret, phone, userId]
+      );
+    } else {
+      const stmt = db.prepare(
+        'UPDATE clients SET interpret_messages = ?, updated_at = CURRENT_TIMESTAMP WHERE phone = ? AND user_id = ?'
+      );
+      stmt.run(interpret ? 1 : 0, phone, userId);
+    }
+  } catch (error) {
+    console.error('❌ Error updating client interpret status:', error);
+    throw error;
+  }
+}
+
 
   async updateClientChatBotStatus(userId, phone, isChatBot) {
     try {

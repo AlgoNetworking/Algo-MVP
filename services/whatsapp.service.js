@@ -662,9 +662,33 @@ class WhatsAppService {
       const messageBody = message.body;
       const phoneNumber = this.formatPhoneNumber(sender);
 
+      // get clients (from folder or DB)
       const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
-      if(!clientUsers.find(u => u.phone === phoneNumber)) {
+
+      const clientInfo = clientUsers.find(u => u.phone === phoneNumber);
+      if (!clientInfo) {
         console.log(`🚫 Ignoring message from unregistered number for user ${userId}: ${phoneNumber}`);
+        return;
+      }
+
+      if (clientInfo.interpret === false) {
+        try {
+          // mark answered (so bulk/invites skip them)
+          await databaseService.updateClientAnsweredStatus(userId, phoneNumber, true);
+
+          // emit socket update so UI reflects answered state
+          if (this.io) {
+            this.io.to(`user-${userId}`).emit('client-answered', {
+              phone: phoneNumber,
+              userId
+            });
+          }
+
+          console.log(`⏸️ Skipping interpretation for ${phoneNumber} (interpret disabled). Marked as answered.`);
+        } catch (err) {
+          console.error('Error marking client as answered for interpret-disabled client:', err);
+        }
+        // do not call orderService or any interpretation logic
         return;
       }
 
