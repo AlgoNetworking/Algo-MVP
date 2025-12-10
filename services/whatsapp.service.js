@@ -855,6 +855,59 @@ class WhatsAppService {
     return results;
   }
 
+  async sendCustomMessages(userId, users, messageText, ignoreInterpretation = true) {
+    const client = this.clients.get(userId);
+    if (!client) throw new Error('Bot not running for user ' + userId);
+
+    const status = this.sendingStatus.get(userId);
+    status.isSendingMessages = true;
+    status.progress = { total: users.length, sent: 0, failed: 0, skipped: 0 };
+    const results = [];
+
+    for (const user of users) {
+      if (!status.isSendingMessages) break;
+      try {
+        const phoneId = user.phone.replace(/[+\-\s]/g, '') + '@c.us';
+        const numberId = await client.getNumberId(phoneId);
+        if (!numberId) {
+          results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
+          status.progress.failed++;
+          continue;
+        }
+
+        // IMPORTANT: do NOT create session or call orderService
+        await this.sendMessage(userId, phoneId, messageText);
+
+        results.push({ phone: user.phone, status: 'sent' });
+        status.progress.sent++;
+
+        if (this.io) {
+          this.io.to(`user-${userId}`).emit('bulk-message-progress', {
+            phone: user.phone, name: user.name, progress: status.progress, userId
+          });
+        }
+
+        // optional delay (keep same pattern as bulk to avoid spam): e.g. random between 18-30s
+        const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+
+      } catch (error) {
+        console.error(`Error sending custom to ${user.phone}:`, error);
+        results.push({ phone: user.phone, status: 'failed', reason: error.message });
+        status.progress.failed++;
+      }
+    }
+
+    status.isSendingMessages = false;
+    status.progress = null;
+
+    if (this.io) {
+      this.io.to(`user-${userId}`).emit('bulk-messages-complete', { results, userId });
+    }
+
+    return results;
+  }
+
   getSendingStatus(userId) {
     return this.sendingStatus.get(userId) || {
       isSendingMessages: false,

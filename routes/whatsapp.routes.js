@@ -71,6 +71,45 @@ router.post('/send-bulk', async (req, res) => {
   }
 });
 
+router.post('/send-custom', async (req, res) => {
+  try {
+    const { users, message, ignoreInterpretation } = req.body;
+    if (!users || !Array.isArray(users) || !message) {
+      return res.status(400).json({ success: false, message: 'users array and message required' });
+    }
+
+    // Start async process
+    whatsappService.sendCustomMessages(req.userId, users, message, !!ignoreInterpretation)
+      .then(results => {
+        console.log('Custom messages started for user', req.userId);
+      })
+      .catch(err => {
+        console.error('Error sending custom messages for', req.userId, err);
+      });
+
+    res.json({ success: true, message: 'Custom message send started' });
+  } catch (error) {
+    console.error('Error in send-custom route:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post('/send-warning', async (req, res) => {
+  try {
+    const { users, warning, ignoreInterpretation } = req.body;
+    if (!Array.isArray(users) || !warning) {
+      return res.status(400).json({ success: false, message: 'users and warning required' });
+    }
+    whatsappService.sendWarningMessages(req.userId, users, warning, true /*always ignore*/ )
+      .then(()=>{})
+      .catch(err => console.error('send-warning error', err));
+    res.json({ success: true, message: 'Send-warning started' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Get sending status
 router.get('/sending-status', (req, res) => {
   try {
