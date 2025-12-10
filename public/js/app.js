@@ -1078,6 +1078,7 @@ async function disconnectWhatsApp() {
     }
 }
 
+// Modified sendBulkMessages function - Window 1
 async function sendBulkMessages() {
   if (!selectedFolderId) {
     customAlert('Aviso', 'Por favor, selecione uma pasta primeiro!');
@@ -1103,9 +1104,170 @@ async function sendBulkMessages() {
     return;
   }
 
-  const confirmed = await confirmAction('Enviar Mensagens', `Enviar mensagens para ${clients.length} clientes da pasta "${selectedFolderName}"?`);
-  if (!confirmed) return;
+  // Window 1 - Show custom modal with yellow button
+  showBulkMessageOptions(clients);
+}
 
+// Window 1 - Bulk message options
+function showBulkMessageOptions(clients) {
+  const overlay = document.getElementById('modalOverlay');
+  const modal = document.querySelector('.modal');
+  
+  document.getElementById('modalTitle').textContent = 'Enviar Mensagens';
+  document.getElementById('modalMessage').textContent = 
+    `Enviar mensagens para ${clients.length} clientes da pasta "${selectedFolderName}"?`;
+  
+  const modalFooter = document.querySelector('.modal-footer');
+  modalFooter.innerHTML = `
+    <button id="modalCancelBtn" class="btn btn-sm btn-danger">Não</button>
+    <button id="modalCustomBtn" class="btn btn-sm" style="background: #F0B513; color: white; font-weight: 600;">
+      📝 Enviar Mensagem Customizada
+    </button>
+    <button id="modalConfirmBtn" class="btn btn-sm btn-success">Sim</button>
+  `;
+  
+  overlay.style.display = 'flex';
+  
+  // Cancel button
+  document.getElementById('modalCancelBtn').onclick = () => {
+    overlay.style.display = 'none';
+    resetModalFooter();
+  };
+  
+  // Custom message button - goes to Window 2
+  document.getElementById('modalCustomBtn').onclick = () => {
+    showCustomMessageInput(clients);
+  };
+  
+  // Confirm button - send traditional bulk messages
+  document.getElementById('modalConfirmBtn').onclick = async () => {
+    overlay.style.display = 'none';
+    resetModalFooter();
+    await sendTraditionalBulkMessages(clients);
+  };
+}
+
+// Window 2 - Custom message input
+function showCustomMessageInput(clients) {
+  const modal = document.querySelector('.modal');
+  modal.style.maxWidth = '600px';
+  
+  document.getElementById('modalTitle').textContent = 'Mensagem Customizada';
+  
+  const modalBody = document.querySelector('.modal-body');
+  modalBody.innerHTML = `
+    <p style="margin-bottom: 15px; color: #2c3e50;">
+      Digite a mensagem que deseja enviar para ${clients.length} cliente(s):
+    </p>
+    <textarea id="customMessageInput" 
+              style="width: 100%; min-height: 150px; padding: 10px; border: 2px solid #e9ecef; 
+                     border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical;"
+              placeholder="Digite sua mensagem aqui..."></textarea>
+    <small style="display: block; margin-top: 10px; color: #7f8c8d;">
+      ⚠️ Esta mensagem não iniciará sessões automáticas com os clientes.
+    </small>
+  `;
+  
+  const modalFooter = document.querySelector('.modal-footer');
+  modalFooter.innerHTML = `
+    <button id="modalBackBtn" class="btn btn-sm btn-danger">← Voltar</button>
+    <button id="modalSendCustomBtn" class="btn btn-sm btn-success">Enviar Mensagem</button>
+  `;
+  
+  // Back button - goes to Window 1
+  document.getElementById('modalBackBtn').onclick = () => {
+    modal.style.maxWidth = '500px';
+    showBulkMessageOptions(clients);
+  };
+  
+  // Send button - goes to Window 3
+  document.getElementById('modalSendCustomBtn').onclick = () => {
+    const message = document.getElementById('customMessageInput').value.trim();
+    if (!message) {
+      customAlert('Erro', 'Por favor, digite uma mensagem!');
+      return;
+    }
+    showCustomMessageConfirmation(clients, message);
+  };
+// Focus on textarea
+  setTimeout(() => {
+    document.getElementById('customMessageInput').focus();
+  }, 100);
+}
+
+// Window 3 - Custom message confirmation with preview
+function showCustomMessageConfirmation(clients, message) {
+  const modal = document.querySelector('.modal');
+  modal.style.maxWidth = '500px';
+  
+  document.getElementById('modalTitle').textContent = 'Confirmar Envio';
+  
+  const modalBody = document.querySelector('.modal-body');
+  modalBody.innerHTML = `
+    <p style="margin-bottom: 15px; color: #2c3e50; font-size: 1.1em;">
+      Enviar esta mensagem para ${clients.length} cliente(s)?
+    </p>
+    <div style="background: #f8f9fa; border: 2px solid #e9ecef; border-radius: 8px; 
+                padding: 15px; margin: 15px 0;">
+      <strong style="color: #2c3e50; display: block; margin-bottom: 10px;">
+        📄 Prévia da mensagem:
+      </strong>
+      <div style="background: white; border-left: 4px solid #9DB044; padding: 10px; 
+                  border-radius: 5px; color: #2c3e50; white-space: pre-wrap; 
+                  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+        ${escapeHtml(message)}
+      </div>
+    </div>
+  `;
+  
+  const modalFooter = document.querySelector('.modal-footer');
+  modalFooter.innerHTML = `
+    <button id="modalCancelConfirmBtn" class="btn btn-sm btn-danger">Cancelar</button>
+    <button id="modalConfirmSendBtn" class="btn btn-sm btn-success">✅ Sim, Enviar</button>
+  `;
+  
+  // Cancel button - goes back to Window 2
+  document.getElementById('modalCancelConfirmBtn').onclick = () => {
+    showCustomMessageInput(clients);
+    // Restore the message in textarea
+    setTimeout(() => {
+      document.getElementById('customMessageInput').value = message;
+    }, 100);
+  };
+  
+  // Confirm send button - actually sends messages
+  document.getElementById('modalConfirmSendBtn').onclick = async () => {
+    const overlay = document.getElementById('modalOverlay');
+    overlay.style.display = 'none';
+    resetModalFooter();
+    await sendCustomBulkMessages(clients, message);
+  };
+}
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Reset modal footer to default
+function resetModalFooter() {
+  const modalFooter = document.querySelector('.modal-footer');
+  modalFooter.innerHTML = `
+    <button id="modalCancelBtn" class="btn btn-sm btn-danger">Não</button>
+    <button id="modalConfirmBtn" class="btn btn-sm btn-success">Sim</button>
+  `;
+  
+  const modal = document.querySelector('.modal');
+  modal.style.maxWidth = '500px';
+  
+  const modalBody = document.querySelector('.modal-body');
+  modalBody.innerHTML = '<p id="modalMessage">Você tem certeza?</p>';
+}
+
+// Send traditional bulk messages (existing functionality)
+async function sendTraditionalBulkMessages(clients) {
   try {
     document.getElementById('sendBulkBtn').textContent = '📤 Enviando...';
     document.getElementById('sendBulkBtn').disabled = true;
@@ -1128,6 +1290,42 @@ async function sendBulkMessages() {
   }
 }
 
+// Send custom bulk messages (NEW - no session logic)
+async function sendCustomBulkMessages(clients, message) {
+  try {
+    document.getElementById('sendBulkBtn').textContent = '📤 Enviando mensagens customizadas...';
+    document.getElementById('sendBulkBtn').disabled = true;
+    
+    addLog(`📤 Enviando mensagens customizadas para ${clients.length} cliente(s)...`);
+    
+    const response = await fetch('/api/whatsapp/send-custom-bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        users: clients,
+        message: message
+      })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      addLog('✅ Mensagens customizadas enviadas com sucesso!');
+      customAlert('Sucesso', `Mensagens enviadas para ${clients.length} cliente(s)!`);
+    } else {
+      addLog('❌ Erro ao enviar mensagens: ' + data.message, 'error');
+      customAlert('Erro', data.message);
+    }
+    
+    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens em Massa';
+    document.getElementById('sendBulkBtn').disabled = false;
+    
+  } catch (error) {
+    addLog('❌ Erro: ' + error.message, 'error');
+    customAlert('Erro', 'Não foi possível enviar as mensagens.');
+    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens em Massa';
+    document.getElementById('sendBulkBtn').disabled = false;
+  }
+}
 
 async function downloadExcel() {
     try {

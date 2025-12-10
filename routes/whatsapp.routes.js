@@ -71,26 +71,47 @@ router.post('/send-bulk', async (req, res) => {
   }
 });
 
-router.post('/send-custom', async (req, res) => {
+// Add this route to your routes/whatsapp.routes.js file
+
+// Send custom bulk messages (NO session logic, just raw messages)
+router.post('/send-custom-bulk', async (req, res) => {
   try {
-    const { users, message, ignoreInterpretation } = req.body;
-    if (!users || !Array.isArray(users) || !message) {
-      return res.status(400).json({ success: false, message: 'users array and message required' });
+    const { users, message } = req.body;
+
+    if (!users || !Array.isArray(users)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Users array required'
+      });
     }
 
-    // Start async process
-    whatsappService.sendCustomMessages(req.userId, users, message, !!ignoreInterpretation)
+    if (!message || message.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Message text required'
+      });
+    }
+
+    // Start custom bulk sending (async) - NO session initialization
+    whatsappService.sendCustomBulkMessages(req.userId, users, message.trim())
       .then(results => {
-        console.log('Custom messages started for user', req.userId);
+        console.log('Custom bulk messages completed for user', req.userId, ':', results);
       })
-      .catch(err => {
-        console.error('Error sending custom messages for', req.userId, err);
+      .catch(error => {
+        console.error('Custom bulk messages error for user', req.userId, ':', error);
       });
 
-    res.json({ success: true, message: 'Custom message send started' });
+    res.json({
+      success: true,
+      message: 'Custom bulk message sending started'
+    });
+
   } catch (error) {
-    console.error('Error in send-custom route:', error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error('Error starting custom bulk messages:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 });
 
