@@ -1042,7 +1042,15 @@ async function connectWhatsApp() {
     const data = await response.json();
     
     if (data.success) {
-      addLog('✅ WhatsApp conectando...');
+      addLog('✅ WhatsApp conectando.');
+      // Salva qual pasta estava selecionada quando o bot foi ligado.
+      // (se não houver pasta selecionada, removemos a chave)
+      if (selectedFolderId) {
+        localStorage.setItem('botSelectedFolderId', String(selectedFolderId));
+        addLog(`💾 Pasta salva para restauração: ${selectedFolderName || selectedFolderId}`);
+      } else {
+        localStorage.removeItem('botSelectedFolderId');
+      }
     } else {
       addLog('❌ Erro: ' + data.message, 'error');
       customAlert('Erro', data.message);
@@ -1280,7 +1288,12 @@ function renderUserOrders(orders) {
                     ${order.status === 'pending' ? `
                         <button class="btn btn-sm btn-success" onclick="confirmOrder(${order.id})">✅ Confirmar</button>
                     ` : ''}
-                    <button class="btn btn-sm btn-danger" onclick="cancelOrder(${order.id})">❌ Cancelar</button>
+                    ${order.status !== 'canceled' ? `
+                        <button class="btn btn-sm btn-danger" onclick="cancelOrder(${order.id})">❌ Cancelar</button>
+                    ` : ''}
+                    ${order.status === 'canceled' ? `
+                        <button class="btn btn-sm btn-secondary" onclick="excludeOrder(${order.id})">🗑️ Excluir Registro</button>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -1290,44 +1303,69 @@ function renderUserOrders(orders) {
 }
 
 async function confirmOrder(orderId) {
-    try {
-        const response = await fetch('/api/orders/confirm-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: orderId })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            addLog('✅ Pedido confirmado');
-            refreshUserOrders();
-            refreshOrders();
-        }
-    } catch (error) {
-        addLog('❌ Erro: ' + error.message, 'error');
-    }
+  try {
+      const response = await fetch('/api/orders/confirm-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderId })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+          addLog('✅ Pedido confirmado');
+          refreshUserOrders();
+          refreshOrders();
+      }
+  } catch (error) {
+      addLog('❌ Erro: ' + error.message, 'error');
+  }
 }
 
 async function cancelOrder(orderId) {
-    const confirmed = await confirmAction('Cancelar Pedido', 'Cancelar este pedido?');
-    if (!confirmed) return;
-    
-    try {
-        const response = await fetch('/api/orders/cancel-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: orderId })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            addLog('🗑️ Pedido cancelado');
-            refreshUserOrders();
-            refreshOrders();
-        }
-    } catch (error) {
-        addLog('❌ Erro: ' + error.message, 'error');
+  const confirmed = await confirmAction('Cancelar Pedido', 'Cancelar este pedido?');
+  if (!confirmed) return;
+  
+  try {
+      const response = await fetch('/api/orders/cancel-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderId })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+          addLog('🗑️ Pedido cancelado');
+          refreshUserOrders();
+          refreshOrders();
+      }
+  } catch (error) {
+      addLog('❌ Erro: ' + error.message, 'error');
+  }
+}
+
+async function excludeOrder(orderId) {
+  const confirmed = await confirmAction('Excluir Registro', 'Remover este registro de cancelamento?');
+  if (!confirmed) return;
+
+  try {
+    // reuse existing cancel endpoint — it deletes the user_order row from DB
+    const response = await fetch('/api/orders/cancel-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId })
+    });
+
+    const data = await response.json();
+    if (data.success) {
+      addLog('🗑️ Registro excluído');
+      refreshUserOrders();
+      refreshOrders();
+    } else {
+      addLog('❌ ' + (data.message || 'Erro ao excluir registro'), 'error');
     }
+  } catch (error) {
+    addLog('❌ Erro: ' + error.message, 'error');
+  }
 }
 
 async function clearUserOrders() {
@@ -2329,8 +2367,12 @@ function initializeSocket() {
 
   socket.on('disable-bot', (data) => {
     const formattedPhone = formatPhoneNumberForDisplay(data.phone);
+
+    const clients = data.clients;
+
     const user = clients.find(c => c.phone === formattedPhone);
-    
+
+
     if (user) {
       addNotification(formattedPhone, user.name);
     } else {
@@ -2343,8 +2385,10 @@ function initializeSocket() {
       
       if (unformattedUser) {
         addNotification(unformattedUser.phone, unformattedUser.name);
+        addLog('test1');
       } else {
         addNotification(data.phone, 'Cliente sem Nome');
+        addLog('test2');
       }
     }
  
@@ -2496,8 +2540,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   addLog('🚀 Dashboard inicializado');
   setupTabs();
-  loadFolders();
-  updateFolderSelect();
+  
+  await loadFolders();
+  await updateFolderSelect();
+
   loadProducts();
   initializeNotifications();
   initializeModal();
@@ -2508,7 +2554,60 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('sendBulkBtn').addEventListener('click', sendBulkMessages);
   document.getElementById('downloadExcelBtn').addEventListener('click', downloadExcel);
   document.getElementById('clearDbBtn').addEventListener('click', clearDatabase);
-  
+
+  try {
+    const savedFolder = localStorage.getItem('botSelectedFolderId');
+    if (savedFolder) {
+      const folderObj = folders.find(f => String(f.id) === String(savedFolder));
+      if (folderObj) {
+        selectedFolderId = folderObj.id;
+        selectedFolderName = folderObj.name;
+        updateSelectedFolder(folderObj.id);
+        await openFolder(folderObj.id);
+        addLog(`♻️ Pasta restaurada: ${folderObj.name}`);
+
+        // --- make sure the <select> shows the same folder ---
+        // Adjust the selector below if your select has a different id or class
+        const folderSelect = document.getElementById('folderSelect') || document.querySelector('select[name="folderSelect"]');
+
+        if (folderSelect) {
+          // try to find an existing option by value (id) or by visible text (name)
+          const optByValue = [...folderSelect.options].find(o => String(o.value) === String(folderObj.id));
+          const optByText  = [...folderSelect.options].find(o => o.text.trim() === folderObj.name);
+
+          if (optByValue) {
+            folderSelect.value = optByValue.value;
+          } else if (optByText) {
+            folderSelect.value = optByText.value;
+          } else {
+            // option not present — add it and select
+            const newOpt = document.createElement('option');
+            newOpt.value = String(folderObj.id);
+            newOpt.text = folderObj.name;
+            folderSelect.appendChild(newOpt);
+            folderSelect.value = newOpt.value;
+          }
+
+          // Let any listeners react (and update any "selected" label)
+          folderSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+          // If you use a JS select plugin, refresh it here:
+          // - bootstrap-select: $(folderSelect).selectpicker('refresh');
+          // - select2: $(folderSelect).trigger('change.select2');
+          // - vanilla custom UI: call its refresh method here.
+        } else {
+          console.warn('Não encontrei o elemento <select> para pasta. Verifique o id/data-attr.');
+        }
+
+      } else {
+        // saved id doesn't exist anymore
+        localStorage.removeItem('botSelectedFolderId');
+      }
+    }
+  } catch (err) {
+    console.warn('Erro ao restaurar pasta salva:', err);
+  }
+
   // Load initial data
   setTimeout(() => {
     refreshOrders();
