@@ -1113,6 +1113,13 @@ function showBulkMessageOptions(clients) {
   const overlay = document.getElementById('modalOverlay');
   const modal = document.querySelector('.modal');
   
+  // Reset modal size
+  modal.style.maxWidth = '500px';
+  
+  // Reset modal body to default structure
+  const modalBody = document.querySelector('.modal-body');
+  modalBody.innerHTML = '<p id="modalMessage"></p>';
+  
   document.getElementById('modalTitle').textContent = 'Enviar Mensagens';
   document.getElementById('modalMessage').textContent = 
     `Enviar mensagens para ${clients.length} clientes da pasta "${selectedFolderName}"?`;
@@ -1189,7 +1196,8 @@ function showCustomMessageInput(clients) {
     }
     showCustomMessageConfirmation(clients, message);
   };
-// Focus on textarea
+  
+  // Focus on textarea
   setTimeout(() => {
     document.getElementById('customMessageInput').focus();
   }, 100);
