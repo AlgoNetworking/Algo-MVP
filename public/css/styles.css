@@ -1,3 +1,4 @@
+
 * {
     margin: 0;
     padding: 0;
@@ -1050,6 +1051,16 @@ tr:hover {
 
 .logout-btn:hover {
     background: rgba(255,255,255,0.3);
+}
+
+/* add near other .order-box.* rules */
+.order-box.canceled {
+  border-left: 5px solid #e74c3c; /* strong red */
+  background: #f8d7da;            /* light red/pink background */
+}
+.order-box.canceled .order-type-badge {
+  background: #e74c3c;
+  color: white;
 }
 
 /* Responsive adjustments */

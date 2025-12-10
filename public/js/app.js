@@ -912,268 +912,6 @@ function customAlert(title, message) {
     });
 }
 
-// helper: build footer buttons (clears existing)
-function buildModalFooterButtons(buttons = []) {
-  const modalFooter = document.querySelector('.modal-footer');
-  if (!modalFooter) {
-    console.warn('modal-footer not found');
-    return;
-  }
-  modalFooter.innerHTML = '';
-  modalFooter.style.display = 'flex';
-  modalFooter.style.gap = '8px';
-  // Insert buttons left-to-right in the order of the array
-  buttons.forEach(btn => {
-    const b = document.createElement('button');
-    b.id = btn.id || '';
-    b.className = btn.classes || 'btn';
-    b.textContent = btn.text;
-    b.addEventListener('click', btn.onClick);
-    modalFooter.appendChild(b);
-  });
-}
-
-// Show the initial bulk send modal (1) with the yellow "enviar mensagem customizada" button
-async function showBulkSendModal(clients) {
-  return new Promise((resolve) => {
-    const overlay = document.getElementById('modalOverlay') || document.querySelector('.modal-overlay');
-    const titleEl = document.getElementById('modalTitle');
-    const messageEl = document.getElementById('modalMessage');
-    if (!overlay || !titleEl || !messageEl) {
-      console.error('Modal elements not found');
-      resolve({ action: 'cancel' });
-      return;
-    }
-
-    titleEl.textContent = 'Enviar Mensagens';
-    messageEl.innerHTML = `Enviar mensagens para ${clients.length} clientes da pasta "<strong>${selectedFolderName}</strong>"?`;
-    overlay.style.display = 'flex';
-
-    buildModalFooterButtons([
-      // 1) Adicionar aviso (leftmost)
-      {
-        id: 'modalAddWarningBtn',
-        text: 'Adicionar aviso',
-        classes: 'btn btn-warning', // yellow-ish (use your CSS)
-        onClick: () => {
-          // open the add-warning editor flow (2)
-          openAddWarningEditor(clients, overlay, titleEl, messageEl, resolve);
-        }
-      },
-      // 2) Enviar mensagem customizada
-      {
-        id: 'modalCustomBtn',
-        text: 'Enviar mensagem customizada',
-        classes: 'btn btn-warning',
-        onClick: () => {
-          openCustomEditor(clients, overlay, titleEl, messageEl, resolve);
-        }
-      },
-      // 3) NÃO (middle)
-      {
-        id: 'modalCancelBtn_custom',
-        text: 'NÃO',
-        classes: 'btn btn-danger',
-        onClick: () => { overlay.style.display = 'none'; resolve({ action: 'cancel' }); }
-      },
-      // 4) SIM (rightmost)
-      {
-        id: 'modalConfirmBtn_custom',
-        text: 'SIM',
-        classes: 'btn btn-success',
-        onClick: () => { overlay.style.display = 'none'; resolve({ action: 'confirm' }); }
-      }
-    ]);
-  });
-}
-
-// Editor modal (2): larger modal with textarea + send button
-function openCustomEditor(clients, overlay, titleEl, messageEl, outerResolve) {
-  titleEl.textContent = 'Enviar Mensagem Customizada';
-  messageEl.innerHTML = `
-    <div>
-      <small>Digite a mensagem a ser enviada para os clientes (esta mensagem NÃO deve alterar sessões/estado):</small>
-      <textarea id="bulkCustomTextarea" style="width:100%; height:120px; margin-top:12px; padding:8px;"></textarea>
-    </div>
-  `;
-
-  // enlarge modal by adjusting container (restore later)
-  const modalNode = document.querySelector('.modal');
-  const prevMax = modalNode ? modalNode.style.maxWidth : '';
-  if (modalNode) modalNode.style.maxWidth = '720px';
-
-  buildModalFooterButtons([
-    // Back to (1)
-    {
-      id: 'modalCustomBackBtn',
-      text: 'NÃO',
-      classes: 'btn btn-danger',
-      onClick: () => {
-        // go back to initial modal (1)
-        if (modalNode) modalNode.style.maxWidth = prevMax;
-        outerResolve({ action: 'back-to-1' });
-        const ov = document.getElementById('modalOverlay') || document.querySelector('.modal-overlay');
-        if (ov) ov.style.display = 'none';
-      }
-    },
-    // Send (opens small confirm (3))
-    {
-      id: 'modalCustomSendBtn',
-      text: 'SIM',
-      classes: 'btn btn-success',
-      onClick: () => {
-        const text = document.getElementById('bulkCustomTextarea').value || '';
-        if (!text.trim()) { customAlert('Aviso', 'Digite uma mensagem antes de enviar.'); return; }
-        // close editor modal and open final confirm
-        openCustomFinalConfirm(clients, text, overlay, modalNode, outerResolve);
-      }
-    }
-  ]);
-}
-
-// Final confirm (3) that appears after pressing send in (2)
-// small confirmation (3) for custom message: cancel returns to editor (2)
-function openCustomFinalConfirm(clients, customText, overlay, modalNode, outerResolve) {
-  const titleEl = document.getElementById('modalTitle');
-  const messageEl = document.getElementById('modalMessage');
-  titleEl.textContent = 'Confirmar Envio';
-  messageEl.innerHTML = `Enviar a mensagem customizada para ${clients.length} clientes?<br/><br/><em>Preview:</em><div style="margin-top:8px; padding:10px; background:#f6f6f6; max-height:180px; overflow:auto">${escapeHtml(customText)}</div>`;
-
-  buildModalFooterButtons([
-    // Cancel -> go back to editor (2)
-    {
-      id: 'modalFinalCancelBtn',
-      text: 'NÃO',
-      classes: 'btn btn-danger',
-      onClick: () => {
-        // reopen editor
-        openCustomEditor(clients, overlay, titleEl, messageEl, outerResolve);
-      }
-    },
-    // Confirm send -> send custom and return
-    {
-      id: 'modalFinalSendBtn',
-      text: 'SIM',
-      classes: 'btn btn-success',
-      onClick: async () => {
-        // close overlay
-        overlay.style.display = 'none';
-        if (modalNode) modalNode.style.maxWidth = '';
-
-        try {
-          addLog('📤 Envio customizado iniciado');
-          // Always send with ignoreInterpretation = true (you made this always on)
-          const resp = await fetch('/api/whatsapp/send-custom', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ users: clients, message: customText, ignoreInterpretation: true })
-          });
-          const result = await resp.json().catch(()=>({}));
-          if (result && result.success) addLog('✅ Envio customizado solicitado');
-          else addLog('❌ Erro iniciando envio customizado: ' + (result.message || 'erro'), 'error');
-        } catch (err) {
-          console.error(err);
-          addLog('❌ Erro no envio customizado: ' + err.message, 'error');
-        } finally {
-          // IMPORTANT: return early from parent sendBulkMessages logic (handled where this promise resolves)
-          outerResolve({ action: 'send-custom-complete' });
-        }
-      }
-    }
-  ]);
-}
-
-function openAddWarningEditor(clients, overlay, titleEl, messageEl, outerResolve) {
-  titleEl.textContent = 'Adicionar Aviso';
-  messageEl.innerHTML = `
-    <div>
-      <small>Digite o aviso/aviso curto que será enviado junto com a mensagem em massa (não altera sessões):</small>
-      <textarea id="bulkWarningTextarea" style="width:100%; height:120px; margin-top:12px; padding:8px;"></textarea>
-    </div>
-  `;
-
-  const modalNode = document.querySelector('.modal');
-  const prevMax = modalNode ? modalNode.style.maxWidth : '';
-  if (modalNode) modalNode.style.maxWidth = '720px';
-
-  buildModalFooterButtons([
-    // Back to (1)
-    {
-      id: 'modalWarningBackBtn',
-      text: 'NÃO',
-      classes: 'btn btn-danger',
-      onClick: () => {
-        if (modalNode) modalNode.style.maxWidth = prevMax;
-        outerResolve({ action: 'back-to-1' });
-        const ov = document.getElementById('modalOverlay') || document.querySelector('.modal-overlay');
-        if (ov) ov.style.display = 'none';
-      }
-    },
-    // Send -> opens final confirm (3)
-    {
-      id: 'modalWarningSendBtn',
-      text: 'SIM',
-      classes: 'btn btn-success',
-      onClick: () => {
-        const text = document.getElementById('bulkWarningTextarea').value || '';
-        if (!text.trim()) { customAlert('Aviso', 'Digite um aviso antes de enviar.'); return; }
-        openAddWarningFinalConfirm(clients, text, overlay, modalNode, outerResolve);
-      }
-    }
-  ]);
-}
-
-function openAddWarningFinalConfirm(clients, warningText, overlay, modalNode, outerResolve) {
-  const titleEl = document.getElementById('modalTitle');
-  const messageEl = document.getElementById('modalMessage');
-  titleEl.textContent = 'Confirmar Envio do Aviso';
-  messageEl.innerHTML = `Enviar o aviso para ${clients.length} clientes?<br/><br/><em>Preview:</em><div style="margin-top:8px; padding:10px; background:#f6f6f6; max-height:180px; overflow:auto">${escapeHtml(warningText)}</div>`;
-
-  buildModalFooterButtons([
-    // Cancel -> back to editor (2)
-    {
-      id: 'modalWarningFinalCancelBtn',
-      text: 'NÃO',
-      classes: 'btn btn-danger',
-      onClick: () => openAddWarningEditor(clients, overlay, titleEl, messageEl, outerResolve)
-    },
-    // Confirm -> send warning
-    {
-      id: 'modalWarningFinalSendBtn',
-      text: 'SIM',
-      classes: 'btn btn-success',
-      onClick: async () => {
-        overlay.style.display = 'none';
-        if (modalNode) modalNode.style.maxWidth = '';
-
-        try {
-          addLog('📤 Envio de aviso iniciado');
-          const resp = await fetch('/api/whatsapp/send-warning', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ users: clients, warning: warningText, ignoreInterpretation: true })
-          });
-          const data = await resp.json().catch(()=>({}));
-          if (data && data.success) addLog('✅ Aviso solicitado');
-          else addLog('❌ Erro iniciando aviso: ' + (data.message || 'erro'), 'error');
-        } catch (err) {
-          console.error(err);
-          addLog('❌ Erro no envio de aviso: ' + err.message, 'error');
-        } finally {
-          outerResolve({ action: 'send-warning-complete' });
-        }
-      }
-    }
-  ]);
-}
-
-// small helper to escape HTML for preview
-function escapeHtml(str) {
-  return String(str || '').replace(/[&<>"'\/]/g, function (s) {
-    return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;' })[s];
-  });
-}
-
 // Load clients from database
 async function loadClients() {
     try {
@@ -1304,7 +1042,15 @@ async function connectWhatsApp() {
     const data = await response.json();
     
     if (data.success) {
-      addLog('✅ WhatsApp conectando...');
+      addLog('✅ WhatsApp conectando.');
+      // Salva qual pasta estava selecionada quando o bot foi ligado.
+      // (se não houver pasta selecionada, removemos a chave)
+      if (selectedFolderId) {
+        localStorage.setItem('botSelectedFolderId', String(selectedFolderId));
+        addLog(`💾 Pasta salva para restauração: ${selectedFolderName || selectedFolderId}`);
+      } else {
+        localStorage.removeItem('botSelectedFolderId');
+      }
     } else {
       addLog('❌ Erro: ' + data.message, 'error');
       customAlert('Erro', data.message);
@@ -1332,175 +1078,53 @@ async function disconnectWhatsApp() {
     }
 }
 
-// ---------- Helper: generic POST JSON ----------
-async function postJson(url, body) {
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  // try to parse JSON; if fails, throw error with status
-  const txt = await resp.text();
-  try {
-    return JSON.parse(txt);
-  } catch (e) {
-    throw new Error(`Invalid JSON response (${resp.status}): ${txt}`);
-  }
-}
-
-// ---------- Helper: perform bulk send (traditional) ----------
-// opts = { warning: string|null } -> when warning present, backend must include it in the same message
-async function performBulkSend(clients, opts = {}) {
-  // opts.warning: optional string to be injected into the same message as the bulk message
-  const payload = { users: clients };
-  if (opts && typeof opts.warning === 'string' && opts.warning.trim().length > 0) {
-    payload.warning = opts.warning;
-  }
-
-  // call backend endpoint for traditional bulk send (server should keep usual logic)
-  return await postJson('/api/whatsapp/send-bulk', payload);
-}
-
-// ---------- Helper: perform custom send (no interpretation/session changes) ----------
-async function performCustomSend(clients, customMessage) {
-  return await postJson('/api/whatsapp/send-custom', {
-    users: clients,
-    message: customMessage,
-    // you said ignoreInterpretation is always ON
-    ignoreInterpretation: true
-  });
-}
-
-// ---------- Main: cleaned and organized sendBulkMessages ----------
 async function sendBulkMessages() {
-  // 1) require folder
   if (!selectedFolderId) {
     customAlert('Aviso', 'Por favor, selecione uma pasta primeiro!');
     return;
   }
 
-  // 2) load clients in selected folder
+  // Load clients from selected folder
   let clients = [];
   try {
-    const resp = await fetch(`/api/clients?folderId=${selectedFolderId}`);
-    const data = await resp.json();
-    if (!data || !data.success) {
-      customAlert('Erro', 'Não foi possível carregar os clientes da pasta selecionada.');
-      return;
+    const response = await fetch(`/api/clients?folderId=${selectedFolderId}`);
+    const data = await response.json();
+    if (data.success) {
+      clients = data.clients;
     }
-    clients = data.clients || [];
-  } catch (err) {
-    console.error('Error loading folder clients:', err);
+  } catch (error) {
+    console.error('Error loading folder clients:', error);
     customAlert('Erro', 'Não foi possível carregar os clientes da pasta selecionada.');
     return;
   }
 
-  if (!Array.isArray(clients) || clients.length === 0) {
+  if (clients.length === 0) {
     customAlert('Aviso', 'Nenhum cliente na pasta selecionada!');
     return;
   }
 
-  // 3) open modal flow (this returns an object like { action: 'confirm'|'add-warning'|'send-custom'|'back-to-1'|'cancel', ... })
-  const modalResult = await showBulkSendModal(clients);
-  if (!modalResult) return;
-
-  // 4) handle modal result
-  // disable the main button while any send is initiated; will always be restored in finally blocks
-  const sendBtn = document.getElementById('sendBulkBtn');
-  const restoreSendBtn = () => {
-    if (sendBtn) {
-      sendBtn.textContent = '📤 Enviar Mensagens em Massa';
-      sendBtn.disabled = false;
-    }
-  };
+  const confirmed = await confirmAction('Enviar Mensagens', `Enviar mensagens para ${clients.length} clientes da pasta "${selectedFolderName}"?`);
+  if (!confirmed) return;
 
   try {
-    switch (modalResult.action) {
-      case 'confirm':
-        // Traditional bulk send (no warning text)
-        if (sendBtn) { sendBtn.textContent = '📤 Enviando...'; sendBtn.disabled = true; }
-        addLog(`📤 Iniciando envio em massa tradicional para pasta: ${selectedFolderName}...`);
-        try {
-          const result = await performBulkSend(clients, {}); // no warning
-          if (result && result.success) {
-            addLog('✅ Envio em massa iniciado');
-          } else {
-            addLog('❌ Erro ao iniciar envio: ' + (result && result.message ? result.message : 'Resposta inválida'), 'error');
-          }
-        } catch (err) {
-          addLog('❌ Erro: ' + err.message, 'error');
-        } finally {
-          restoreSendBtn();
-        }
-        return; // done
-
-      case 'add-warning':
-        // Add warning flow -> send the warning text in the SAME message as the bulk message.
-        // modalResult.warning should hold the warning text (the modal flow must resolve with this).
-        // If your modal resolves differently, adapt accordingly.
-        {
-          const warningText = modalResult.warning;
-          if (!warningText || !warningText.trim()) {
-            customAlert('Aviso', 'Aviso vazio. Nada foi enviado.');
-            return;
-          }
-          if (sendBtn) { sendBtn.textContent = '📤 Enviando aviso...'; sendBtn.disabled = true; }
-          addLog(`📤 Iniciando envio em massa com aviso para pasta: ${selectedFolderName}...`);
-          try {
-            const result = await performBulkSend(clients, { warning: warningText });
-            if (result && result.success) {
-              addLog('✅ Envio com aviso iniciado');
-            } else {
-              addLog('❌ Erro ao iniciar envio com aviso: ' + (result && result.message ? result.message : 'Resposta inválida'), 'error');
-            }
-          } catch (err) {
-            addLog('❌ Erro: ' + err.message, 'error');
-          } finally {
-            restoreSendBtn();
-          }
-          return; // IMPORTANT: do not fall-through to other flows
-        }
-
-      case 'send-custom':
-        // Custom messages (separate flow) -> no session changes
-        {
-          const customMessage = modalResult.message;
-          if (!customMessage || !customMessage.trim()) {
-            customAlert('Aviso', 'Mensagem customizada vazia. Nada foi enviado.');
-            return;
-          }
-          if (sendBtn) { sendBtn.textContent = '📤 Enviando...'; sendBtn.disabled = true; }
-          addLog(`📤 Iniciando envio customizado para pasta: ${selectedFolderName}...`);
-          try {
-            const result = await performCustomSend(clients, customMessage);
-            if (result && result.success) {
-              addLog('✅ Envio customizado iniciado');
-            } else {
-              addLog('❌ Erro ao iniciar envio customizado: ' + (result && result.message ? result.message : 'Resposta inválida'), 'error');
-            }
-          } catch (err) {
-            addLog('❌ Erro: ' + err.message, 'error');
-          } finally {
-            restoreSendBtn();
-          }
-          return; // IMPORTANT: ensure traditional bulk does NOT run after custom
-        }
-
-      case 'back-to-1':
-        // reopen the modal (you used recursion before)
-        return await sendBulkMessages();
-
-      case 'cancel':
-      default:
-        // do nothing
-        return;
+    document.getElementById('sendBulkBtn').textContent = '📤 Enviando...';
+    document.getElementById('sendBulkBtn').disabled = true;
+    
+    addLog(`📤 Iniciando envio em massa para pasta: ${selectedFolderName}...`);
+    const response = await fetch('/api/whatsapp/send-bulk', {
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ users: clients })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      addLog('✅ Envio em massa iniciado');
     }
-  } catch (outerErr) {
-    console.error('Unhandled error in sendBulkMessages:', outerErr);
-    addLog('❌ Erro inesperado: ' + (outerErr && outerErr.message), 'error');
-  } finally {
-    // safety: ensure send button restored in case some unexpected path fails
-    restoreSendBtn();
+  } catch (error) {
+    addLog('❌ Erro: ' + error.message, 'error');
+    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens em Massa';
+    document.getElementById('sendBulkBtn').disabled = false;
   }
 }
 
@@ -1664,7 +1288,12 @@ function renderUserOrders(orders) {
                     ${order.status === 'pending' ? `
                         <button class="btn btn-sm btn-success" onclick="confirmOrder(${order.id})">✅ Confirmar</button>
                     ` : ''}
-                    <button class="btn btn-sm btn-danger" onclick="cancelOrder(${order.id})">❌ Cancelar</button>
+                    ${order.status !== 'canceled' ? `
+                        <button class="btn btn-sm btn-danger" onclick="cancelOrder(${order.id})">❌ Cancelar</button>
+                    ` : ''}
+                    ${order.status === 'canceled' ? `
+                        <button class="btn btn-sm btn-secondary" onclick="excludeOrder(${order.id})">🗑️ Excluir Registro</button>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -1674,44 +1303,69 @@ function renderUserOrders(orders) {
 }
 
 async function confirmOrder(orderId) {
-    try {
-        const response = await fetch('/api/orders/confirm-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: orderId })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            addLog('✅ Pedido confirmado');
-            refreshUserOrders();
-            refreshOrders();
-        }
-    } catch (error) {
-        addLog('❌ Erro: ' + error.message, 'error');
-    }
+  try {
+      const response = await fetch('/api/orders/confirm-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderId })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+          addLog('✅ Pedido confirmado');
+          refreshUserOrders();
+          refreshOrders();
+      }
+  } catch (error) {
+      addLog('❌ Erro: ' + error.message, 'error');
+  }
 }
 
 async function cancelOrder(orderId) {
-    const confirmed = await confirmAction('Cancelar Pedido', 'Cancelar este pedido?');
-    if (!confirmed) return;
-    
-    try {
-        const response = await fetch('/api/orders/cancel-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order_id: orderId })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            addLog('🗑️ Pedido cancelado');
-            refreshUserOrders();
-            refreshOrders();
-        }
-    } catch (error) {
-        addLog('❌ Erro: ' + error.message, 'error');
+  const confirmed = await confirmAction('Cancelar Pedido', 'Cancelar este pedido?');
+  if (!confirmed) return;
+  
+  try {
+      const response = await fetch('/api/orders/cancel-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderId })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+          addLog('🗑️ Pedido cancelado');
+          refreshUserOrders();
+          refreshOrders();
+      }
+  } catch (error) {
+      addLog('❌ Erro: ' + error.message, 'error');
+  }
+}
+
+async function excludeOrder(orderId) {
+  const confirmed = await confirmAction('Excluir Registro', 'Remover este registro de cancelamento?');
+  if (!confirmed) return;
+
+  try {
+    // reuse existing cancel endpoint — it deletes the user_order row from DB
+    const response = await fetch('/api/orders/cancel-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId })
+    });
+
+    const data = await response.json();
+    if (data.success) {
+      addLog('🗑️ Registro excluído');
+      refreshUserOrders();
+      refreshOrders();
+    } else {
+      addLog('❌ ' + (data.message || 'Erro ao excluir registro'), 'error');
     }
+  } catch (error) {
+    addLog('❌ Erro: ' + error.message, 'error');
+  }
 }
 
 async function clearUserOrders() {
@@ -2713,8 +2367,12 @@ function initializeSocket() {
 
   socket.on('disable-bot', (data) => {
     const formattedPhone = formatPhoneNumberForDisplay(data.phone);
+
+    const clients = data.clients;
+
     const user = clients.find(c => c.phone === formattedPhone);
-    
+
+
     if (user) {
       addNotification(formattedPhone, user.name);
     } else {
@@ -2727,8 +2385,10 @@ function initializeSocket() {
       
       if (unformattedUser) {
         addNotification(unformattedUser.phone, unformattedUser.name);
+        addLog('test1');
       } else {
         addNotification(data.phone, 'Cliente sem Nome');
+        addLog('test2');
       }
     }
  
@@ -2880,8 +2540,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   addLog('🚀 Dashboard inicializado');
   setupTabs();
-  loadFolders();
-  updateFolderSelect();
+  
+  await loadFolders();
+  await updateFolderSelect();
+
   loadProducts();
   initializeNotifications();
   initializeModal();
@@ -2892,7 +2554,60 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('sendBulkBtn').addEventListener('click', sendBulkMessages);
   document.getElementById('downloadExcelBtn').addEventListener('click', downloadExcel);
   document.getElementById('clearDbBtn').addEventListener('click', clearDatabase);
-  
+
+  try {
+    const savedFolder = localStorage.getItem('botSelectedFolderId');
+    if (savedFolder) {
+      const folderObj = folders.find(f => String(f.id) === String(savedFolder));
+      if (folderObj) {
+        selectedFolderId = folderObj.id;
+        selectedFolderName = folderObj.name;
+        updateSelectedFolder(folderObj.id);
+        await openFolder(folderObj.id);
+        addLog(`♻️ Pasta restaurada: ${folderObj.name}`);
+
+        // --- make sure the <select> shows the same folder ---
+        // Adjust the selector below if your select has a different id or class
+        const folderSelect = document.getElementById('folderSelect') || document.querySelector('select[name="folderSelect"]');
+
+        if (folderSelect) {
+          // try to find an existing option by value (id) or by visible text (name)
+          const optByValue = [...folderSelect.options].find(o => String(o.value) === String(folderObj.id));
+          const optByText  = [...folderSelect.options].find(o => o.text.trim() === folderObj.name);
+
+          if (optByValue) {
+            folderSelect.value = optByValue.value;
+          } else if (optByText) {
+            folderSelect.value = optByText.value;
+          } else {
+            // option not present — add it and select
+            const newOpt = document.createElement('option');
+            newOpt.value = String(folderObj.id);
+            newOpt.text = folderObj.name;
+            folderSelect.appendChild(newOpt);
+            folderSelect.value = newOpt.value;
+          }
+
+          // Let any listeners react (and update any "selected" label)
+          folderSelect.dispatchEvent(new Event('change', { bubbles: true }));
+
+          // If you use a JS select plugin, refresh it here:
+          // - bootstrap-select: $(folderSelect).selectpicker('refresh');
+          // - select2: $(folderSelect).trigger('change.select2');
+          // - vanilla custom UI: call its refresh method here.
+        } else {
+          console.warn('Não encontrei o elemento <select> para pasta. Verifique o id/data-attr.');
+        }
+
+      } else {
+        // saved id doesn't exist anymore
+        localStorage.removeItem('botSelectedFolderId');
+      }
+    }
+  } catch (err) {
+    console.warn('Erro ao restaurar pasta salva:', err);
+  }
+
   // Load initial data
   setTimeout(() => {
     refreshOrders();
