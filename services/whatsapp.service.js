@@ -662,7 +662,7 @@ class WhatsAppService {
       const messageBody = message.body;
       const phoneNumber = this.formatPhoneNumber(sender);
 
-      const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
+      const clientUsers = this.usersInSelectedFolder || await databaseService.getClientUsers(userId);
       if(!clientUsers.find(u => u.phone === phoneNumber)) {
         console.log(`🚫 Ignoring message from unregistered number for user ${userId}: ${phoneNumber}`);
         return;
@@ -733,14 +733,11 @@ class WhatsAppService {
       if (response && response.isChatBot === false) {
         console.log(`🚫 Disabling bot for user ${userId}: ${phoneNumber}`);
         userDisabled.add(sender);
-
-        const clients = await databaseService.getUserClients(userId);
         
         if (this.io) {
           this.io.to(`user-${userId}`).emit('disable-bot', {
             phone: phoneNumber,
-            userId,
-            clients
+            userId
           });
         }
       }

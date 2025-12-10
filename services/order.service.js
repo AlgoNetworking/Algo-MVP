@@ -195,11 +195,7 @@ class OrderSession {
   }
 
   checkCancelCommand(message) {
-    const cancelCommands = ['nao', 'não', 'n', 'cancelar', 'nao vou pedir', 'não vou pedir', 
-                          'nao quero', 'não quero', 'ainda tenho', 'obrigado, não quero hoje',
-                          'não vou querer', 'não vou querer hoje', 'não quero hoje', 'só próxima semana', 
-                          'só proxima semana', 'so proxima semana','obrigado, nao quero hoje', 
-                          'nao vou querer', 'nao vou querer hoje', 'nao quero hoje', 'hoje nao', 'hoje não',];
+    const cancelCommands = ['cancelar', 'não', 'nao'];
     return cancelCommands.includes(message);
   }
 
@@ -253,28 +249,24 @@ class OrderService {
                           'oi bom dia', 'oi boa tarde', 'oi boa noite', 
                           'ola bom dia', 'ola boa tarde', 'ola boa noite', 
                           'olá bom dia', 'olá boa tarde', 'olá boa noite', 
-                          'eae bom dia','eae boa tarde', 'eae boa noite', 'alo',
-                          'alô'];
-    if(greetingWords.includes(messageLower.replace(/[?!,.]/g, '')) && session.state === 'collecting' && !session.hasItems()) {
+                          'eae bom dia','eae boa tarde', 'eae boa noite'];
+    if(greetingWords.includes(messageLower.replace(/[!,.]/g, '')) && session.state === 'collecting' && !session.hasItems()) {
 
       const idx1 = Math.floor(Math.random() * productNames.length);
       const idx2 = Math.floor(Math.random() * productNames.length);
       const differentIdx = idx1 === idx2 ? (idx1 + 1 < productNames.length ? idx1 + 1 :  idx1 - 1) : idx2;
   
-      const firstUpperCase = messageLower.replace(/[?!,.]/g, '').trim().charAt(0).toUpperCase() + 
-                              messageLower.replace(/[?!,.]/g, '').trim().slice(1);
+      const firstUpperCase = message.trim().charAt(0).toUpperCase() + message.trim().slice(1);
       let greeting = firstUpperCase;
       if(firstUpperCase === 'Boa dia' || firstUpperCase === 'Bon dia') { greeting = 'Bom dia'; }
       if(firstUpperCase === 'Bom tarde' || firstUpperCase === 'Bon tarde') { greeting = 'Boa tarde'; }
       if(firstUpperCase === 'Bom noite' || firstUpperCase === 'Bon noite') { greeting = 'Boa noite'; }
-      if(firstUpperCase === 'Alo') { greeting = 'Alô'; }
-      if(firstUpperCase === 'Ola') { greeting = 'Olá'; }
 
       const example = productNames[0] ?
       `${Math.floor(Math.random() * 10) + 1} ${productNames[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${productNames[differentIdx]}`
       : null;
       const hint = example
-        ? `(digite seu pedido naturalmente como: ${example})\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n*Caso não queira pedir, digite \"cancelar\".*`
+        ? `(digite seu pedido naturalmente como: ${example})\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n'*Caso não queira pedir, digite \"cancelar\".*`
         : '(não há produtos disponíveis no momento)';
       session.waitingForOption = false;
       return {
@@ -314,25 +306,7 @@ class OrderService {
       session.resetCurrent();
       session.state = 'waiting_for_next';
       session.parseOrderAttempts = 0;
-      try {
-        if (session.phoneNumber) {
-          // save a lightweight cancelled order (no items)
-          const parsedOrders = []; // empty because user canceled
-          await databaseService.saveUserOrder({
-            userId,
-            phoneNumber: session.phoneNumber,
-            name: session.name || 'Cliente sem nome',
-            orderType: session.orderType || 'normal',
-            sessionId,
-            originalMessage: message,
-            parsedOrders,
-            status: 'canceled' // note: new status value treated in UI/CSS
-          });
-        }
-      } catch (err) {
-        console.error('Error saving canceled user order:', err);
-      }
-      return { success: true, message: 'Ok, volte sempre! 😃', isChatBot: true};
+      return { success: true, message: null, isChatBot: true};
     }
 
     if(messageType !== 'chat') {
@@ -353,7 +327,7 @@ class OrderService {
         const callByName = config ? config.callByName : true;
 
       const callName = callByName ? name : 'Cliente sem nome';
-      const greeting = callName !== 'Cliente sem nome' ? `Olá ${callName}!` : 'Olá!';
+      const greeting = name !== 'Cliente sem nome' ? `Olá ${callName}!` : 'Olá!';
       return {
         success: true,
         message: `${greeting} Isso é uma mensagem automática. 😁\n\nVocê deseja:\nrealizar um pedido (digite "*1*");\nconversar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
@@ -409,7 +383,7 @@ class OrderService {
         const callByName = config ? config.callByName : true;
 
         const callName = callByName ? name : 'Cliente sem nome';
-        const okay = callName !== 'Cliente sem nome' ? `Certo, ${callName}. Aqui` : 'Certo, aqui';
+        const okay = name !== 'Cliente sem nome' ? `Certo, ${callName}. Aqui` : 'Certo, aqui';
         session.waitingForOption = true;
         session.state = 'option';
         session.chooseOptionAttempts = 0;
@@ -493,6 +467,7 @@ class OrderService {
     // Handle confirmation
     if (session.state === 'confirming') {
       const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima','sim', 's', 'ok', 'okey', 'claro', 'pode ser', 'pronto'];
+      const denyWords = ['nao', 'não', 'n', 'cancelar'];
 
       if (confirmWords.includes(messageLower)) {
         // Before confirming, check for disabled products in any new items
@@ -595,28 +570,8 @@ class OrderService {
 
         return { success: true, message: response, isChatBot: true };
 
-      } else if (checkCancelCommand(messageLower)) {
+      } else if (denyWords.includes(messageLower)) {
         session.cancelTimer();
-
-        try {
-          if (session.phoneNumber) {
-            // save a lightweight cancelled order (no items)
-            const parsedOrders = []; // empty because user canceled
-            await databaseService.saveUserOrder({
-              userId,
-              phoneNumber: session.phoneNumber,
-              name: session.name || 'Cliente sem nome',
-              orderType: session.orderType || 'normal',
-              sessionId,
-              originalMessage: message,
-              parsedOrders,
-              status: 'canceled' // note: new status value treated in UI/CSS
-            });
-          }
-        } catch (err) {
-          console.error('Error saving canceled user order:', err);
-        }
-
         session.resetCurrent();
         session.startInactivityTimer();
         return {
