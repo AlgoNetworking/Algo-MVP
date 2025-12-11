@@ -96,6 +96,24 @@ function parseNumberWords(tokens) {
   return total > 0 ? total : null;
 }
 
+// Tokenize preserving spaces as separate tokens
+function tokenizeWithSpaces(text) {
+  const tokens = [];
+  const regex = /\S+|\s+/g; // Match non-whitespace OR whitespace
+  let match;
+  
+  while ((match = regex.exec(text)) !== null) {
+    tokens.push({
+      value: match[0],
+      isWhitespace: /^\s+$/.test(match[0]),
+      position: match.index,
+      tokenIndex: tokens.length // Add a sequential index
+    });
+  }
+  
+  return tokens;
+}
+
 function separateNumbersAndWords(text) {
   let result = text.toLowerCase();
   
@@ -109,7 +127,7 @@ function separateNumbersAndWords(text) {
     result = result.replace(new RegExp(teen, 'g'), ` ${teen} `);
   });
 
-  // Process other number words
+  // Process other number words - add spaces around them
   const keys = Object.keys(allNumberWords).sort((a, b) => b.length - a.length);
   keys.forEach(word => {
     if (!protectedTeens.includes(word)) {
@@ -118,24 +136,39 @@ function separateNumbersAndWords(text) {
     }
   });
 
-  return result.replace(/\s+/g, ' ').trim();
+  return result;
 }
 
 function extractNumbersAndPositions(tokens) {
   const numbers = [];
+  
+  // Get only non-whitespace tokens for easier processing
+  const nonWhitespaceTokens = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (!tokens[i].isWhitespace) {
+      nonWhitespaceTokens.push({
+        value: tokens[i].value,
+        originalIndex: i,
+        tokenIndex: tokens[i].tokenIndex
+      });
+    }
+  }
+  
   let i = 0;
-
-  while (i < tokens.length) {
-    if (/^\d+$/.test(tokens[i])) {
-      numbers.push([i, parseInt(tokens[i])]);
+  while (i < nonWhitespaceTokens.length) {
+    const token = nonWhitespaceTokens[i];
+    
+    if (/^\d+$/.test(token.value)) {
+      numbers.push([token.originalIndex, parseInt(token.value), token.tokenIndex]);
       i++;
-    } else if (allNumberWords[tokens[i]]) {
-      const numTokens = [tokens[i]];
+    } else if (allNumberWords[token.value]) {
+      const numTokens = [token.value];
       let j = i + 1;
 
-      while (j < tokens.length - 1) {
-        if (tokens[j] === 'e' && allNumberWords[tokens[j + 1]]) {
-          numTokens.push(tokens[j], tokens[j + 1]);
+      while (j < nonWhitespaceTokens.length - 1) {
+        if (nonWhitespaceTokens[j].value === 'e' && 
+            allNumberWords[nonWhitespaceTokens[j + 1].value]) {
+          numTokens.push(nonWhitespaceTokens[j].value, nonWhitespaceTokens[j + 1].value);
           j += 2;
         } else {
           break;
@@ -144,7 +177,7 @@ function extractNumbersAndPositions(tokens) {
 
       const number = parseNumberWords(numTokens.filter(t => t !== 'e'));
       if (number) {
-        numbers.push([i, number]);
+        numbers.push([token.originalIndex, number, token.tokenIndex]);
         i = j;
       } else {
         i++;
@@ -154,18 +187,39 @@ function extractNumbersAndPositions(tokens) {
     }
   }
 
-  return numbers;
+  return numbers.map(([pos, val, tokenIndex]) => [pos, val, tokenIndex]);
 }
 
-// CORRECTED: Assign each number to the closest product
-function assignNumbersToProducts(productsWithPositions, numbersWithPositions) {
+// Calculate distance considering spaces
+function calculateDistance(productStartPos, productTokenIndex, numberPos, tokens) {
+  // Count tokens between product and number
+  let distance = 0;
+  const start = Math.min(productStartPos, numberPos);
+  const end = Math.max(productStartPos, numberPos);
+  
+  for (let i = start + 1; i < end; i++) {
+    if (tokens[i].isWhitespace) {
+      // Count each space character as 1 unit
+      distance += tokens[i].value.length;
+    } else {
+      // Count non-whitespace tokens as 1 unit
+      distance += 1;
+    }
+  }
+  
+  // Add 1 for the step to the adjacent token
+  return distance + 1;
+}
+
+// CORRECTED: Assign each number to the closest product considering spaces
+function assignNumbersToProducts(productsWithPositions, numbersWithPositions, tokens) {
   const assignments = new Map(); // product index -> [quantity, number position]
   
   // Sort numbers by position (left to right)
   const sortedNumbers = [...numbersWithPositions].sort((a, b) => a[0] - b[0]);
   
   // For each number, find the closest unassigned product
-  for (const [numPos, numVal] of sortedNumbers) {
+  for (const [numPos, numVal, numTokenIndex] of sortedNumbers) {
     let closestProduct = null;
     let minDistance = Infinity;
     let closestProductIndex = -1;
@@ -174,7 +228,7 @@ function assignNumbersToProducts(productsWithPositions, numbersWithPositions) {
     for (const product of productsWithPositions) {
       if (assignments.has(product.productIndex)) continue;
       
-      const distance = Math.abs(product.position - numPos);
+      const distance = calculateDistance(product.position, product.tokenIndex, numPos, tokens);
       
       if (distance < minDistance) {
         minDistance = distance;
@@ -241,9 +295,9 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
   let normalized = normalize(line);
   normalized = separateNumbersAndWords(normalized);
   normalized = normalized.replace(/[,\.;\+\-\/\(\)\[\]\:]/g, ' ');
-  normalized = normalized.replace(/\s+/g, ' ').trim();
-
-  const tokens = normalized.split(' ');
+  
+  // Tokenize preserving spaces
+  const tokens = tokenizeWithSpaces(normalized);
   const workingDb = productsDb.map(([product, qty]) => [product, qty]);
   const parsedOrders = [];
   const disabledProductsFound = [];
@@ -276,37 +330,63 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
   let i = 0;
   while (i < tokens.length) {
     const token = tokens[i];
+    
+    if (token.isWhitespace) {
+      i++;
+      continue;
+    }
 
     const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada', 'momento', 'amiga', 'amigo', 'cadas']);
-    if ((fillerWords.has(token) && !productWords.has(token)) ||
-      /^\d+$/.test(token) ||
-      allNumberWords[token]) {
+    if ((fillerWords.has(token.value) && !productWords.has(normalize(token.value))) ||
+      /^\d+$/.test(token.value) ||
+      allNumberWords[token.value]) {
       i++;
       continue;
     }
 
     let matched = false;
 
+    // Try to match multi-word products (from longest to shortest)
     for (let size = Math.min(maxProdWords, 4); size > 0; size--) {
-      if (i + size > tokens.length) continue;
-
-      const phraseTokens = tokens.slice(i, i + size);
-
-      let skipPhrase = true;
-      // Check if any token is NOT a filler word or number
-      for (const t of phraseTokens) {
-        if (!/^\d+$/.test(t) && !allNumberWords[t] && !(fillerWords.has(t) && !productWords.has(t))) {
-          skipPhrase = false;
+      // We need to find a sequence of non-whitespace tokens that could form a product
+      // But we need to allow for gaps (whitespace) between the words
+      
+      // Collect up to 'size' non-whitespace tokens starting from position i
+      const candidateTokens = [];
+      const candidatePositions = [];
+      let currentPos = i;
+      
+      while (candidateTokens.length < size && currentPos < tokens.length) {
+        if (!tokens[currentPos].isWhitespace) {
+          candidateTokens.push(tokens[currentPos].value);
+          candidatePositions.push(currentPos);
+        }
+        currentPos++;
+      }
+      
+      if (candidateTokens.length < size) {
+        continue; // Not enough tokens to form this size
+      }
+      
+      // Now check if any token in our candidate is a filler word or number
+      let skipPhrase = false;
+      for (let j = 0; j < candidateTokens.length; j++) {
+        const t = candidateTokens[j];
+        if (/^\d+$/.test(t) || allNumberWords[t] || 
+            (fillerWords.has(t) && !productWords.has(normalize(t)))) {
+          skipPhrase = true;
           break;
         }
       }
+      
       if (skipPhrase) continue;
-
-      const phrase = phraseTokens.join(' ');
+      
+      // Try the candidate as a phrase
+      const phrase = candidateTokens.join(' ');
       const phraseNorm = normalize(phrase);
 
+      // First check aka lookup
       const akaMatch = akaLookup.get(phraseNorm);
-
       if (akaMatch) {
         let originalIndex = -1;
         let productEnabled = true;
@@ -320,20 +400,22 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
 
         if (originalIndex !== -1) {
           productsFound.push({
-            position: i,
+            position: candidatePositions[0], // First token position
+            tokenIndex: tokens[candidatePositions[0]].tokenIndex,
             productIndex: originalIndex,
             productName: akaMatch.mainProduct,
             enabled: productEnabled,
             size: size
           });
           
-          i += size;
+          // Skip all the tokens we just matched
+          i = candidatePositions[candidatePositions.length - 1] + 1;
           matched = true;
           break;
         }
       }
 
-      // Find best match among ALL products
+      // If no aka match, try similarity matching
       let bestScore = 0;
       let bestProduct = null;
       let bestProductEnabled = true;
@@ -353,21 +435,24 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
 
       if (bestScore >= similarityThreshold) {
         productsFound.push({
-          position: i,
+          position: candidatePositions[0], // First token position
+          tokenIndex: tokens[candidatePositions[0]].tokenIndex,
           productIndex: bestOriginalIdx,
           productName: bestProduct,
           enabled: bestProductEnabled,
           size: size
         });
         
-        i += size;
+        // Skip all the tokens we just matched
+        i = candidatePositions[candidatePositions.length - 1] + 1;
         matched = true;
         break;
       }
     }
 
+    // If no multi-word match, try single word
     if (!matched) {
-      const phrase = tokens[i];
+      const phrase = token.value;
       let bestMatch = null;
       let bestScore = 0;
       let bestProductEnabled = true;
@@ -401,6 +486,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
       if (bestMatch && bestScore > 50) {
         productsFound.push({
           position: i,
+          tokenIndex: tokens[i].tokenIndex,
           productIndex: bestOriginalIdx,
           productName: bestMatch,
           enabled: bestProductEnabled,
@@ -408,13 +494,15 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
         });
         
         matched = true;
+        i++;
+      } else {
+        i++;
       }
-      i++;
     }
   }
   
-  // Now assign numbers to products using the proper algorithm
-  const numberAssignments = assignNumbersToProducts(productsFound, numbersWithPositions);
+  // Now assign numbers to products using the proper algorithm with space consideration
+  const numberAssignments = assignNumbersToProducts(productsFound, numbersWithPositions, tokens);
   
   // Process each found product with its assigned quantity
   for (const product of productsFound) {
