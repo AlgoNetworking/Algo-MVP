@@ -758,14 +758,35 @@ class WhatsAppService {
         console.log(`🚫 Disabling bot for user ${userId}: ${phoneNumber}`);
         userDisabled.add(sender);
 
-        const clients = await databaseService.getUserClients(userId);
+        // Save notification to database
+        try {
+          await databaseService.createNotification(
+            userId,
+            'bot_disabled',
+            'Cliente escolheu conversar com pessoa',
+            `O cliente ${userInfo?.name || phoneNumber} escolheu conversar com uma pessoa.`
+          );
+        } catch (error) {
+          console.error('❌ Error saving notification:', error);
+        }
+
+        const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
+        // Ensure clientUsers is always an array
+        if (!clientUsers || !Array.isArray(clientUsers)) {
+          console.error(`❌ Error: clientUsers is not an array for user ${userId}`);
+          return;
+        }
         
         if (this.io) {
           this.io.to(`user-${userId}`).emit('disable-bot', {
             phone: phoneNumber,
             userId,
-            clients
+            clients: clientUsers
           });
+          
+          // Also emit notification update
+          const unreadCount = await databaseService.getUnreadNotificationsCount(userId);
+          this.io.to(`user-${userId}`).emit('notifications-update', { unreadCount });
         }
       }
 

@@ -57,9 +57,6 @@ let autoRefreshInterval = null;
 let autoRefreshUserInterval = null;
 let clients = [];
 let products = [];
-let notifications = [];
-let notificationBadge = null;
-let notificationsContainer = null;
 let folders = [];
 let currentFolder = null;
 let folderClients = [];
@@ -69,32 +66,6 @@ let folderHasUnsavedChanges = false;
 let modalResolve = null;
 let currentEditingIndex = -1;
 let currentEditingType = null; // 'client' or 'product'
-/*
-let clients = [
-    {
-      "phone": "+55 85 8976-4552",
-      "name": "Guilherme Mororó",
-      "answered": false,
-      "type": "normal",
-      "isChatBot": true
-    },
-    {
-      "phone": "+55 85 9789-2528", //seria interessante adicionar uma coisa que permita o numero ir de 
-      // "+558597892528" pra "+55 85 9789-2528", deve ser facil.
-      "name": "Pedro Tiraboschi",
-      "answered": false,
-      "type": "normal",
-      "isChatBot": true
-    },
-    {
-      "phone": "+55 85 9668-5918",
-      "name": "Carlos Sérgio",
-      "answered": false,
-      "type": "normal",
-      "isChatBot": true
-    },
-];
-*/
 
 // Load folders from database
 async function loadFolders() {
@@ -242,6 +213,9 @@ function renderFolderClients() {
             <div style="font-size: 0.85em; color: ${client.answered ? '#27ae60' : '#e74c3c'};">
               ${client.answered ? '✅ Respondeu' : '⏳ Pendente'}
             </div>
+            <div style="font-size: 0.85em; color: ${client.interpret ? '#3498db' : '#e74c3c'};">
+              ${client.interpret ? '🤖 Interpretação ON' : '🚫 Interpretação OFF'}
+            </div>
           </div>
           <div class="client-actions">
             <button class="btn btn-sm btn-primary" onclick="editFolderClient(${index})" ${isEditing ? 'disabled' : ''}>
@@ -277,6 +251,21 @@ function renderFolderClients() {
                 <option value="quilo" ${client.type === 'quilo' ? 'selected' : ''}>Quilo</option>
                 <option value="dosado" ${client.type === 'dosado' ? 'selected' : ''}>Dosado</option>
               </select>
+            </div>
+            <div class="form-group" style="margin-top:8px;">
+              <label style="display:block; margin-bottom:4px; font-weight:600;">Interpretar Mensagens</label>
+              <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+                <button type="button" class="toggle-btn ${client.interpret ? 'active' : ''}" 
+                        onclick="toggleInterpretButton('editFolderClientInterpret-${index}')" 
+                        id="toggleEditFolderClientInterpret-${index}"></button>
+                <span id="toggleEditFolderClientInterpretLabel-${index}" class="toggle-status">
+                  ${client.interpret ? 'Ativado' : 'Desativado'}
+                </span>
+                <input type="hidden" id="editFolderClientInterpret-${index}" value="${client.interpret}">
+              </div>
+              <small style="display:block; margin-top:8px; color:#7f8c8d;">
+                Quando desativado, o bot NÃO interpretará mensagens deste cliente (eles ainda recebem mensagens em massa e o sistema marcará como respondido quando eles enviarem qualquer mensagem).
+              </small>
             </div>
             <div class="edit-form-actions">
               <button class="btn btn-sm btn-danger" onclick="cancelEditFolderClient()">Cancelar</button>
@@ -513,6 +502,19 @@ function addFolderClient() {
         <option value="dosado">Dosado</option>
       </select>
     </div>
+    <div class="form-group" style="margin-top:8px;">
+      <label style="display:block; margin-bottom:4px; font-weight:600;">Interpretar Mensagens</label>
+      <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+        <button type="button" class="toggle-btn active" 
+                onclick="toggleInterpretButton('newFolderClientInterpret')" 
+                id="toggleNewFolderClientInterpret"></button>
+        <span id="toggleNewFolderClientInterpretLabel" class="toggle-status">Ativado</span>
+        <input type="hidden" id="newFolderClientInterpret" value="true">
+      </div>
+      <small style="display:block; margin-top:8px; color:#7f8c8d;">
+        Quando desativado, o bot NÃO interpretará mensagens deste cliente.
+      </small>
+    </div>
     <div class="edit-form-actions" style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
       <button class="btn btn-sm btn-danger" onclick="cancelAddFolderClient()">Cancelar</button>
       <button class="btn btn-sm btn-success" onclick="saveNewFolderClient()">Salvar Cliente</button>
@@ -536,6 +538,7 @@ async function saveNewFolderClient() {
   const phone = document.getElementById('newFolderClientPhone').value.trim();
   const name = document.getElementById('newFolderClientName').value.trim();
   const type = document.getElementById('newFolderClientType').value;
+  const interpret = document.getElementById('newFolderClientInterpret').value === 'true';
   
   if (!phone) {
     customAlert('Erro', 'O telefone é obrigatório!');
@@ -552,6 +555,7 @@ async function saveNewFolderClient() {
         phone: normalizedPhone,
         name: name || 'Cliente sem nome',
         type,
+        interpret: interpret,
         folderId: currentFolder.id
       })
     });
@@ -596,6 +600,7 @@ async function saveFolderClientEdit(index) {
   const phone = document.getElementById(`editFolderClientPhone-${index}`).value.trim();
   const name = document.getElementById(`editFolderClientName-${index}`).value.trim();
   const type = document.getElementById(`editFolderClientType-${index}`).value;
+  const interpret = document.getElementById(`editFolderClientInterpret-${index}`).value === 'true';
   
   if (!phone) {
     customAlert('Erro', 'O telefone é obrigatório!');
@@ -610,6 +615,7 @@ async function saveFolderClientEdit(index) {
         phone,
         name: name || 'Cliente sem nome',
         type,
+        interpret,
         folderId: currentFolder.id
       })
     });
@@ -758,11 +764,23 @@ function updateSelectedFolder(folderId) {
       info.textContent = `Selecionada: ${folder.name}`;
       info.style.display = 'block';
       addLog(`📁 Pasta selecionada: ${folder.name}`);
+      
+      // Save to localStorage with user ID
+      if (currentUser && currentUser.id) {
+        localStorage.setItem(`botSelectedFolderId_${currentUser.id}`, String(folderId));
+        localStorage.setItem(`botSelectedFolderName_${currentUser.id}`, folder.name);
+      }
     }
   } else {
     selectedFolderName = null;
     info.style.display = 'none';
     addLog('⚠️ Nenhuma pasta selecionada');
+    
+    // Clear from localStorage for this user
+    if (currentUser && currentUser.id) {
+      localStorage.removeItem(`botSelectedFolderId_${currentUser.id}`);
+      localStorage.removeItem(`botSelectedFolderName_${currentUser.id}`);
+    }
   }
 }
 
@@ -773,76 +791,144 @@ function initializeNotifications() {
     notificationsContainer = document.getElementById('notificationsContainer');
     
     document.getElementById('clearAllNotificationsBtn').addEventListener('click', clearAllNotifications);
+    
+    // Request browser notification permission
+    requestNotificationPermission();
 }
 
 // Notification functions
-function addNotification(phone, name) {
-    // Check if notification already exists for this phone
-    const existingIndex = notifications.findIndex(n => n.phone === phone);
+// Request permission for browser notifications
+function requestNotificationPermission() {
+    if (!("Notification" in window)) {
+        console.log("This browser does not support desktop notification");
+        return;
+    }
     
-    if (existingIndex === -1) {
-        const notification = {
-            id: Date.now() + Math.random(),
-            phone: phone,
-            name: name,
-            message: "O cliente escolheu conversar com uma pessoa, no aguardo do atendimento",
-            timestamp: new Date().toISOString(),
-            read: false
-        };
-        
-        notifications.push(notification);
-        renderNotifications();
-        updateNotificationBadge();
-        
-        // Also show a log message
-        addLog(`🔔 Nova notificação: ${name} escolheu falar com pessoa`);
+    if (Notification.permission === "granted") {
+        console.log("Browser notifications already granted");
+        return;
     }
-}
-
-function removeNotification(notificationId) {
-    const index = notifications.findIndex(n => n.id === notificationId);
-    if (index !== -1) {
-        notifications.splice(index, 1);
-        renderNotifications();
-        updateNotificationBadge();
-    }
-}
-
-async function clearAllNotifications() {
-    if (notifications.length === 0) return;
     
-    const confirmed = await confirmAction('Limpar Notificações', `Limpar todas as ${notifications.length} notificações?`);
-    if (confirmed) {
-        notifications = [];
-        renderNotifications();
-        updateNotificationBadge();
-        addLog('🗑️ Todas as notificações foram limpas');
+    if (Notification.permission !== "denied") {
+        Notification.requestPermission().then(permission => {
+            if (permission === "granted") {
+                console.log("Browser notification permission granted");
+            }
+        });
     }
 }
 
+// Load notifications from server
+async function loadNotifications() {
+    try {
+        const response = await fetch('/api/notifications');
+        const data = await response.json();
+        
+        if (data.success) {
+            notifications = data.notifications;
+            renderNotifications();
+            updateNotificationBadge();
+            updateBrowserTabTitle();
+        }
+    } catch (error) {
+        console.error('Error loading notifications:', error);
+    }
+}
+
+// Add notification to database and UI
+async function addNotificationToDB(phone, name) {
+    try {
+        const response = await fetch('/api/notifications', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'bot_disabled',
+                title: 'Cliente escolheu conversar com pessoa',
+                message: `O cliente ${name || phone} escolheu conversar com uma pessoa.`
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            await loadNotifications(); // Reload notifications from server
+            
+            // Show browser notification
+            showBrowserNotification('Novo Cliente', `${name || phone} escolheu conversar com pessoa`);
+            
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error adding notification to DB:', error);
+        return false;
+    }
+}
+
+// Show browser notification
+function showBrowserNotification(title, message) {
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    
+    const options = {
+        body: message,
+        icon: '/favicon.ico',
+        tag: 'whatsapp-bot-notification',
+        requireInteraction: false,
+        silent: false
+    };
+    
+    const notification = new Notification(title, options);
+    
+    notification.onclick = function() {
+        window.focus();
+        notification.close();
+        
+        // Switch to notifications tab
+        document.querySelector('[data-tab="notifications"]').click();
+    };
+    
+    // Auto close after 10 seconds
+    setTimeout(() => {
+        notification.close();
+    }, 10000);
+}
+
+// Update browser tab title with notification count
+function updateBrowserTabTitle() {
+    const unreadCount = notifications.filter(n => !n.isRead).length;
+    if (unreadCount > 0) {
+        document.title = `(${unreadCount}) Algo de Pedidos`;
+    } else {
+        document.title = 'Algo de Pedidos';
+    }
+}
+
+// Render notifications from server data
 function renderNotifications() {
     if (!notificationsContainer) return;
     
-    if (notifications.length === 0) {
+    const unreadNotifications = notifications.filter(n => !n.isRead);
+    
+    if (unreadNotifications.length === 0) {
         notificationsContainer.innerHTML = '<div class="empty-state">Nenhuma notificação</div>';
         return;
     }
     
     let html = '';
-    notifications.forEach(notification => {
-        const time = new Date(notification.timestamp).toLocaleTimeString();
+    unreadNotifications.forEach(notification => {
+        const time = new Date(notification.createdAt).toLocaleTimeString();
+        const date = new Date(notification.createdAt).toLocaleDateString();
         
         html += `
             <div class="notification-box" data-id="${notification.id}">
                 <div class="notification-header">
-                    <span class="notification-client-name">${notification.name}</span>
-                    <span class="notification-client-phone">${notification.phone}</span>
+                    <span class="notification-client-name">${notification.title}</span>
                 </div>
                 <div class="notification-message">
                     ${notification.message}
                 </div>
                 <div class="notification-time">
-                    📅 Recebido em: ${time}
+                    📅 ${date} às ${time}
                 </div>
                 <div class="notification-actions">
                     <button class="notification-ok-btn" onclick="dismissNotification(${notification.id})">
@@ -856,10 +942,11 @@ function renderNotifications() {
     notificationsContainer.innerHTML = html;
 }
 
+// Update notification badge
 function updateNotificationBadge() {
     if (!notificationBadge) return;
     
-    const unreadCount = notifications.length;
+    const unreadCount = notifications.filter(n => !n.isRead).length;
     
     if (unreadCount > 0) {
         notificationBadge.textContent = unreadCount;
@@ -869,8 +956,70 @@ function updateNotificationBadge() {
     }
 }
 
-function dismissNotification(notificationId) {
-    removeNotification(notificationId);
+// Dismiss (mark as read) a single notification
+async function dismissNotification(notificationId) {
+    try {
+        const response = await fetch(`/api/notifications/${notificationId}/read`, {
+            method: 'PUT'
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            await loadNotifications(); // Reload from server
+        }
+    } catch (error) {
+        console.error('Error dismissing notification:', error);
+    }
+}
+
+// Clear all notifications
+async function clearAllNotifications() {
+    if (notifications.length === 0) return;
+    
+    const unreadCount = notifications.filter(n => !n.isRead).length;
+    if (unreadCount === 0) return;
+    
+    const confirmed = await confirmAction('Limpar Notificações', `Marcar todas as ${unreadCount} notificações como lidas?`);
+    if (!confirmed) return;
+    
+    try {
+        const response = await fetch('/api/notifications/read-all', {
+            method: 'PUT'
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            await loadNotifications(); // Reload from server
+            addLog('🗑️ Todas as notificações marcadas como lidas');
+        }
+    } catch (error) {
+        console.error('Error clearing all notifications:', error);
+    }
+}
+
+// Completely delete all notifications
+async function deleteAllNotifications() {
+    if (notifications.length === 0) return;
+    
+    const confirmed = await confirmAction('Excluir Todas', `Excluir permanentemente todas as ${notifications.length} notificações?`);
+    if (!confirmed) return;
+    
+    try {
+        const response = await fetch('/api/notifications', {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            notifications = [];
+            renderNotifications();
+            updateNotificationBadge();
+            updateBrowserTabTitle();
+            addLog('🗑️ Todas as notificações foram excluídas permanentemente');
+        }
+    } catch (error) {
+        console.error('Error deleting all notifications:', error);
+    }
 }
 
 // Modal Dialog System
@@ -1077,11 +1226,13 @@ async function connectWhatsApp() {
       addLog('✅ WhatsApp conectando.');
       // Salva qual pasta estava selecionada quando o bot foi ligado.
       // (se não houver pasta selecionada, removemos a chave)
-      if (selectedFolderId) {
-        localStorage.setItem('botSelectedFolderId', String(selectedFolderId));
+      if (selectedFolderId && currentUser && currentUser.id) {
+        localStorage.setItem(`botSelectedFolderId_${currentUser.id}`, String(selectedFolderId));
+        localStorage.setItem(`botSelectedFolderName_${currentUser.id}`, selectedFolderName || '');
         addLog(`💾 Pasta salva para restauração: ${selectedFolderName || selectedFolderId}`);
-      } else {
-        localStorage.removeItem('botSelectedFolderId');
+      } else if (currentUser && currentUser.id) {
+        localStorage.removeItem(`botSelectedFolderId_${currentUser.id}`);
+        localStorage.removeItem(`botSelectedFolderName_${currentUser.id}`);
       }
     } else {
       addLog('❌ Erro: ' + data.message, 'error');
@@ -1748,6 +1899,9 @@ function renderClients() {
                         : 
                         `<button class="btn btn-sm btn-success" onclick="markAsAnswered(${index})" ${isEditing ? 'disabled' : ''}>✅ Respondeu</button>`
                     }
+                    <div style="font-size: 0.85em; color: ${client.interpret ? '#3498db' : '#e74c3c'};">
+                      ${client.interpret ? '🤖 Interpretação ON' : '🚫 Interpretação OFF'}
+                    </div>
                 </div>
             </div>
         `;
@@ -1772,18 +1926,23 @@ function renderClients() {
                         </select>
                       </div>
 
-                      <!-- NEW: Interpret toggle -->
-                      <div class="form-group" style="margin-top:8px;">
-                        <label for="editClientInterpret-${index}" style="display:block; margin-bottom:4px;">Interpretar Mensagens</label>
-                        <label style="display:flex; align-items:center; gap:8px;">
-                          <input type="checkbox" id="editClientInterpret-${index}" ${client.interpret === false ? '' : 'checked'}>
-                          <span style="font-size:0.95rem;">Ativo (o bot interpreta as mensagens deste cliente)</span>
-                        </label>
-                        <small style="display:block; margin-top:4px; color:#666;">
-                          Se desligado, o bot NÃO interpretará mensagens deste cliente (eles ainda recebem mensagens em massa e o sistema marcará como respondido quando eles enviarem qualquer mensagem).
-                        </small>
+                    <!-- NEW: Interpret toggle -->
+                    <div class="form-group" style="margin-top:8px;">
+                      <label style="display:block; margin-bottom:4px; font-weight:600;">Interpretar Mensagens</label>
+                      <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+                        <button type="button" class="toggle-btn ${client.interpret ? 'active' : ''}" 
+                          onclick="toggleInterpretButton('editClientInterpret-${index}')" 
+                          id="toggleEditClientInterpret-${index}"></button>
+                        <span id="toggleEditClientInterpretLabel-${index}" class="toggle-status">
+                          ${client.interpret ? 'Ativado' : 'Desativado'}
+                        </span>
+                        <input type="hidden" id="editClientInterpret-${index}" value="${client.interpret}">
+                      </div>
+                      <small style="display:block; margin-top:8px; color:#7f8c8d;">
+                        Quando desativado, o bot NÃO interpretará mensagens deste cliente (eles ainda recebem mensagens em massa e o sistema marcará como respondido quando eles enviarem qualquer mensagem).
+                      </small>
+                    </div>
                 </div>
-            </div>
             `;
         }
     });
@@ -1953,7 +2112,7 @@ async function saveClientEdit(index) {
   const phone = document.getElementById(`editClientPhone-${index}`).value.trim();
   const name  = document.getElementById(`editClientName-${index}`).value.trim();
   const type  = document.getElementById(`editClientType-${index}`).value;
-  const interpret = document.getElementById(`editClientInterpret-${index}`).checked; // NEW
+  const interpret = document.getElementById(`editClientInterpret-${index}`).value === 'true';
 
   if (!phone) {
     customAlert('Erro', 'O telefone é obrigatório!');
@@ -1964,7 +2123,7 @@ async function saveClientEdit(index) {
     phone: phone,
     name: name || 'Cliente sem nome',
     type: type,
-    interpret // pass it along
+    interpret: interpret
   }, true);
 
   if (success) {
@@ -2273,6 +2432,31 @@ function normalizePhoneNumber(phoneInput) {
   return `+55 ${digits}`;
 }
 
+// Toggle interpret button handler
+function toggleInterpretButton(inputId) {
+  const toggleBtn = document.getElementById(`toggle${inputId.charAt(0).toUpperCase() + inputId.slice(1)}`);
+  const hiddenInput = document.getElementById(inputId);
+  const label = document.getElementById(`toggle${inputId.charAt(0).toUpperCase() + inputId.slice(1)}Label`);
+  
+  // Toggle the value
+  const currentValue = hiddenInput.value === 'true';
+  const newValue = !currentValue;
+  
+  // Update the hidden input
+  hiddenInput.value = newValue;
+  
+  // Update the toggle button
+  if (newValue) {
+    toggleBtn.classList.add('active');
+    label.textContent = 'Ativado';
+    label.style.color = '#27ae60';
+  } else {
+    toggleBtn.classList.remove('active');
+    label.textContent = 'Desativado';
+    label.style.color = '#e74c3c';
+  }
+}
+
 // Show TXT import form
 function showImportTxtForm() {
   if (!currentFolder) {
@@ -2428,6 +2612,7 @@ function previewTxtFile(event) {
 }
 
 // Parse a single line from TXT file
+// Parse a single line from TXT file
 function parseTxtLine(line) {
   line = line.trim();
   if (!line) return null;
@@ -2456,8 +2641,17 @@ function parseTxtLine(line) {
     const inputType = parts[2].toLowerCase();
     type = validTypes.includes(inputType) ? inputType : 'normal';
   }
+
+  // Extract interpret (fourth part if exists, default true)
+  let interpret = true;
+  if (parts.length >= 4) {
+    const interpretStr = parts[3].toLowerCase();
+    if (interpretStr === 'false' || interpretStr === '0' || interpretStr === 'não' || interpretStr === 'nao') {
+      interpret = false;
+    }
+  }
   
-  return { phone, name, type };
+  return { phone, name, type, interpret };
 }
 
 // Cancel import
@@ -2518,6 +2712,7 @@ async function importFromTxt() {
             phone: parsed.phone,
             name: parsed.name,
             type: parsed.type,
+            interpret: parsed.interpret,
             folderId: currentFolder.id
           })
         });
@@ -2657,37 +2852,28 @@ function initializeSocket() {
     }
   });
 
-  socket.on('disable-bot', (data) => {
+  socket.on('disable-bot', async (data) => {
     const formattedPhone = formatPhoneNumberForDisplay(data.phone);
-
     const clients = data.clients;
-
     const user = clients.find(c => c.phone === formattedPhone);
 
-
+    // Add notification to database
     if (user) {
-      addNotification(formattedPhone, user.name);
+        await addNotificationToDB(formattedPhone, user.name);
     } else {
-      const unformattedUser = clients.find(c => {
-        const normalizedPhone = c.phone.replace(/[+\-\s]/g, '');
-        const normalizedDataPhone = data.phone.replace(/[+\-\s]/g, '');
-        return normalizedPhone.includes(normalizedDataPhone) || 
-               normalizedDataPhone.includes(normalizedPhone);
-      });
-      
-      if (unformattedUser) {
-        addNotification(unformattedUser.phone, unformattedUser.name);
-        addLog('test1');
-      } else {
-        addNotification(data.phone, 'Cliente sem Nome');
-        addLog('test2');
-      }
+        await addNotificationToDB(formattedPhone, 'Cliente sem Nome');
     }
  
     const clientDisableBotIndex = clients.findIndex(c => c.phone === formattedPhone);
     if (clientDisableBotIndex !== -1) {
-      disableChatBot(clientDisableBotIndex);
+        disableChatBot(clientDisableBotIndex);
     }
+  });
+
+  // Add new socket event for notification updates
+  socket.on('notifications-update', (data) => {
+      // Reload notifications when server tells us there's an update
+      loadNotifications();
   });
 
   socket.on('bulk-message-progress', (data) => {
@@ -2827,12 +3013,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const isAuthenticated = await checkAuthentication();
   if (!isAuthenticated) return;
   
+  await loadNotifications();
   // Initialize socket after authentication
   initializeSocket();
   
   addLog('🚀 Dashboard inicializado');
   setupTabs();
-  
+
   await loadFolders();
   await updateFolderSelect();
 
@@ -2848,52 +3035,40 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('clearDbBtn').addEventListener('click', clearDatabase);
 
   try {
-    const savedFolder = localStorage.getItem('botSelectedFolderId');
-    if (savedFolder) {
-      const folderObj = folders.find(f => String(f.id) === String(savedFolder));
-      if (folderObj) {
-        selectedFolderId = folderObj.id;
-        selectedFolderName = folderObj.name;
-        updateSelectedFolder(folderObj.id);
-        await openFolder(folderObj.id);
-        addLog(`♻️ Pasta restaurada: ${folderObj.name}`);
-
-        // --- make sure the <select> shows the same folder ---
-        // Adjust the selector below if your select has a different id or class
-        const folderSelect = document.getElementById('folderSelect') || document.querySelector('select[name="folderSelect"]');
-
-        if (folderSelect) {
-          // try to find an existing option by value (id) or by visible text (name)
-          const optByValue = [...folderSelect.options].find(o => String(o.value) === String(folderObj.id));
-          const optByText  = [...folderSelect.options].find(o => o.text.trim() === folderObj.name);
-
-          if (optByValue) {
-            folderSelect.value = optByValue.value;
-          } else if (optByText) {
-            folderSelect.value = optByText.value;
-          } else {
-            // option not present — add it and select
-            const newOpt = document.createElement('option');
-            newOpt.value = String(folderObj.id);
-            newOpt.text = folderObj.name;
-            folderSelect.appendChild(newOpt);
-            folderSelect.value = newOpt.value;
+    // Load the folder for THIS specific user
+    if (currentUser && currentUser.id) {
+      const savedFolderId = localStorage.getItem(`botSelectedFolderId_${currentUser.id}`);
+      const savedFolderName = localStorage.getItem(`botSelectedFolderName_${currentUser.id}`);
+      
+      if (savedFolderId && savedFolderName) {
+        const folderObj = folders.find(f => String(f.id) === String(savedFolderId));
+        if (folderObj) {
+          selectedFolderId = folderObj.id;
+          selectedFolderName = folderObj.name;
+          
+          // Update the select dropdown
+          const folderSelect = document.getElementById('folderSelect');
+          if (folderSelect) {
+            const option = [...folderSelect.options].find(o => String(o.value) === String(folderObj.id));
+            if (option) {
+              folderSelect.value = option.value;
+              updateSelectedFolder(folderObj.id);
+            }
           }
-
-          // Let any listeners react (and update any "selected" label)
-          folderSelect.dispatchEvent(new Event('change', { bubbles: true }));
-
-          // If you use a JS select plugin, refresh it here:
-          // - bootstrap-select: $(folderSelect).selectpicker('refresh');
-          // - select2: $(folderSelect).trigger('change.select2');
-          // - vanilla custom UI: call its refresh method here.
+          
+          // Open the folder if we're in the clients tab
+          const activeTab = document.querySelector('.tab.active');
+          if (activeTab && activeTab.getAttribute('data-tab') === 'clients') {
+            await openFolder(folderObj.id);
+          }
+          
+          addLog(`♻️ Pasta restaurada para ${currentUser.username}: ${folderObj.name}`);
         } else {
-          console.warn('Não encontrei o elemento <select> para pasta. Verifique o id/data-attr.');
+          // Saved folder doesn't exist anymore - clear it
+          localStorage.removeItem(`botSelectedFolderId_${currentUser.id}`);
+          localStorage.removeItem(`botSelectedFolderName_${currentUser.id}`);
+          addLog('⚠️ Pasta salva não existe mais, removida do histórico');
         }
-
-      } else {
-        // saved id doesn't exist anymore
-        localStorage.removeItem('botSelectedFolderId');
       }
     }
   } catch (err) {

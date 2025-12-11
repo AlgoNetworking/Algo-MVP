@@ -97,6 +97,29 @@ class DatabaseService {
   async initializePostgres() {
     try {
       console.log('📄 Creating PostgreSQL tables...');
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+          type VARCHAR(50) NOT NULL,
+          title VARCHAR(255),
+          message TEXT,
+          is_read BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✅ Notifications table created');
+
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_id 
+        ON notifications(user_id)
+      `);
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_notifications_is_read 
+        ON notifications(is_read)
+      `);
       
       // 1️⃣ CREATE USERS TABLE FIRST
       await db.query(`
@@ -291,7 +314,29 @@ class DatabaseService {
   initializeSQLite() {
     try {
       console.log('📄 Creating SQLite tables...');
-      
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+          type TEXT NOT NULL,
+          title TEXT,
+          message TEXT,
+          is_read INTEGER DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_id 
+        ON notifications(user_id)
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_notifications_is_read 
+        ON notifications(is_read)
+      `);
+            
       // Create users table
       db.exec(`
         CREATE TABLE IF NOT EXISTS users (
@@ -549,6 +594,142 @@ class DatabaseService {
       }
     } catch (error) {
       console.error('❌ Error writing to text file:', error);
+    }
+  }
+
+  async createNotification(userId, type, title, message) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          `INSERT INTO notifications (user_id, type, title, message) 
+          VALUES ($1, $2, $3, $4) RETURNING id, user_id, type, title, message, is_read, created_at`,
+          [userId, type, title, message]
+        );
+        return result.rows[0];
+      } else {
+        const stmt = db.prepare(
+          `INSERT INTO notifications (user_id, type, title, message) 
+          VALUES (?, ?, ?, ?) RETURNING id, user_id, type, title, message, is_read, created_at`
+        );
+        return stmt.get(userId, type, title, message);
+      }
+    } catch (error) {
+      console.error('❌ Error creating notification:', error);
+      throw error;
+    }
+  }
+
+  async getUserNotifications(userId) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          `SELECT id, type, title, message, is_read, created_at 
+          FROM notifications 
+          WHERE user_id = $1 
+          ORDER BY created_at DESC`,
+          [userId]
+        );
+        return result.rows;
+      } else {
+        const stmt = db.prepare(
+          `SELECT id, type, title, message, is_read, created_at 
+          FROM notifications 
+          WHERE user_id = ? 
+          ORDER BY created_at DESC`
+        );
+        return stmt.all(userId);
+      }
+    } catch (error) {
+      console.error('❌ Error getting notifications:', error);
+      throw error;
+    }
+  }
+
+  async getUnreadNotificationsCount(userId) {
+    try {
+      if (isProduction) {
+        const result = await db.query(
+          `SELECT COUNT(*) as count 
+          FROM notifications 
+          WHERE user_id = $1 AND is_read = false`,
+          [userId]
+        );
+        return parseInt(result.rows[0].count);
+      } else {
+        const stmt = db.prepare(
+          `SELECT COUNT(*) as count 
+          FROM notifications 
+          WHERE user_id = ? AND is_read = 0`
+        );
+        const row = stmt.get(userId);
+        return row ? row.count : 0;
+      }
+    } catch (error) {
+      console.error('❌ Error getting unread notifications count:', error);
+      throw error;
+    }
+  }
+
+  async markNotificationAsRead(userId, notificationId) {
+    try {
+      if (isProduction) {
+        await db.query(
+          `UPDATE notifications 
+          SET is_read = true, updated_at = CURRENT_TIMESTAMP 
+          WHERE id = $1 AND user_id = $2`,
+          [notificationId, userId]
+        );
+      } else {
+        const stmt = db.prepare(
+          `UPDATE notifications 
+          SET is_read = 1, updated_at = CURRENT_TIMESTAMP 
+          WHERE id = ? AND user_id = ?`
+        );
+        stmt.run(notificationId, userId);
+      }
+    } catch (error) {
+      console.error('❌ Error marking notification as read:', error);
+      throw error;
+    }
+  }
+
+  async markAllNotificationsAsRead(userId) {
+    try {
+      if (isProduction) {
+        await db.query(
+          `UPDATE notifications 
+          SET is_read = true, updated_at = CURRENT_TIMESTAMP 
+          WHERE user_id = $1`,
+          [userId]
+        );
+      } else {
+        const stmt = db.prepare(
+          `UPDATE notifications 
+          SET is_read = 1, updated_at = CURRENT_TIMESTAMP 
+          WHERE user_id = ?`
+        );
+        stmt.run(userId);
+      }
+    } catch (error) {
+      console.error('❌ Error marking all notifications as read:', error);
+      throw error;
+    }
+  }
+
+  async clearAllNotifications(userId) {
+    try {
+      if (isProduction) {
+        await db.query(
+          'DELETE FROM notifications WHERE user_id = $1',
+          [userId]
+        );
+      } else {
+        const stmt = db.prepare('DELETE FROM notifications WHERE user_id = ?');
+        stmt.run(userId);
+      }
+    } catch (error) {
+      console.error('❌ Error clearing notifications:', error);
+      throw error;
     }
   }
 
@@ -835,7 +1016,7 @@ class DatabaseService {
           [userId]
         );
         
-        return rows.map(client => ({
+        return result.rows.map(client => ({
           id: client.id,
           phone: client.phone,
           name: client.name,

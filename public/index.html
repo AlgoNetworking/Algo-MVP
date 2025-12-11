@@ -201,15 +201,21 @@
                 <h2>🔔 Notificações Pendentes</h2>
                 <div class="controls-inline">
                     <button id="clearAllNotificationsBtn" class="btn btn-sm btn-warning">
-                        🗑️ Limpar Todas
+                        ✅ Marcar Todas como Lidas
+                    </button>
+                    <button id="deleteAllNotificationsBtn" class="btn btn-sm btn-danger" onclick="deleteAllNotifications()">
+                        🗑️ Excluir Todas
                     </button>
                 </div>
+                <small style="display: block; margin: 10px 0; color: #7f8c8d;">
+                    Notificações persistentes: sobrevivem a recarregamentos, logouts e até mesmo ao reinício do servidor.
+                </small>
                 <div id="notificationsContainer" class="notifications-container">
                     <div class="empty-state">Nenhuma notificação</div>
                 </div>
             </div>
         </div>
-        
+                
         <!-- Configuration Tab -->
         <div id="config" class="tab-content">
             <div class="panel" style="display:flex; align-items:center; justify-content:space-between;">

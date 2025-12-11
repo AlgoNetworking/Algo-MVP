@@ -1074,6 +1074,137 @@ tr:hover {
     transform: translateY(-2px);
 }
 
+/* Toggle Button Styles */
+.toggle-btn {
+    position: relative;
+    width: 60px;
+    height: 30px;
+    background: #bdc3c7;
+    border-radius: 15px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.3s;
+    outline: none;
+}
+
+.toggle-btn:hover {
+    box-shadow: 0 0 5px rgba(0,0,0,0.2);
+}
+
+.toggle-btn.active {
+    background: #27ae60;
+}
+
+.toggle-btn::after {
+    content: '';
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    background: white;
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.3s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.toggle-btn.active::after {
+    transform: translateX(30px);
+}
+
+.toggle-status {
+    font-size: 0.85em;
+    font-weight: 600;
+    margin-left: 10px;
+}
+
+/* Browser notification styles */
+.notification-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background-color: #e74c3c;
+    color: white;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* Notification tab styling */
+#notifications.tab-content .panel {
+    animation: fadeIn 0.5s ease;
+}
+
+.notification-box.unread {
+    background-color: #fff8e1;
+    border-color: #f39c12;
+}
+
+.notification-box.read {
+    background-color: #f8f9fa;
+    border-color: #bdc3c7;
+    opacity: 0.8;
+}
+
+.notification-box.read .notification-header {
+    color: #7f8c8d;
+}
+
+.notification-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 15px;
+}
+
+.notification-ok-btn {
+    background-color: #27ae60;
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background-color 0.3s;
+}
+
+.notification-ok-btn:hover {
+    background-color: #229954;
+}
+
+.notification-delete-btn {
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background-color 0.3s;
+}
+
+.notification-delete-btn:hover {
+    background-color: #c0392b;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .modal {
