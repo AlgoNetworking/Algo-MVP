@@ -1,7 +1,7 @@
 // Portuguese number words and parsing logic
 const units = {
   '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
-  'zero': 0, 'um': 1, 'uma': 1, 'dois': 2, 'duas': 2, 'dos': 2, 'tres': 3, 'três': 3, 'treis': 3,
+  'zero': 0, 'um': 1, 'uma': 1, 'dois': 2, 'duas': 2, 'dos': 2, 'tres': 3, 'trÃªs': 3, 'treis': 3,
   'quatro': 4, 'quarto': 4, 'cinco': 5, 'cnico': 5, 'seis': 6, 'ses': 6, 'sete': 7, 'oito': 8, 'nove': 9, 'nov': 9
 };
 
@@ -157,52 +157,52 @@ function extractNumbersAndPositions(tokens) {
   return numbers;
 }
 
-function findAssociatedNumber(productPosition, allTokens, numbersWithPositions) {
-  if (numbersWithPositions.length === 0) {
-    return [1, null];
-  }
-
-  // Pattern 1: Number immediately before the product (most common)
-  if (productPosition > 0) {
-    const prevToken = allTokens[productPosition - 1];
-    if (/^\d+$/.test(prevToken) || allNumberWords[prevToken]) {
-      for (const [pos, val] of numbersWithPositions) {
-        if (pos === productPosition - 1) {
-          return [val, pos];
+// CORRECTED: Assign each number to the closest product
+function assignNumbersToProducts(productsWithPositions, numbersWithPositions) {
+  const assignments = new Map(); // product index -> [quantity, number position]
+  
+  // Sort numbers by position (left to right)
+  const sortedNumbers = [...numbersWithPositions].sort((a, b) => a[0] - b[0]);
+  
+  // For each number, find the closest unassigned product
+  for (const [numPos, numVal] of sortedNumbers) {
+    let closestProduct = null;
+    let minDistance = Infinity;
+    let closestProductIndex = -1;
+    
+    // Find the closest product to this number that doesn't already have a number
+    for (const product of productsWithPositions) {
+      if (assignments.has(product.productIndex)) continue;
+      
+      const distance = Math.abs(product.position - numPos);
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestProduct = product;
+        closestProductIndex = product.productIndex;
+      } else if (distance === minDistance) {
+        // If distances are equal, choose the leftmost product
+        if (product.position < closestProduct.position) {
+          closestProduct = product;
+          closestProductIndex = product.productIndex;
         }
       }
     }
+    
+    if (closestProduct !== null) {
+      assignments.set(closestProductIndex, [numVal, numPos]);
+    }
+    // If no product found, the number is ignored
   }
-
-  // Pattern 2: Look for numbers before the product (anywhere before)
-  const numbersBefore = numbersWithPositions.filter(([pos, _]) => pos < productPosition);
-  if (numbersBefore.length > 0) {
-    // Return the closest number before the product (highest position number before product)
-    const closestBefore = numbersBefore.reduce((max, curr) => curr[0] > max[0] ? curr : max);
-    return [closestBefore[1], closestBefore[0]];
-  }
-
-  // Pattern 3: Number immediately after the product
-  if (productPosition + 1 < allTokens.length) {
-    const nextToken = allTokens[productPosition + 1];
-    if (/^\d+$/.test(nextToken) || allNumberWords[nextToken]) {
-      for (const [pos, val] of numbersWithPositions) {
-        if (pos === productPosition + 1) {
-          return [val, pos];
-        }
-      }
+  
+  // Assign default 1 to products without numbers
+  for (const product of productsWithPositions) {
+    if (!assignments.has(product.productIndex)) {
+      assignments.set(product.productIndex, [1, null]);
     }
   }
-
-  // Pattern 4: Look for numbers after the product (anywhere after)
-  const numbersAfter = numbersWithPositions.filter(([pos, _]) => pos > productPosition);
-  if (numbersAfter.length > 0) {
-    // Return the closest number after the product (lowest position number after product)
-    const closestAfter = numbersAfter.reduce((min, curr) => curr[0] < min[0] ? curr : min);
-    return [closestAfter[1], closestAfter[0]];
-  }
-
-  return [1, null];
+  
+  return assignments;
 }
 
 function buildAkaLookup(productsDb) {
@@ -236,9 +236,9 @@ function buildAkaLookup(productsDb) {
   return akaLookup;
 }
 
-
-function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [1, 80]) {
-  let normalized = normalize(message);
+// Process a single line with improved number assignment
+function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
+  let normalized = normalize(line);
   normalized = separateNumbersAndWords(normalized);
   normalized = normalized.replace(/[,\.;\+\-\/\(\)\[\]\:]/g, ' ');
   normalized = normalized.replace(/\s+/g, ' ').trim();
@@ -246,7 +246,7 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
   const tokens = normalized.split(' ');
   const workingDb = productsDb.map(([product, qty]) => [product, qty]);
   const parsedOrders = [];
-  const disabledProductsFound = []; // Track disabled products
+  const disabledProductsFound = [];
 
   const numbersWithPositions = extractNumbersAndPositions(tokens);
 
@@ -270,13 +270,14 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
     }
   });
 
-  const usedNumberPositions = new Set();
-
+  // First pass - collect all products found in the message
+  const productsFound = [];
+  
   let i = 0;
   while (i < tokens.length) {
     const token = tokens[i];
 
-    const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada', 'momento', 'amiga', 'amigo']);
+    const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada', 'momento', 'amiga', 'amigo', 'cadas']);
     if ((fillerWords.has(token) && !productWords.has(token)) ||
       /^\d+$/.test(token) ||
       allNumberWords[token]) {
@@ -291,10 +292,11 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
 
       const phraseTokens = tokens.slice(i, i + size);
 
-      let skipPhrase = false;
+      let skipPhrase = true;
+      // Check if any token is NOT a filler word or number
       for (const t of phraseTokens) {
-        if (/^\d+$/.test(t) || allNumberWords[t] || (fillerWords.has(t) && !productWords.has(t))) {
-          skipPhrase = true;
+        if (!/^\d+$/.test(t) && !allNumberWords[t] && !(fillerWords.has(t) && !productWords.has(t))) {
+          skipPhrase = false;
           break;
         }
       }
@@ -306,9 +308,6 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
       const akaMatch = akaLookup.get(phraseNorm);
 
       if (akaMatch) {
-        const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
-        const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
-
         let originalIndex = -1;
         let productEnabled = true;
         for (let idx = 0; idx < productsDb.length; idx++) {
@@ -320,26 +319,14 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
         }
 
         if (originalIndex !== -1) {
-          // ALWAYS track disabled products, even if they're found
-          if (!productEnabled) {
-            disabledProductsFound.push({
-              product: akaMatch.mainProduct,
-              qty: quantity
-            });
-          } else {
-            // Only add to workingDb if product is enabled
-            workingDb[originalIndex][1] += quantity;
-            parsedOrders.push({
-              productName: akaMatch.mainProduct,
-              qty: quantity,
-              score: 100.0
-            });
-          }
-
-          if (numberPosition !== null && productEnabled) {
-            usedNumberPositions.add(numberPosition);
-          }
-
+          productsFound.push({
+            position: i,
+            productIndex: originalIndex,
+            productName: akaMatch.mainProduct,
+            enabled: productEnabled,
+            size: size
+          });
+          
           i += size;
           matched = true;
           break;
@@ -365,32 +352,14 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
       }
 
       if (bestScore >= similarityThreshold) {
-        const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
-        const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
-
-        // Check if the best match is disabled
-        if (!bestProductEnabled) {
-          disabledProductsFound.push({
-            product: bestProduct,
-            qty: quantity
-          });
-          i += size;
-          matched = true;
-          break;
-        }
-
-        // Product is enabled - add to order
-        workingDb[bestOriginalIdx][1] += quantity;
-        parsedOrders.push({
+        productsFound.push({
+          position: i,
+          productIndex: bestOriginalIdx,
           productName: bestProduct,
-          qty: quantity,
-          score: Math.round(bestScore * 100) / 100
+          enabled: bestProductEnabled,
+          size: size
         });
-
-        if (numberPosition !== null) {
-          usedNumberPositions.add(numberPosition);
-        }
-
+        
         i += size;
         matched = true;
         break;
@@ -430,41 +399,76 @@ function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [
       }
 
       if (bestMatch && bestScore > 50) {
-        const availableNumbers = numbersWithPositions.filter(([pos, _]) => !usedNumberPositions.has(pos));
-        const [quantity, numberPosition] = findAssociatedNumber(i, tokens, availableNumbers);
-
-        // Check if the best match is disabled
-        if (!bestProductEnabled) {
-          disabledProductsFound.push({
-            product: bestMatch,
-            qty: quantity
-          });
-          i++;
-          matched = true;
-          continue;
-        }
-
-        // Product is enabled - add to order
-        workingDb[bestOriginalIdx][1] += quantity;
-        parsedOrders.push({
+        productsFound.push({
+          position: i,
+          productIndex: bestOriginalIdx,
           productName: bestMatch,
-          qty: quantity,
-          score: Math.round(bestScore * 100) / 100
+          enabled: bestProductEnabled,
+          size: 1
         });
-
-        if (numberPosition !== null) {
-          usedNumberPositions.add(numberPosition);
-        }
-
+        
         matched = true;
       }
       i++;
     }
   }
-  console.log(parsedOrders);
+  
+  // Now assign numbers to products using the proper algorithm
+  const numberAssignments = assignNumbersToProducts(productsFound, numbersWithPositions);
+  
+  // Process each found product with its assigned quantity
+  for (const product of productsFound) {
+    const [quantity, _] = numberAssignments.get(product.productIndex);
+    
+    if (!product.enabled) {
+      disabledProductsFound.push({
+        product: product.productName,
+        qty: quantity
+      });
+    } else {
+      // Add to workingDb
+      workingDb[product.productIndex][1] += quantity;
+      parsedOrders.push({
+        productName: product.productName,
+        qty: quantity,
+        score: 100.0
+      });
+    }
+  }
+
   return { parsedOrders, updatedDb: workingDb, disabledProductsFound };
 }
 
+// UPDATED: Main parse function that processes each line separately and accumulates
+function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [1, 80]) {
+  // Split message by lines and filter out empty lines
+  const lines = message.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  
+  let allParsedOrders = [];
+  let allDisabledProductsFound = [];
+  
+  // Start with the current database (which already has accumulated quantities from previous messages)
+  let currentDb = productsDb.map(([product, qty]) => [product, qty]);
+  
+  // Process each line independently, accumulating results
+  for (const line of lines) {
+    const result = parseLine(line, currentDb, similarityThreshold, uncertainRange);
+    
+    // Merge results
+    allParsedOrders = [...allParsedOrders, ...result.parsedOrders];
+    allDisabledProductsFound = [...allDisabledProductsFound, ...result.disabledProductsFound];
+    
+    // Update the database for the next line (accumulating quantities)
+    currentDb = result.updatedDb;
+  }
+  
+  // IMPORTANT: Return the accumulated database, not a reset one
+  return { 
+    parsedOrders: allParsedOrders, 
+    updatedDb: currentDb, 
+    disabledProductsFound: allDisabledProductsFound 
+  };
+}
 
 module.exports = {
   parse,

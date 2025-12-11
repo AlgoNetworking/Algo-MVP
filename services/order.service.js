@@ -190,12 +190,12 @@ class OrderSession {
         }
       }
     }
-    summary += '\n⚠️ **Confirma o pedido?** (responda com \"sim\" ou \"nao\")';
+    summary += '\n⚠️ **Confirma o pedido?** (responda com \"sim\" ou \"não\")';
     return summary;
   }
 
   checkCancelCommand(message) {
-    const cancelCommands = ['nao', 'não', 'n', 'cancelar', 'cancela', 'nao vou pedir', 'não vou pedir', 
+    const cancelCommands = ['nao', 'não', 'n', 'cancelar', 'cancela', 'cancelra', 'nao vou pedir', 'não vou pedir', 
                           'nao quero', 'não quero', 'ainda tenho', 'obrigado, não quero hoje',
                           'não vou querer', 'não vou querer hoje', 'não quero hoje', 'só próxima semana', 
                           'só proxima semana', 'so proxima semana','obrigado, nao quero hoje', 
@@ -244,6 +244,10 @@ class OrderService {
 
     // Get user's product names for example
     const productNames = session.getProductNames();
+
+    const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima','sim', 
+                          's', 'ok', 'okey', 'okay', 'claro', 'pode ser', 'pronto', 
+                          'ponto'];
 
     const greetingWords = ['olá', 'ola', 'oi', 'boa dia', 'bom dia', 'bon dia',
                           'boa tarde', 'bom tarde', 'bon tarde', 'boa noite', 
@@ -356,7 +360,7 @@ class OrderService {
       const greeting = callName !== 'Cliente sem nome' ? `Olá ${callName}!` : 'Olá!';
       return {
         success: true,
-        message: `${greeting} Isso é uma mensagem automática. 😁\n\nVocê deseja:\nrealizar um pedido (digite "*1*");\nconversar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
+        message: `${greeting} Isso é uma mensagem automática. 😁\n\nVocê deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
         isChatBot: true
       };
     }
@@ -461,7 +465,7 @@ class OrderService {
         session.waitingForOption = true;
         session.state = 'option';
         let info = 'Ok, aqui temos instruções de como utilizar o programa e mais sobre ele!\n\n';
-        info += 'O programa oferece quatro opções quando está no menu inicial: "*1*" para realizar um pedido, "*2*" para conversar com um funcionário, "*3*" para ver a lista de produtos e "*4*" para ler a mensagem que você está lendo agora.\n\n';
+        info += 'O programa oferece quatro opções quando está no menu inicial: "*1*" para realizar um pedido, "*2*" para falar com um funcionário, "*3*" para ver a lista de produtos e "*4*" para ler a mensagem que você está lendo agora.\n\n';
         info += `Para realizar um pedido, basta digitar mensagens de texto de forma natural, como: ${example}. Pois o programa consegue entender mensagens em linguagem natural.\n\n`;
         info += 'O programa foi feito por Guilherme Moura Mororó, Nicolas Pinheiro e Marcos Bastos para originalmente ajudar a empresa dos avós de Guilherme. No entanto, ainda está em fase de testes e pode ser adicionado ao seu negócio gratuitamente. Basta contatar o número (+55 85 7400-2430) e recebrá mais informações sobre o produto.\n\n';
         info += 'E agora? Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nler a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo novamente(digite "*4*")?';
@@ -492,7 +496,6 @@ class OrderService {
 
     // Handle confirmation
     if (session.state === 'confirming') {
-      const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima','sim', 's', 'ok', 'okey', 'claro', 'pode ser', 'pronto'];
 
       if (confirmWords.includes(messageLower)) {
         // Before confirming, check for disabled products in any new items
@@ -673,7 +676,7 @@ class OrderService {
 
     // Handle collection
     if (session.state === 'collecting') {
-      if (['confirmar', 'confimar', 'confirma', 'confima','sim', 's', 'ok', 'okey', 'claro', 'pode ser', 'pronto'].includes(messageLower)) {
+      if (confirmWords.includes(messageLower)) {
         if (session.hasItems()) {
           // Check if there are any disabled products in current orders
           const hasDisabledProducts = session.currentDb.some(([product, qty]) => {
