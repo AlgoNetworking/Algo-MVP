@@ -211,48 +211,51 @@ function calculateDistance(productStartPos, productTokenIndex, numberPos, tokens
   return distance + 1;
 }
 
-// CORRECTED: Assign each number to the closest product considering spaces
+// FIXED: Assign each number to the closest product mention (treating duplicates as separate)
 function assignNumbersToProducts(productsWithPositions, numbersWithPositions, tokens) {
-  const assignments = new Map(); // product index -> [quantity, number position]
+  // Create an array to store assignments for each product mention
+  const assignments = new Array(productsWithPositions.length).fill(null);
   
   // Sort numbers by position (left to right)
   const sortedNumbers = [...numbersWithPositions].sort((a, b) => a[0] - b[0]);
   
-  // For each number, find the closest unassigned product
+  // Track which product mentions have been assigned a number
+  const assignedProductIndices = new Set();
+  
+  // For each number, find the closest unassigned product mention
   for (const [numPos, numVal, numTokenIndex] of sortedNumbers) {
-    let closestProduct = null;
-    let minDistance = Infinity;
     let closestProductIndex = -1;
+    let minDistance = Infinity;
     
-    // Find the closest product to this number that doesn't already have a number
-    for (const product of productsWithPositions) {
-      if (assignments.has(product.productIndex)) continue;
+    // Find the closest product mention to this number that hasn't already been assigned a number
+    for (let i = 0; i < productsWithPositions.length; i++) {
+      if (assignedProductIndices.has(i)) continue;
       
+      const product = productsWithPositions[i];
       const distance = calculateDistance(product.position, product.tokenIndex, numPos, tokens);
       
       if (distance < minDistance) {
         minDistance = distance;
-        closestProduct = product;
-        closestProductIndex = product.productIndex;
+        closestProductIndex = i;
       } else if (distance === minDistance) {
         // If distances are equal, choose the leftmost product
-        if (product.position < closestProduct.position) {
-          closestProduct = product;
-          closestProductIndex = product.productIndex;
+        if (closestProductIndex !== -1 && product.position < productsWithPositions[closestProductIndex].position) {
+          closestProductIndex = i;
         }
       }
     }
     
-    if (closestProduct !== null) {
-      assignments.set(closestProductIndex, [numVal, numPos]);
+    if (closestProductIndex !== -1) {
+      assignments[closestProductIndex] = [numVal, numPos];
+      assignedProductIndices.add(closestProductIndex);
     }
     // If no product found, the number is ignored
   }
   
-  // Assign default 1 to products without numbers
-  for (const product of productsWithPositions) {
-    if (!assignments.has(product.productIndex)) {
-      assignments.set(product.productIndex, [1, null]);
+  // Assign default 1 to product mentions without numbers
+  for (let i = 0; i < productsWithPositions.length; i++) {
+    if (assignments[i] === null) {
+      assignments[i] = [1, null];
     }
   }
   
@@ -505,8 +508,9 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
   const numberAssignments = assignNumbersToProducts(productsFound, numbersWithPositions, tokens);
   
   // Process each found product with its assigned quantity
-  for (const product of productsFound) {
-    const [quantity, _] = numberAssignments.get(product.productIndex);
+  for (let i = 0; i < productsFound.length; i++) {
+    const product = productsFound[i];
+    const [quantity, _] = numberAssignments[i];
     
     if (!product.enabled) {
       disabledProductsFound.push({
@@ -514,7 +518,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
         qty: quantity
       });
     } else {
-      // Add to workingDb
+      // Add to workingDb - this will sum quantities for the same product
       workingDb[product.productIndex][1] += quantity;
       parsedOrders.push({
         productName: product.productName,
