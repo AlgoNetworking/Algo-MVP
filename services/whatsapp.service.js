@@ -758,18 +758,6 @@ class WhatsAppService {
         console.log(`🚫 Disabling bot for user ${userId}: ${phoneNumber}`);
         userDisabled.add(sender);
 
-        // Save notification to database
-        try {
-          await databaseService.createNotification(
-            userId,
-            'bot_disabled',
-            'Cliente escolheu conversar com pessoa',
-            `O cliente ${userInfo?.name || phoneNumber} escolheu conversar com uma pessoa.`
-          );
-        } catch (error) {
-          console.error('❌ Error saving notification:', error);
-        }
-
         const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
         // Ensure clientUsers is always an array
         if (!clientUsers || !Array.isArray(clientUsers)) {

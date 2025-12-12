@@ -790,7 +790,7 @@ function initializeNotifications() {
     notificationBadge = document.getElementById('notificationBadge');
     notificationsContainer = document.getElementById('notificationsContainer');
     
-    document.getElementById('clearAllNotificationsBtn').addEventListener('click', clearAllNotifications);
+    document.getElementById('clearAllNotificationsBtn').addEventListener('click', deleteAllNotifications);
     
     // Request browser notification permission
     requestNotificationPermission();
@@ -836,15 +836,15 @@ async function loadNotifications() {
 }
 
 // Add notification to database and UI
-async function addNotificationToDB(phone, name) {
+async function addNotificationToDB(phone, name, type, title, message) {
     try {
         const response = await fetch('/api/notifications', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                type: 'bot_disabled',
-                title: 'Cliente escolheu conversar com pessoa',
-                message: `O cliente ${name || phone} escolheu conversar com uma pessoa.`
+                type,
+                title,
+                message: `O cliente ${name || phone} ${message}`
             })
         });
         
@@ -853,7 +853,7 @@ async function addNotificationToDB(phone, name) {
             await loadNotifications(); // Reload notifications from server
             
             // Show browser notification
-            showBrowserNotification('Novo Cliente', `${name || phone} escolheu conversar com pessoa`);
+            showBrowserNotification('Notificação de Clientes', `${name || phone} ${message}`);
             
             return true;
         }
@@ -972,6 +972,7 @@ async function dismissNotification(notificationId) {
     }
 }
 
+/*
 // Clear all notifications
 async function clearAllNotifications() {
     if (notifications.length === 0) return;
@@ -979,7 +980,7 @@ async function clearAllNotifications() {
     const unreadCount = notifications.filter(n => !n.isRead).length;
     if (unreadCount === 0) return;
     
-    const confirmed = await confirmAction('Limpar Notificações', `Marcar todas as ${unreadCount} notificações como lidas?`);
+    const confirmed = await confirmAction('Limpar Notificações', `Marcar todas as notificações como lidas?`);
     if (!confirmed) return;
     
     try {
@@ -996,12 +997,13 @@ async function clearAllNotifications() {
         console.error('Error clearing all notifications:', error);
     }
 }
+*/
 
 // Completely delete all notifications
 async function deleteAllNotifications() {
     if (notifications.length === 0) return;
     
-    const confirmed = await confirmAction('Excluir Todas', `Excluir permanentemente todas as ${notifications.length} notificações?`);
+    const confirmed = await confirmAction('Marcar como Lidas', `Marcar todas as notificações como lidas?`);
     if (!confirmed) return;
     
     try {
@@ -2859,9 +2861,14 @@ function initializeSocket() {
 
     // Add notification to database
     if (user) {
-        await addNotificationToDB(formattedPhone, user.name);
+        await addNotificationToDB(formattedPhone, user.name, 
+          'disable_bot', 'Um cliente escolheu falar com um funcionário', 
+          'quer falar com um funcionário.');
     } else {
-        await addNotificationToDB(formattedPhone, 'Cliente sem Nome');
+        await addNotificationToDB(formattedPhone, 
+          false,
+          'disable_bot', 'Um cliente escolheu falar com um funcionário', 
+          'quer falar com um funcionário.');
     }
  
     const clientDisableBotIndex = clients.findIndex(c => c.phone === formattedPhone);
