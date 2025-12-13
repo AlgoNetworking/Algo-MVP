@@ -190,12 +190,50 @@ function extractNumbersAndPositions(tokens) {
   return numbers.map(([pos, val, tokenIndex]) => [pos, val, tokenIndex]);
 }
 
-// Calculate distance considering spaces
-function calculateDistance(productStartPos, productTokenIndex, numberPos, tokens) {
-  // Count tokens between product and number
+// NEW: Calculate distance from number to product, considering multi-word products
+function calculateDistanceToProduct(product, numberPos, tokens) {
+  // For multi-word products, we need to find all tokens that belong to this product
+  // and calculate the minimum distance to any of those tokens
+  
+  // First, let's find all token positions that belong to this product
+  const productTokenPositions = [];
+  
+  // We know the product starts at product.position and has product.size non-whitespace tokens
+  let nonWhitespaceCount = 0;
+  let currentPos = product.position;
+  
+  while (nonWhitespaceCount < product.size && currentPos < tokens.length) {
+    if (!tokens[currentPos].isWhitespace) {
+      productTokenPositions.push(currentPos);
+      nonWhitespaceCount++;
+    }
+    currentPos++;
+  }
+  
+  if (productTokenPositions.length === 0) {
+    // Fallback: just use the product's position
+    return calculateSimpleDistance(product.position, numberPos, tokens);
+  }
+  
+  // Calculate distance to each product token and take the minimum
+  let minDistance = Infinity;
+  
+  for (const productTokenPos of productTokenPositions) {
+    const distance = calculateSimpleDistance(productTokenPos, numberPos, tokens);
+    if (distance < minDistance) {
+      minDistance = distance;
+    }
+  }
+  
+  return minDistance;
+}
+
+// Helper function: Calculate simple token distance between two positions
+function calculateSimpleDistance(pos1, pos2, tokens) {
+  // Count tokens between pos1 and pos2
   let distance = 0;
-  const start = Math.min(productStartPos, numberPos);
-  const end = Math.max(productStartPos, numberPos);
+  const start = Math.min(pos1, pos2);
+  const end = Math.max(pos1, pos2);
   
   for (let i = start + 1; i < end; i++) {
     if (tokens[i].isWhitespace) {
@@ -232,7 +270,7 @@ function assignNumbersToProducts(productsWithPositions, numbersWithPositions, to
       if (assignedProductIndices.has(i)) continue;
       
       const product = productsWithPositions[i];
-      const distance = calculateDistance(product.position, product.tokenIndex, numPos, tokens);
+      const distance = calculateDistanceToProduct(product, numPos, tokens);
       
       if (distance < minDistance) {
         minDistance = distance;
