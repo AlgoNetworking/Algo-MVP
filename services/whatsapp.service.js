@@ -754,9 +754,11 @@ class WhatsAppService {
         await this.sendMessage(userId, sender, response.message);
       }
 
-      if (response && response.isChatBot === false) {
-        console.log(`🚫 Disabling bot for user ${userId}: ${phoneNumber}`);
-        userDisabled.add(sender);
+      if (response && (
+        response.isChatBot === false || 
+        response.clientStatus === 'wontOrder' || 
+        response.clientStatus === 'confirmedOrder'
+      )) {
 
         const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
         // Ensure clientUsers is always an array
@@ -764,18 +766,38 @@ class WhatsAppService {
           console.error(`❌ Error: clientUsers is not an array for user ${userId}`);
           return;
         }
-        
-        if (this.io) {
-          this.io.to(`user-${userId}`).emit('disable-bot', {
-            phone: phoneNumber,
-            userId,
-            clients: clientUsers
-          });
-          
-          // Also emit notification update
-          const unreadCount = await databaseService.getUnreadNotificationsCount(userId);
-          this.io.to(`user-${userId}`).emit('notifications-update', { unreadCount });
+        if(response.isChatBot === false) {
+          console.log(`🚫 Disabling bot for user ${userId}: ${phoneNumber}`);
+          userDisabled.add(sender);
+          if (this.io) {
+            this.io.to(`user-${userId}`).emit('disable-bot', {
+              phone: phoneNumber,
+              userId,
+              clients: clientUsers
+            });
+          }
         }
+        if(response.clientStatus === 'wontOrder') {
+          if (this.io) {
+            this.io.to(`user-${userId}`).emit('wont-order', {
+              phone: phoneNumber,
+              userId,
+              clients: clientUsers
+            });
+          }
+        }
+        if(response.clientStatus === 'confirmedOrder') {
+          if (this.io) {
+            this.io.to(`user-${userId}`).emit('confirmed-order', {
+              phone: phoneNumber,
+              userId,
+              clients: clientUsers
+            });
+          }
+        }
+        // Also emit notification update
+        const unreadCount = await databaseService.getUnreadNotificationsCount(userId);
+        this.io.to(`user-${userId}`).emit('notifications-update', { unreadCount });
       }
 
     } catch (error) {
@@ -987,8 +1009,31 @@ class WhatsAppService {
             const updates = await orderService.getUpdates(sessionId, userId);
             
             if (updates.has_message && updates.bot_message) {
-              await this.sendMessage(userId, phone, updates.bot_message);
+              await this.sendMessage(userId, phone, updates.bot_message[0]);
             }
+          
+            if (updates.has_message && updates.client_status[1] === 'autoConfirmedOrder') {
+
+              const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
+              // Ensure clientUsers is always an array
+              if (!clientUsers || !Array.isArray(clientUsers)) {
+                console.error(`❌ Error: clientUsers is not an array for user ${userId}`);
+                return;
+              }
+
+              if (this.io) {
+                this.io.to(`user-${userId}`).emit('auto-confirmed-order', {
+                  phone: this.formatPhoneNumber(phone),
+                  userId,
+                  clients: clientUsers
+                });
+              }
+              
+              // Also emit notification update
+              const unreadCount = await databaseService.getUnreadNotificationsCount(userId);
+              this.io.to(`user-${userId}`).emit('notifications-update', { unreadCount });
+            }
+
           } catch (error) {
             console.error(`❌ Polling error for user ${userId}, phone ${phone}:`, error.message);
           }

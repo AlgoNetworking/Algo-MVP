@@ -123,7 +123,7 @@ class OrderSession {
       this.state = 'confirming';
       this.reminderCount = 0;
       const summary = this.buildSummary(enabledItems);
-      this.messageQueue.push(summary);
+      this.messageQueue.push([summary, '']);
       this.startReminderCycle();
     } else if (this.state === 'collecting') {
       this.startInactivityTimer();
@@ -133,20 +133,20 @@ class OrderSession {
   startReminderCycle() {
     this.reminderCount = 1;
     this.cancelTimer();
-    this.activeTimer = setTimeout(() => this.sendReminder(), 1800000); // 30 minutes
+    this.activeTimer = setTimeout(() => this.sendReminder(), 300000); // 30 minutes
   }
 
   sendReminder() {
-    if (this.state === 'confirming' && this.reminderCount <= 2) {
+    if (this.state === 'confirming' && this.reminderCount <= 3) {
       const summary = this.buildSummary();
-      this.messageQueue.push(`🔔 **LEMBRETE (${this.reminderCount}/2):**\n${summary}`);
-
-      if (this.reminderCount === 2) {
+      
+      if (this.reminderCount === 3) {
         this.markAsPending();
       } else {
+        this.messageQueue.push([`🔔 **LEMBRETE (${this.reminderCount}/2):**\n${summary}`, '']);
         this.reminderCount++;
         this.cancelTimer();
-        this.activeTimer = setTimeout(() => this.sendReminder(), 1800000); //30 minutes
+        this.activeTimer = setTimeout(() => this.sendReminder(), 300000); //30 minutes
       }
     }
   }
@@ -172,7 +172,7 @@ class OrderSession {
         status: 'pending'
       });
 
-      this.messageQueue.push('🟡 **PEDIDO SALVO COMO PENDENTE** - *Pedido confirmado automaticamente.*');
+      this.messageQueue.push(['🟡 **PEDIDO SALVO COMO PENDENTE** - *Pedido confirmado automaticamente.*', 'autoConfirmedOrder']);
       this.resetCurrent();
       this.state = 'waiting_for_next';
     }
@@ -195,7 +195,7 @@ class OrderSession {
   }
 
   checkCancelCommand(message) {
-    const cancelCommands = ['nao', 'não', 'n', 'cancelar', 'cancela', 'cancelra', 'nao vou pedir', 'não vou pedir', 
+    const cancelCommands = ['nao', 'não', 'n', 'cancelar', 'cancela', 'cancelra', 'cancelrar', 'nao vou pedir', 'não vou pedir', 
                           'nao quero', 'não quero', 'ainda tenho', 'obrigado, não quero hoje',
                           'não vou querer', 'não vou querer hoje', 'não quero hoje', 'só próxima semana', 
                           'só proxima semana', 'so proxima semana','obrigado, nao quero hoje', 
@@ -284,7 +284,8 @@ class OrderService {
       return {
         success: true,
         message: `${greeting}! Isto é uma mensagem automática para a sua conveniência 😊\n\n${hint}`,
-        isChatBot: true
+        isChatBot: true,
+        clientStatus: '',
       }
     }
 
@@ -297,8 +298,9 @@ class OrderService {
       console.log(session.currentDb);
       return {
         success: true,
-        message: 'O programa detectou que você quer tirar uma dúvida com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira fazer um pedido)',
-        isChatBot: false
+        message: 'O programa detectou que você quer tirar uma dúvida com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
+        isChatBot: false,
+        clientStatus: 'talkToEmployee',
       };
     }
     
@@ -336,7 +338,7 @@ class OrderService {
       } catch (err) {
         console.error('Error saving canceled user order:', err);
       }
-      return { success: true, message: 'Ok, volte sempre! 😃', isChatBot: true};
+      return { success: true, message: 'Ok, volte sempre! 😃', isChatBot: true, clientStatus: 'wontOrder',};
     }
 
     if(messageType !== 'chat') {
@@ -344,8 +346,9 @@ class OrderService {
       session.waitingForOption = false;
       return {
         success: true,
-        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê será redirecionado para um funcionário responder.\n\n(digite "sair" caso queira fazer um pedido)`,
-        isChatBot: false
+        message: `Perdão, mas o nosso programa de mensagens automáticas ainda não entende mensagens que não sejam de texto. \n\nVocê será redirecionado para um funcionário responder.\n\n(digite "sair" caso queira voltar a falar com um robô)`,
+        isChatBot: false,
+        clientStatus: 'talkToEmployee',
       };
     }
 
@@ -361,7 +364,8 @@ class OrderService {
       return {
         success: true,
         message: `${greeting} Isso é uma mensagem automática. 😁\n\nVocê deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
-        isChatBot: true
+        isChatBot: true,
+        clientStatus: '',
       };
     }
 
@@ -378,7 +382,8 @@ class OrderService {
           return {
             success: false,
             message: '❌ Não há produtos disponíveis no momento. Por favor, entre em contato conosco.',
-            isChatBot: true
+            isChatBot: true,
+            clientStatus: '',
           };
         }
         
@@ -397,7 +402,8 @@ class OrderService {
         return {
           success: true,
           message: `Ótimo! Digite seus pedidos. Exemplo: "${example}"\ndigite "pronto" quando terminar seu pedido ou aguarde a mensagem automática!`,
-          isChatBot: true
+          isChatBot: true,
+          clientStatus: '',
         };
       } else if (messageLower === '2') {
         session.waitingForOption = false;
@@ -405,8 +411,9 @@ class OrderService {
         session.chooseOptionAttempts = 0;
         return {
           success: true,
-          message: 'Ok, assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira fazer um pedido)',
-          isChatBot: false
+          message: 'Ok, assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
+          isChatBot: false,
+          clientStatus: 'talkToEmployee',
         };
       } else if (messageLower === '3') {
         const config = await databaseService.getUserConfig(userId);
@@ -441,7 +448,8 @@ class OrderService {
         return {
           success: true,
           message: productList,
-          isChatBot: true
+          isChatBot: true,
+          clientStatus: '',
         };
       } else if (messageLower === '4') {
         // Get product names for example
@@ -473,7 +481,8 @@ class OrderService {
         return {
           success: true,
           message: info,
-          isChatBot: true
+          isChatBot: true,
+          clientStatus: '',
         };
       } else {
         session.chooseOptionAttempts++;
@@ -482,14 +491,16 @@ class OrderService {
           session.state = 'waiting_for_next';
           return {
             success: true,
-            message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira fazer um pedido)',
-            isChatBot: false
+            message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
+            isChatBot: false,
+            clientStatus: 'talkToEmployee',
           };
         }
         return {
           success: false,
           message: 'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo',
-          isChatBot: true
+          isChatBot: true,
+          clientStatus: '',
         };
       }
     }
@@ -540,7 +551,8 @@ class OrderService {
           return {
             success: false,
             message: errorMessage,
-            isChatBot: true
+            isChatBot: true,
+            clientStatus: '',
           };
         }
         
@@ -596,7 +608,7 @@ class OrderService {
           : '\nObrigado pelo pedido! 🎉\n\n';
         response += thankYou;
 
-        return { success: true, message: response, isChatBot: true };
+        return { success: true, message: response, isChatBot: true, clientStatus: 'confirmedOrder',};
 
       } else if (session.checkCancelCommand(messageLower)) {
         session.cancelTimer();
@@ -624,8 +636,9 @@ class OrderService {
         session.startInactivityTimer();
         return {
           success: true,
-          message: '🔄 **Lista limpa!** Digite novos itens.',
-          isChatBot: true
+          message: '🔄 **Pedido cancelado!** Digite novos itens.',
+          isChatBot: true,
+          clientStatus: '',
         };
 
       } else {
@@ -653,7 +666,8 @@ class OrderService {
           return {
             success: false,
             message: errorMessage,
-            isChatBot: true
+            isChatBot: true,
+            clientStatus: '',
           };
         }
         
@@ -663,12 +677,13 @@ class OrderService {
           session.state = 'collecting'; // Go back to collecting state
           session.reminderCount = 0;
           session.startInactivityTimer();
-          return { success: true, isChatBot: true};
+          return { success: true, isChatBot: true, clientStatus: '',};
         } else {
           return {
             success: false,
             message: '☹️ Perdão, o item não foi reconhecido. Digite \'confirmar\' para confirmar ou \'nao\' para cancelar.',
             isChatBot: true,
+            clientStatus: '',
           };
         }
       }
@@ -715,18 +730,19 @@ class OrderService {
                 message: `⚠️ **ATENÇÃO:** Os seguintes produtos estão fora de estoque e foram removidos do seu pedido:\n${
                   disabledRemoved.map(item => `• ${item.qty}x ${item.product}`).join('\n')
                 }\n\n📋 Preparando resumo dos produtos disponíveis...`,
-                isChatBot: true
+                isChatBot: true,
+                clientStatus: '',
               };
             }
             
-            return { success: true, message: '📋 Preparando seu resumo...', isChatBot: true };
+            return { success: true, message: '📋 Preparando seu resumo...', isChatBot: true, clientStatus: '', };
           } else {
             // No disabled products, proceed normally
             session.sendSummary();
-            return { success: true, message: '📋 Preparando seu resumo...', isChatBot: true };
+            return { success: true, message: '📋 Preparando seu resumo...', isChatBot: true, clientStatus: '', };
           }
         } else {
-          return { success: false, message: '❌ Lista vazia. Adicione itens primeiro.', isChatBot: true };
+          return { success: false, message: '❌ Lista vazia. Adicione itens primeiro.', isChatBot: true, clientStatus: '', };
         }
       } else {
         const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb);
@@ -755,14 +771,15 @@ class OrderService {
           return {
             success: false,
             message: errorMessage,
-            isChatBot: true
+            isChatBot: true,
+            clientStatus: '',
           };
         }
         
         if (parsedOrders.length > 0) {
           session.currentDb = updatedDb;
           session.startInactivityTimer(); // Only start timer if no disabled products
-          return { success: true, isChatBot: true };
+          return { success: true, isChatBot: true, clientStatus: '', };
         } else {
           session.startInactivityTimer();
           session.parseOrderAttempts++;
@@ -771,20 +788,22 @@ class OrderService {
             session.state = 'waiting_for_next';
             return {
               success: true,
-              message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira fazer um pedido)',
-              isChatBot: false
+              message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
+              isChatBot: false,
+              clientStatus: 'talkToEmployee',
             };
           }
           return {
             success: false,
             message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. *Se desejar cancelar o pedido, digite "cancelar".*',
-            isChatBot: true
+            isChatBot: true,
+            clientStatus: '',
           };
         }
       }
     }
 
-    return { success: false, message: 'Estado não reconhecido. Digite \'cancelar\' para reiniciar.', isChatBot: true};
+    return { success: false, message: 'Estado não reconhecido. Digite \'cancelar\' para reiniciar.', isChatBot: true, clientStatus: '',};
   }
 
   async getUpdates(sessionId, userId) {
@@ -801,7 +820,8 @@ class OrderService {
       current_orders: session.getCurrentOrders(),
       reminders_sent: session.reminderCount,
       has_message: message !== null,
-      bot_message: message
+      bot_message: message,
+      client_status: message
     };
   }
 

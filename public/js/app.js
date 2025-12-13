@@ -1311,10 +1311,10 @@ function showBulkMessageOptions(clients) {
   
   const modalFooter = document.querySelector('.modal-footer');
   modalFooter.innerHTML = `
-    <button id="modalCancelBtn" class="btn btn-sm btn-danger">Não</button>
     <button id="modalCustomBtn" class="btn btn-sm" style="background: #F0B513; color: white; font-weight: 600;">
       📝 Enviar Mensagem Customizada
     </button>
+    <button id="modalCancelBtn" class="btn btn-sm btn-danger">Não</button>
     <button id="modalConfirmBtn" class="btn btn-sm btn-success">Sim</button>
   `;
   
@@ -2860,7 +2860,7 @@ function initializeSocket() {
     const user = clients.find(c => c.phone === formattedPhone);
 
     // Add notification to database
-    if (user) {
+    if (user.name !== 'Cliente sem nome') {
         await addNotificationToDB(formattedPhone, user.name, 
           'disable_bot', 'Um cliente escolheu falar com um funcionário', 
           'quer falar com um funcionário.');
@@ -2874,6 +2874,60 @@ function initializeSocket() {
     const clientDisableBotIndex = clients.findIndex(c => c.phone === formattedPhone);
     if (clientDisableBotIndex !== -1) {
         disableChatBot(clientDisableBotIndex);
+    }
+  });
+
+  socket.on('wont-order', async (data) => {
+    const formattedPhone = formatPhoneNumberForDisplay(data.phone);
+    const clients = data.clients;
+    const user = clients.find(c => c.phone === formattedPhone);
+
+    // Add notification to database
+    if (user.name !== 'Cliente sem nome') {
+        await addNotificationToDB(formattedPhone, user.name, 
+          'wont_order', 'Um cliente não vai pedir', 
+          'decidiu não fazer um pedido.');
+    } else {
+        await addNotificationToDB(formattedPhone, 
+          false,
+          'wont_order', 'Um cliente não vai pedir', 
+          'decidiu não fazer um pedido.');
+    }
+  });
+
+  socket.on('confirmed-order', async (data) => {
+    const formattedPhone = formatPhoneNumberForDisplay(data.phone);
+    const clients = data.clients;
+    const user = clients.find(c => c.phone === formattedPhone);
+
+    // Add notification to database
+    if (user.name !== 'Cliente sem nome') {
+        await addNotificationToDB(formattedPhone, user.name, 
+          'confirmed_order', 'Um cliente realizou um pedido!', 
+          'fez um pedido!');
+    } else {
+        await addNotificationToDB(formattedPhone, 
+          false,
+          'confirmed_order', 'Um cliente realizou um pedido!', 
+          'fez um pedido!');
+    }
+  });
+
+  socket.on('auto-confirmed-order', async (data) => {
+    const formattedPhone = formatPhoneNumberForDisplay(data.phone);
+    const clients = data.clients;
+    const user = clients.find(c => c.phone === formattedPhone);
+
+    // Add notification to database
+    if (user.name !== 'Cliente sem nome') {
+        await addNotificationToDB(formattedPhone, user.name, 
+          'pending_confirmation', 'Um pedido foi confirmado automaticamente', 
+          'teve seu pedido confirmado automaticamente.');
+    } else {
+        await addNotificationToDB(formattedPhone, 
+          false,
+          'pending_confirmation', 'Um pedido foi confirmado automaticamente', 
+          'teve seu pedido confirmado automaticamente.');
     }
   });
 
