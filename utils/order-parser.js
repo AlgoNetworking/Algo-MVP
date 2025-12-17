@@ -377,7 +377,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
       continue;
     }
 
-    const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada', 'momento', 'amiga', 'amigo', 'cadas']);
+    const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada', 'momento', 'amiga', 'amigo', 'cadas', 'segue']);
     if ((fillerWords.has(token.value) && !productWords.has(normalize(token.value))) ||
       /^\d+$/.test(token.value) ||
       allNumberWords[token.value]) {
@@ -570,7 +570,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
 }
 
 // UPDATED: Main parse function that processes each line separately and accumulates
-function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [1, 80]) {
+function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [60, 80]) {
   // Split message by lines and filter out empty lines
   const lines = message.split('\n').map(line => line.trim()).filter(line => line.length > 0);
   

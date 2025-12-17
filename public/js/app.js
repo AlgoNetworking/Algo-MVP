@@ -1570,6 +1570,173 @@ async function downloadExcel() {
     }
 }
 
+// Add this function near other download/export functions
+async function downloadOrdersTxt() {
+  try {
+    addLog('📝 Gerando arquivo TXT de pedidos...');
+    
+    // Fetch all user orders
+    const response = await fetch('/api/orders/user-orders');
+    const data = await response.json();
+    
+    if (!data.success || !data.user_orders || data.user_orders.length === 0) {
+        customAlert('Aviso', 'Nenhum pedido encontrado para exportar.');
+        return;
+    }
+    
+    // Create text content
+    let txtContent = 'RELATÓRIO DE PEDIDOS\n';
+    txtContent += '=====================\n\n';
+    txtContent += `Data de exportação: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}\n`;
+    txtContent += `Total de pedidos: ${data.user_orders.length}\n\n`;
+    
+    // Separate orders by type
+    const normalOrders = [];
+    const quiloOrders = [];
+    const dosadoOrders = [];
+    
+    // Group orders by type
+    data.user_orders.forEach(order => {
+        switch(order.order_type) {
+            case 'quilo':
+                quiloOrders.push(order);
+                break;
+            case 'dosado':
+                dosadoOrders.push(order);
+                break;
+            default:
+                normalOrders.push(order);
+        }
+    });
+    
+    // Format normal orders
+    if (normalOrders.length > 0) {
+        txtContent += 'PEDIDOS NORMAIS\n';
+        txtContent += '================\n\n';
+        
+        normalOrders.forEach(order => {
+            const parsedOrders = typeof order.parsed_orders === 'string' 
+                ? JSON.parse(order.parsed_orders) 
+                : order.parsed_orders;
+            
+            txtContent += `Cliente: ${order.name}\n`;
+            txtContent += `Telefone: ${order.phone_number}\n`;
+            txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
+            txtContent += `Status: ${order.status}\n`;
+            txtContent += 'Itens:\n';
+            
+            parsedOrders.forEach(item => {
+                txtContent += `  ${item.qty}x ${item.productName || item.product}\n`;
+            });
+            
+            if (order.original_message) {
+                txtContent += `Mensagem original: ${order.original_message}\n`;
+            }
+            
+            txtContent += '---\n\n';
+        });
+    }
+    
+    // Format quilo orders
+    if (quiloOrders.length > 0) {
+        txtContent += 'PEDIDOS EM QUILO\n';
+        txtContent += '================\n\n';
+        
+        quiloOrders.forEach(order => {
+            const parsedOrders = typeof order.parsed_orders === 'string' 
+                ? JSON.parse(order.parsed_orders) 
+                : order.parsed_orders;
+            
+            txtContent += `Cliente: ${order.name}\n`;
+            txtContent += `Telefone: ${order.phone_number}\n`;
+            txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
+            txtContent += `Status: ${order.status}\n`;
+            txtContent += 'Itens (convertido para unidades):\n';
+            
+            parsedOrders.forEach(item => {
+                const convertedQty = Math.floor(item.qty / 10); // Assuming 10 = 1kg
+                if (convertedQty > 0) {
+                    txtContent += `  ${convertedQty}x ${item.productName || item.product}\n`;
+                }
+            });
+            
+            if (order.original_message) {
+                txtContent += `Mensagem original: ${order.original_message}\n`;
+            }
+            
+            txtContent += '---\n\n';
+        });
+    }
+    
+    // Format dosado orders
+    if (dosadoOrders.length > 0) {
+        txtContent += 'PEDIDOS DOSADOS\n';
+        txtContent += '===============\n\n';
+        
+        dosadoOrders.forEach(order => {
+            const parsedOrders = typeof order.parsed_orders === 'string' 
+                ? JSON.parse(order.parsed_orders) 
+                : order.parsed_orders;
+            
+            txtContent += `Cliente: ${order.name}\n`;
+            txtContent += `Telefone: ${order.phone_number}\n`;
+            txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
+            txtContent += `Status: ${order.status}\n`;
+            txtContent += 'Itens (dosados):\n';
+            
+            parsedOrders.forEach(item => {
+                txtContent += `  ${item.qty}x ${item.productName || item.product} (dosado)\n`;
+            });
+            
+            if (order.original_message) {
+                txtContent += `Mensagem original: ${order.original_message}\n`;
+            }
+            
+            txtContent += '---\n\n';
+        });
+    }
+    
+    // Summary
+    txtContent += 'RESUMO\n';
+    txtContent += '======\n\n';
+    txtContent += `Total de pedidos: ${data.user_orders.length}\n`;
+    txtContent += `- Normais: ${normalOrders.length}\n`;
+    txtContent += `- Quilo: ${quiloOrders.length}\n`;
+    txtContent += `- Dosados: ${dosadoOrders.length}\n\n`;
+    
+    // Calculate total items
+    const totalItems = data.user_orders.reduce((total, order) => {
+        const parsedOrders = typeof order.parsed_orders === 'string' 
+            ? JSON.parse(order.parsed_orders) 
+            : order.parsed_orders;
+        
+        return total + parsedOrders.reduce((sum, item) => sum + item.qty, 0);
+    }, 0);
+    
+    txtContent += `Total de itens: ${totalItems}\n`;
+    
+    // Create and download the file
+    const blob = new Blob([txtContent], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    a.href = url;
+    a.download = `pedidos_${timestamp}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    addLog('✅ Arquivo TXT gerado com sucesso!');
+    
+  } catch (error) {
+      console.error('Erro ao gerar TXT:', error);
+      addLog('❌ Erro ao gerar arquivo TXT: ' + error.message, 'error');
+      customAlert('Erro', 'Não foi possível gerar o arquivo TXT. Tente novamente.');
+  }
+}
+
 async function clearDatabase() {
     const confirmed = await confirmAction('⚠️ Confirmar', 'Limpar TODOS os dados do banco?');
     if (!confirmed) return;
@@ -3093,6 +3260,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('disconnectBtn').addEventListener('click', disconnectWhatsApp);
   document.getElementById('sendBulkBtn').addEventListener('click', sendBulkMessages);
   document.getElementById('downloadExcelBtn').addEventListener('click', downloadExcel);
+  document.getElementById('downloadTxtBtn').addEventListener('click', downloadOrdersTxt);
   document.getElementById('clearDbBtn').addEventListener('click', clearDatabase);
 
   try {

@@ -199,7 +199,10 @@ class OrderSession {
                           'nao quero', 'não quero', 'ainda tenho', 'obrigado, não quero hoje',
                           'não vou querer', 'não vou querer hoje', 'não quero hoje', 'só próxima semana', 
                           'só proxima semana', 'so proxima semana','obrigado, nao quero hoje', 
-                          'nao vou querer', 'nao vou querer hoje', 'nao quero hoje', 'hoje nao', 'hoje não',];
+                          'nao vou querer', 'nao vou querer hoje', 'nao quero hoje', 'hoje nao', 'hoje não',
+                          'ainda tem', 'não preciso', 'para essa semana não', 'para essa semana n', 'estamos abastecidos',
+                          'estou abastecido', 'estou abastecida', 'sem pedidos', 'próxima semana', 'proxima semana',
+                        ];
     return cancelCommands.includes(message);
   }
 
@@ -245,8 +248,8 @@ class OrderService {
     // Get user's product names for example
     const productNames = session.getProductNames();
 
-    const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima','sim', 
-                          's', 'ok', 'okey', 'okay', 'claro', 'pode ser', 'pronto', 
+    const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima', 'confirmo',
+                          'sim', 's', 'ok', 'okey', 'okay', 'claro', 'pode ser', 'pronto', 
                           'ponto'];
 
     const greetingWords = ['olá', 'ola', 'oi', 'boa dia', 'bom dia', 'bon dia',
