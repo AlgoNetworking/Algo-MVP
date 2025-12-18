@@ -133,7 +133,7 @@ class OrderSession {
   startReminderCycle() {
     this.reminderCount = 1;
     this.cancelTimer();
-    this.activeTimer = setTimeout(() => this.sendReminder(), 1800000); // 30 minutes
+    this.activeTimer = setTimeout(() => this.sendReminder(), 900000); // 15 minutes
   }
 
   sendReminder() {
@@ -146,7 +146,7 @@ class OrderSession {
         this.messageQueue.push([`🔔 **LEMBRETE (${this.reminderCount}/2):**\n${summary}`, '']);
         this.reminderCount++;
         this.cancelTimer();
-        this.activeTimer = setTimeout(() => this.sendReminder(), 1800000); //30 minutes
+        this.activeTimer = setTimeout(() => this.sendReminder(), 900000); //15 minutes
       }
     }
   }

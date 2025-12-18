@@ -524,7 +524,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
         }
       }
 
-      if (bestMatch && bestScore > 50) {
+      if (bestMatch && bestScore >= similarityThreshold) {
         productsFound.push({
           position: i,
           tokenIndex: tokens[i].tokenIndex,
