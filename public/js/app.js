@@ -250,6 +250,7 @@ function renderFolderClients() {
                 <option value="normal" ${client.type === 'normal' ? 'selected' : ''}>Normal</option>
                 <option value="quilo" ${client.type === 'quilo' ? 'selected' : ''}>Quilo</option>
                 <option value="dosado" ${client.type === 'dosado' ? 'selected' : ''}>Dosado</option>
+                <option value="dobrado" ${client.type === 'dobrado' ? 'selected' : ''}>Dobrado</option>
               </select>
             </div>
             <div class="form-group" style="margin-top:8px;">
@@ -500,6 +501,7 @@ function addFolderClient() {
         <option value="normal">Normal</option>
         <option value="quilo">Quilo</option>
         <option value="dosado">Dosado</option>
+        <option value="dobrado">Dobrado</option>
       </select>
     </div>
     <div class="form-group" style="margin-top:8px;">
@@ -1225,7 +1227,7 @@ async function connectWhatsApp() {
     const data = await response.json();
     
     if (data.success) {
-      addLog('✅ WhatsApp conectando.');
+      addLog('⌛ WhatsApp conectando...');
       // Salva qual pasta estava selecionada quando o bot foi ligado.
       // (se não houver pasta selecionada, removemos a chave)
       if (selectedFolderId && currentUser && currentUser.id) {
@@ -1594,6 +1596,7 @@ async function downloadOrdersTxt() {
     const normalOrders = [];
     const quiloOrders = [];
     const dosadoOrders = [];
+    const dobradoOrders = [];
     
     // Group orders by type
     data.user_orders.forEach(order => {
@@ -1701,8 +1704,10 @@ async function downloadOrdersTxt() {
     txtContent += '======\n\n';
     txtContent += `Total de pedidos: ${data.user_orders.length}\n`;
     txtContent += `- Normais: ${normalOrders.length}\n`;
-    txtContent += `- Quilo: ${quiloOrders.length}\n`;
+    txtContent += `- Quilos: ${quiloOrders.length}\n`;
     txtContent += `- Dosados: ${dosadoOrders.length}\n\n`;
+    txtContent += `- Dobrados: ${dobradoOrders.length}\n\n`;
+    
     
     // Calculate total items
     const totalItems = data.user_orders.reduce((total, order) => {
@@ -2218,6 +2223,7 @@ function addClient() {
                 <option value="normal">Normal</option>
                 <option value="quilo">Quilo</option>
                 <option value="dosado">Dosado</option>
+                <option value="dobrado">Dobrado</option>
             </select>
         </div>
         <div class="edit-form-actions">
@@ -2672,7 +2678,7 @@ function showImportTxtForm() {
         8574002430, Carlos Sérgio, dosado
       </p>
       <p style="margin: 5px 0; font-size: 0.85em; color: #7f8c8d;">
-        <strong>Tipos válidos:</strong> normal, quilo, dosado (padrão: normal)<br>
+        <strong>Tipos válidos:</strong> normal, quilo, dosado, dobrado (padrão: normal)<br>
         <strong>Nome padrão:</strong> "Cliente sem nome" (se não especificado)
       </p>
     </div>
@@ -2806,7 +2812,7 @@ function parseTxtLine(line) {
   // Extract order type (third part if exists)
   let type = 'normal';
   if (parts.length >= 3 && parts[2] !== '') {
-    const validTypes = ['normal', 'quilo', 'dosado'];
+    const validTypes = ['normal', 'quilo', 'dosado', 'dobrado'];
     const inputType = parts[2].toLowerCase();
     type = validTypes.includes(inputType) ? inputType : 'normal';
   }
@@ -2978,10 +2984,6 @@ function initializeSocket() {
   socket.on('bot-ready', () => {
     addLog('✅ WhatsApp conectado e pronto!');
     updateConnectionStatus(true);
-    document.getElementById('sendBulkBtn').disabled = false;
-    document.getElementById('disconnectBtn').disabled = false;
-    document.getElementById('connectBtn').disabled = true;
-    document.getElementById('folderSelect').disabled = true;
   });
 
   socket.on('bot-authenticated', () => {
@@ -2994,20 +2996,11 @@ function initializeSocket() {
 
   socket.on('bot-disconnected', (data) => {
     addLog(`🔌 WhatsApp desconectado: ${data.reason}`);
-    updateConnectionStatus(false);
-    document.getElementById('sendBulkBtn').disabled = true;
-    document.getElementById('disconnectBtn').disabled = true;
-    document.getElementById('connectBtn').disabled = false;
-    document.getElementById('folderSelect').disabled = false;
   });
 
   socket.on('bot-stopped', () => {
     addLog('🛑 Bot parado');
     updateConnectionStatus(false);
-    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens em Massa';
-    document.getElementById('sendBulkBtn').disabled = true;
-    document.getElementById('disconnectBtn').disabled = true;
-    document.getElementById('connectBtn').disabled = false;
   });
 
   socket.on('message-received', (data) => {
@@ -3139,6 +3132,7 @@ function updateConnectionStatus(isConnected, isSendingMessages = false, sendingP
         statusBadge.classList.add('online');
         document.getElementById('connectBtn').disabled = true;
         document.getElementById('disconnectBtn').disabled = false;
+        document.getElementById('sendBulkBtn').disabled = false;
         document.getElementById('folderSelect').disabled = true;
         
         if (isSendingMessages) {
