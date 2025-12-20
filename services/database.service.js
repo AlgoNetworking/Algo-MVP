@@ -44,6 +44,9 @@ class DatabaseService {
   }
 
   getDatabase() {
+    if (!db) {
+      throw new Error('Database not initialized. Call databaseService.initialize() before using the DB.');
+    }
     return db;
   }
 
@@ -129,7 +132,8 @@ class DatabaseService {
           email VARCHAR(255) UNIQUE,
           password VARCHAR(255) NOT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          enabled BOOLEAN DEFAULT FALSE
         )
       `);
       console.log('✅ Users table created');
@@ -345,7 +349,8 @@ class DatabaseService {
           email TEXT UNIQUE,
           password TEXT NOT NULL,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          enabled INTEGER DEFAULT 0
         )
       `);
 
@@ -1366,6 +1371,44 @@ class DatabaseService {
     } catch (error) {
       console.error('❌ Error toggling product:', error);
       throw error;
+    }
+  }
+
+  async isUserEnabled(userId) {
+    try {
+      const db = this.getDatabase(); // Use getDatabase() instead of this.db
+      const isProduction = process.env.DATABASE_URL !== undefined;
+      if (isProduction) {
+        const result = await db.query(
+          'SELECT enabled FROM users WHERE id = $1',
+          [userId]
+        );
+        return result.rows.length > 0 && result.rows[0].enabled === true;
+      } else {
+        const stmt = db.prepare('SELECT enabled FROM users WHERE id = ?');
+        const row = stmt.get(userId);
+        return !!(row && row.enabled);
+      }
+    } catch (error) {
+      console.error('Error checking user enabled:', error);
+      return false;
+    }
+  }
+
+  async updateUserEnabled(userId, enabled) {
+    try {
+      const db = this.getDatabase(); // Use getDatabase() instead of this.db
+      const isProduction = process.env.DATABASE_URL !== undefined;
+      if (isProduction) {
+        await db.query('UPDATE users SET enabled = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [enabled, userId]);
+      } else {
+        const stmt = db.prepare('UPDATE users SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+        stmt.run(enabled ? 1 : 0, userId);
+      }
+      return true;
+    } catch (err) {
+      console.error('Error updating user enabled:', err);
+      throw err;
     }
   }
 

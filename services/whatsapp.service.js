@@ -405,6 +405,23 @@ class WhatsAppService {
 
   async connect(userId, users = null) {
     try {
+      const enabled = await databaseService.isUserEnabled(userId);
+      if (!enabled) {
+        console.log(`⚠️ User ${userId} attempted to start bot but is disabled`);
+        return {
+          success: false,
+          message: 'Conta desabilitada. Contate o administrador.'
+        };
+      }
+    } catch (err) {
+      console.error('Error verifying enabled flag:', err);
+      // Em caso de erro ao checar a flag, negue por segurança
+      return {
+        success: false,
+        message: 'Erro interno ao verificar permissão do usuário. Tente novamente mais tarde.'
+      };
+    }
+    try {
       if (this.clients.has(userId)) {
         await this.disconnect(userId);
       }

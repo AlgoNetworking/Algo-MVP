@@ -3191,6 +3191,41 @@ function renderConfigUI() {
   }
 }
 
+// ---------------------- Anti double-click guard ----------------------
+// Prevents rapid double-clicks on buttons/interactive elements from
+// reaching their handlers (capture phase). Minimal, element-scoped.
+// Insert this before DOMContentLoaded so it catches all clicks.
+(function installAntiDoubleClickGuard(thresholdMs = 600) {
+  // thresholdMs: clicks on the same element within this window are ignored.
+  document.addEventListener('click', function (e) {
+    // only care about clickable elements: buttons, inputs that behave like buttons,
+    // or elements with a .btn class or role=button (keeps it minimal & focused)
+    const el = e.target.closest('button, input[type="button"], .btn, [role="button"]');
+    if (!el) return; // not a clickable element we guard
+
+    try {
+      const now = Date.now();
+      const last = parseInt(el.dataset.__lastClick || '0', 10);
+      if (!isNaN(last) && (now - last) < thresholdMs) {
+        // Too fast — block this click from reaching other listeners
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        // optional small visual feedback (brief pulse) — comment out if undesired
+        // el.classList.add('double-click-blocked');
+        // setTimeout(() => el.classList.remove('double-click-blocked'), 200);
+        return;
+      }
+      // store last click timestamp
+      el.dataset.__lastClick = String(now);
+      // NOTE: we don't alter disabled state here; we only block rapid repeated clicks.
+    } catch (err) {
+      // safety: don't throw if something goes wrong
+      console.error('AntiDoubleClickGuard error:', err);
+    }
+  }, true); // capture phase so we intercept before other handlers
+})();
+
+
 // Toggle click handler (does NOT save automatically)
 document.addEventListener('click', (e) => {
   if (e.target && e.target.id === 'toggleCallByName') {
