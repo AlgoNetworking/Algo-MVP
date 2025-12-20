@@ -409,12 +409,16 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
         continue; // Not enough tokens to form this size
       }
       
+      const connectorWords = new Set(['e', 'com', 'de', 'da', 'do', 'das', 'dos', 'em', 'por', 'para', 'no', 'na', 'nos', 'nas']);
+
       // Now check if any token in our candidate is a filler word or number
       let skipPhrase = false;
       for (let j = 0; j < candidateTokens.length; j++) {
         const t = candidateTokens[j];
+        const normalizedT = normalize(t);
         if (/^\d+$/.test(t) || allNumberWords[t] || 
-            (fillerWords.has(t) && !productWords.has(normalize(t)))) {
+            (fillerWords.has(t) && !productWords.has(normalizedT)) ||
+            (connectorWords.has(normalizedT) && !productWords.has(normalizedT))) {
           skipPhrase = true;
           break;
         }
@@ -570,7 +574,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
 }
 
 // UPDATED: Main parse function that processes each line separately and accumulates
-function parse(message, productsDb, similarityThreshold = 80, uncertainRange = [60, 80]) {
+function parse(message, productsDb, similarityThreshold = 65, uncertainRange = [60, 80]) {
   // Split message by lines and filter out empty lines
   const lines = message.split('\n').map(line => line.trim()).filter(line => line.length > 0);
   

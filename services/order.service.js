@@ -341,7 +341,7 @@ class OrderService {
       } catch (err) {
         console.error('Error saving canceled user order:', err);
       }
-      return { success: true, message: 'Ok, volte sempre! 😃', isChatBot: true, clientStatus: 'wontOrder',};
+      return { success: true, message: 'Ok, até próxima semana! 😃', isChatBot: true, clientStatus: 'wontOrder',};
     }
 
     if(messageType !== 'chat') {
