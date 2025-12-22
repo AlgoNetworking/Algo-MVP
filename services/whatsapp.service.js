@@ -748,9 +748,10 @@ class WhatsAppService {
       // get clients (from folder or DB)
       const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
 
-      const clientInfo = clientUsers.find(u => u.phone === phoneNumber);
+      const clientInfo = this.findUserInfo(clientUsers, phoneNumber);
       if (!clientInfo) {
         console.log(`🚫 Ignoring message from unregistered number for user ${userId}: ${phoneNumber} ID: ${sender}`);
+        console.log(clientUsers);
         return;
       }
 
@@ -1239,7 +1240,18 @@ class WhatsAppService {
   }
 
   findUserInfo(users, phoneNumber) {
-    return users.find(u => u.phone === phoneNumber) || null;
+    const normalize = (p) => {
+      if (!p && p !== 0) return '';
+      return String(p).replace(/\D/g, ''); // keep only digits
+    };
+
+    const target = normalize(phoneNumber);
+
+    // try exact digits match first, then fallback to original equality if needed
+    return users.find(u => {
+      const up = normalize(u.phone);
+      return up && up === target;
+    }) || null;
   }
 
   formatPhoneNumber(whatsappId) {
