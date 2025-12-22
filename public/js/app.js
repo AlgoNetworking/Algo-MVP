@@ -1183,90 +1183,6 @@ function setupTabs() {
 }
 
 // WhatsApp connection functions
-async function checkConnectionStatusOnLoad() {
-  try {
-    const response = await fetch('/api/whatsapp/status');
-    const data = await response.json();
-    
-    if (data.success) {
-      if (data.isConnected) {
-        // Bot is connected
-        isConnecting = false;
-        updateConnectionStatus(true, false);
-      } else {
-        // Check if we have a pending connection attempt in localStorage
-        const pendingConnection = localStorage.getItem('whatsappConnecting');
-        if (pendingConnection) {
-          const connectionTime = parseInt(pendingConnection);
-          const now = Date.now();
-          
-          // If connection attempt was less than 2 minutes ago, assume it's still connecting
-          if (now - connectionTime < 2 * 60 * 1000) {
-            isConnecting = true;
-            updateConnectionStatus(false, true);
-            
-            // Continue monitoring the connection
-            monitorPendingConnection();
-          } else {
-            // Connection attempt expired (older than 2 minutes)
-            localStorage.removeItem('whatsappConnecting');
-            isConnecting = false;
-            updateConnectionStatus(false, false);
-          }
-        } else {
-          // No pending connection
-          isConnecting = false;
-          updateConnectionStatus(false, false);
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error checking connection status:', error);
-    isConnecting = false;
-    updateConnectionStatus(false, false);
-  }
-}
-
-async function monitorPendingConnection() {
-  // Check status every 3 seconds for up to 2 minutes
-  const maxAttempts = 40; // 40 * 3s = 120s = 2 minutes
-  let attempts = 0;
-  
-  const checkInterval = setInterval(async () => {
-    attempts++;
-    
-    try {
-      const response = await fetch('/api/whatsapp/status');
-      const data = await response.json();
-      
-      if (data.success) {
-        if (data.isConnected) {
-          // Connection succeeded
-          clearInterval(checkInterval);
-          localStorage.removeItem('whatsappConnecting');
-          isConnecting = false;
-          updateConnectionStatus(true, false);
-          addLog('✅ WhatsApp conectado após recarregar a página');
-        } else if (attempts >= maxAttempts) {
-          // Give up after 2 minutes
-          clearInterval(checkInterval);
-          localStorage.removeItem('whatsappConnecting');
-          isConnecting = false;
-          updateConnectionStatus(false, false);
-          addLog('❌ Tempo esgotado ao tentar conectar');
-        }
-      }
-    } catch (error) {
-      // Silently handle errors, just keep trying
-    }
-  }, 3000);
-  
-  // Also clear the interval if user manually disconnects
-  window.addEventListener('beforeunload', () => {
-    clearInterval(checkInterval);
-  });
-}
-
 async function connectWhatsApp() {
   try {
     // Don't allow multiple connection attempts
@@ -1277,10 +1193,6 @@ async function connectWhatsApp() {
     
     addLog('📱 Conectando WhatsApp...');
     isConnecting = true; // Set connecting state
-    
-    // Store connection attempt timestamp in localStorage
-    localStorage.setItem('whatsappConnecting', Date.now().toString());
-    
     updateConnectionStatus(false, true); // Pass connecting=true
 
     document.getElementById('connectBtn').disabled = true;
@@ -1317,9 +1229,7 @@ async function connectWhatsApp() {
       });
     }
     
-    if (selectedFolderId) {
-      renderFolderClients(); // Update the UI
-    }
+    renderFolderClients(); // Update the UI
 
     const response = await fetch('/api/whatsapp/connect', { 
         method: 'POST',
@@ -1343,18 +1253,12 @@ async function connectWhatsApp() {
     } else {
       addLog('❌ Erro: ' + data.message, 'error');
       customAlert('Erro', data.message);
-      // Clean up on error
-      localStorage.removeItem('whatsappConnecting');
-      isConnecting = false;
-      updateConnectionStatus(false, false);
     }
   } catch (error) {
     addLog('❌ Erro de conexão: ' + error.message, 'error');
     customAlert('Erro de Conexão', error.message);
-    // Clean up on error
-    localStorage.removeItem('whatsappConnecting');
-    isConnecting = false;
-    updateConnectionStatus(false, false);
+    isConnecting = false; // Reset connecting state on error
+    updateConnectionStatus(false, false); // Update UI
   }
 }
 
@@ -1365,7 +1269,6 @@ async function disconnectWhatsApp() {
 
       addLog('🔌 Desconectando WhatsApp...');
       isConnecting = false; // Reset connecting state
-      localStorage.removeItem('whatsappConnecting'); // Remove pending connection
       updateConnectionStatus(false, false); // Ensure button is re-enabled
       
       const response = await fetch('/api/whatsapp/disconnect', { method: 'POST' });
@@ -3164,7 +3067,6 @@ function initializeSocket() {
   socket.on('bot-ready', () => {
     addLog('✅ WhatsApp conectado e pronto!');
     isConnecting = false; // Reset connecting state
-    localStorage.removeItem('whatsappConnecting'); // Clear pending connection
     updateConnectionStatus(true, false); // Now connected, not connecting
   });
 
@@ -3175,16 +3077,14 @@ function initializeSocket() {
   socket.on('bot-error', (data) => {
     addLog(`❌ Erro: ${data.message}`, 'error');
     isConnecting = false; // Reset connecting state on error
-    localStorage.removeItem('whatsappConnecting'); // Clear pending connection
     updateConnectionStatus(false, false); // Disconnected, not connecting
   });
 
   socket.on('bot-disconnected', (data) => {
     addLog(`🔌 WhatsApp desconectado: ${data.reason}`);
     isConnecting = false; // Reset connecting state
-    localStorage.removeItem('whatsappConnecting'); // Clear pending connection
     updateConnectionStatus(false, false); // Disconnected, not connecting
-  });
+});
 
   socket.on('bot-stopped', () => {
     addLog('🛑 Bot parado');
@@ -3476,7 +3376,6 @@ checkAuthentication = async function() {
 };
 
 // Initialize
-// Initialize - update the DOMContentLoaded event handler
 document.addEventListener('DOMContentLoaded', async () => {
   // Check authentication first
   const isAuthenticated = await checkAuthentication();
@@ -3501,13 +3400,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('disconnectBtn').addEventListener('click', disconnectWhatsApp);
   document.getElementById('sendBulkBtn').addEventListener('click', sendBulkMessages);
 
-  // Check connection status on page load
-  setTimeout(async () => {
-    await checkConnectionStatusOnLoad();
-    refreshOrders();
-    refreshUserOrders();
-  }, 1000);
-  
   try {
     // Load the folder for THIS specific user
     if (currentUser && currentUser.id) {
@@ -3548,41 +3440,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (err) {
     console.warn('Erro ao restaurar pasta salva:', err);
   }
-});
 
-// Add this to handle page unload
-window.addEventListener('beforeunload', () => {
-  // Only clear the connecting flag if we're not actually connected
-  if (isConnecting) {
-    // We could keep the flag for a while, but let's be conservative
-    // The checkConnectionStatusOnLoad will handle expired connections
-  }
+  // Load initial data
+  setTimeout(() => {
+    refreshOrders();
+    refreshUserOrders();
+  }, 1000);
 });
-
-// Also add a heartbeat to prevent stale connections
-setInterval(() => {
-  if (localStorage.getItem('whatsappConnecting')) {
-    const connectionTime = parseInt(localStorage.getItem('whatsappConnecting'));
-    const now = Date.now();
-    
-    // Clear any connection attempts older than 5 minutes
-    if (now - connectionTime > 5 * 60 * 1000) {
-      localStorage.removeItem('whatsappConnecting');
-      if (isConnecting) {
-        isConnecting = false;
-        updateConnectionStatus(false, false);
-        addLog('🕐 Tentativa de conexão expirada (mais de 5 minutos)');
-      }
-    }
-  }
-}, 60000); // Check every minute
 
 // Status updates
 setInterval(() => {
-    if (!socket || !currentUser) return;
-    
-    // Skip status check if we're in the middle of connecting
-    if (isConnecting) {
+    if (!socket || !currentUser || isConnecting) {
+        // Don't update status while connecting
         return;
     }
     
