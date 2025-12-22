@@ -535,8 +535,12 @@ class DatabaseService {
 
   async saveUserOrder({ userId, phoneNumber, name, orderType, sessionId, originalMessage, parsedOrders, status = 'confirmed' }) {
     try {
-      const totalQuantity = parsedOrders.reduce((sum, order) => sum + order.qty, 0);
-      
+
+      let totalQuantity = 0;
+      if (orderType !== 'outro') {
+        totalQuantity = parsedOrders.reduce((sum, order) => sum + order.qty, 0);
+      }
+
       if (isProduction) {
         await db.query(
           `INSERT INTO user_orders (user_id, phone_number, name, order_type, session_id, original_message, parsed_orders, total_quantity, status)

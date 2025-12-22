@@ -182,27 +182,44 @@ class OrderSession {
     let summary = '📋 **RESUMO DO SEU PEDIDO:**\n';
     const itemsToShow = items || this.currentDb.filter(([_, qty]) => qty > 0);
     
-    for (const [product, qty] of itemsToShow) {
-      if (qty > 0) {
-        const [mainName, akas, enabled] = product;
-        if (enabled) {
-          summary += `• ${mainName}: ${qty}\n`;
+    if (this.orderType !== 'outro')
+      for (const [product, qty] of itemsToShow) {
+        if (qty > 0) {
+          const [mainName, akas, enabled] = product;
+          if (enabled) {
+            summary += `• ${mainName}: ${qty}\n`;
+          }
         }
       }
-    }
+      else {
+        for (const [product, qty] of itemsToShow) {
+          if (qty > 0) {
+            const [mainName, akas, enabled] = product;
+            if (enabled) {
+              summary += `\n${mainName}\n`;
+            }
+          }
+        }
+      }
     summary += '\n⚠️ **Confirma o pedido?** (responda com \"sim\" ou \"não\")';
     return summary;
   }
 
   checkCancelCommand(message) {
-    const cancelCommands = ['nao', 'não', 'n', 'cancelar', 'cancela', 'cancelra', 'cancelrar', 'nao vou pedir', 'não vou pedir', 
-                          'nao quero', 'não quero', 'ainda tenho', 'obrigado, não quero hoje',
-                          'não vou querer', 'não vou querer hoje', 'não quero hoje', 'só próxima semana', 
-                          'só proxima semana', 'so proxima semana','obrigado, nao quero hoje', 
-                          'nao vou querer', 'nao vou querer hoje', 'nao quero hoje', 'hoje nao', 'hoje não',
-                          'ainda tem', 'não preciso', 'para essa semana não', 'para essa semana n', 'estamos abastecidos',
-                          'estou abastecido', 'estou abastecida', 'sem pedidos', 'próxima semana', 'proxima semana',
-                        ];
+    const cancelCommands = 
+    [
+      'nao', 'não', 'n', 'cancelar', 'cancela', 'cancelra', 'cancelrar', '\"cancelar\"', 'não obrigada',
+      'não obrigado', 'nao obrigada', 'nao obrigado', 'nao brigada', 'nao brigado', 'n obrigada', 'n obrigado', 
+      'n brigada', 'n brigado', 'não, obrigada', 'não, obrigado', 'nao, obrigada', 'nao, obrigado', 'nao, brigada',
+      'nao, brigado', 'n, obrigada', 'n, obrigado', 'n, brigada', 'n, brigado',
+      '\'cancelar\'', 'cancelar.', 'nao vou pedir', 'não vou pedir', '\"cancelar.\"', '\'cancelar.\'',
+      'nao quero', 'não quero', 'ainda tenho', 'obrigado, não quero hoje',
+      'não vou querer', 'não vou querer hoje', 'não quero hoje', 'só próxima semana', 
+      'só proxima semana', 'so proxima semana','obrigado, nao quero hoje', 
+      'nao vou querer', 'nao vou querer hoje', 'nao quero hoje', 'hoje nao', 'hoje não',
+      'ainda tem', 'não preciso', 'para essa semana não', 'para essa semana n', 'estamos abastecidos',
+      'estou abastecido', 'estou abastecida', 'sem pedidos', 'próxima semana', 'proxima semana',
+    ];
     return cancelCommands.includes(message);
   }
 
@@ -248,20 +265,26 @@ class OrderService {
     // Get user's product names for example
     const productNames = session.getProductNames();
 
-    const confirmWords = ['confirmar', 'confimar', 'confirma', 'confima', 'confirmo',
-                          'sim', 's', 'ok', 'okey', 'okay', 'claro', 'pode ser', 'pronto', 
-                          'ponto'];
+    const confirmWords = 
+    [
+      'confirmar', 'confimar', 'confirma', 'confima', 'confirmo',
+      'sim', 's', 'ok', 'okey', 'okay', 'claro', 'pode ser', 'pronto', 
+      'ponto'
+    ];
 
-    const greetingWords = ['olá', 'ola', 'oi', 'boa dia', 'bom dia', 'bon dia',
-                          'boa tarde', 'bom tarde', 'bon tarde', 'boa noite', 
-                          'bom noite', 'bon noite', 'opa', 'eae', 'salve', 
-                          'saudações', 'saudacoes', 'hello', 'hi', 'hey', 
-                          'opa bom dia', 'opa boa tarde', 'opa boa noite', 
-                          'oi bom dia', 'oi boa tarde', 'oi boa noite', 
-                          'ola bom dia', 'ola boa tarde', 'ola boa noite', 
-                          'olá bom dia', 'olá boa tarde', 'olá boa noite', 
-                          'eae bom dia','eae boa tarde', 'eae boa noite', 'alo',
-                          'alô'];
+    const greetingWords = 
+    [
+      'olá', 'ola', 'oi', 'boa dia', 'bom dia', 'bom dia ', 'bon dia',
+      'boa tarde', 'bom tarde', 'bon tarde', 'boa noite', 
+      'bom noite', 'bon noite', 'opa', 'eae', 'salve', 
+      'saudações', 'saudacoes', 'hello', 'hi', 'hey', 
+      'opa bom dia', 'opa boa tarde', 'opa boa noite', 
+      'oi bom dia', 'oi boa tarde', 'oi boa noite', 
+      'ola bom dia', 'ola boa tarde', 'ola boa noite', 
+      'olá bom dia', 'olá boa tarde', 'olá boa noite', 
+      'eae bom dia','eae boa tarde', 'eae boa noite', 'alo',
+      'alô'
+    ];
     if(greetingWords.includes(messageLower.replace(/[?!,.]/g, '')) && session.state === 'collecting' && !session.hasItems()) {
 
       const idx1 = Math.floor(Math.random() * productNames.length);
@@ -542,7 +565,7 @@ class OrderService {
           let errorMessage = '❌ **ATENÇÃO:**\n\n';
           errorMessage += disabledProductsFound.length > 1 
           ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
-          : 'O seguinte produto está temporariamente fora de estoque:\n\n';
+          : 'O seguinte produto está temporariamente fora de estoque:\n';
           disabledProductsFound.forEach(item => {
             errorMessage += `• *${item.product}*\n`;
           });
@@ -646,48 +669,105 @@ class OrderService {
 
       } else {
         // Try parsing as new items
-        const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb);
+        if (session.orderType !== 'outro') {
+          const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb);
         
-        if (disabledProductsFound.length > 0) {
-          // Reset to collecting state when disabled product is ordered
-          session.cancelTimer();
-          session.state = 'collecting';
-          session.currentDb = updatedDb;
+          if (disabledProductsFound.length > 0) {
+            // Reset to collecting state when disabled product is ordered
+            session.cancelTimer();
+            session.state = 'collecting';
+            session.currentDb = updatedDb;
+            
+            let errorMessage = '❌ **ATENÇÃO:**\n\n';
+            errorMessage += disabledProductsFound.length > 1 
+            ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
+            : 'O seguinte produto está temporariamente fora de estoque:\n';
+            disabledProductsFound.forEach(item => {
+              errorMessage += `• *${item.product}*\n`;
+            });
+            errorMessage += '\nConfirmação interrompida. Você pode:\n';
+            errorMessage += '- Continuar adicionando outros produtos\n';
+            errorMessage += '- Digitar "pronto" para enviar o pedido sem estes itens\n';
+            errorMessage += '- Digitar "cancelar" para cancelar o seu pedido';
+            
+            return {
+              success: false,
+              message: errorMessage,
+              isChatBot: true,
+              clientStatus: '',
+            };
+          }
           
-          let errorMessage = '❌ **ATENÇÃO:**\n\n';
-          errorMessage += disabledProductsFound.length > 1 
-          ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
-          : 'O seguinte produto está temporariamente fora de estoque:\n';
-          disabledProductsFound.forEach(item => {
-            errorMessage += `*• ${item.product}*\n`;
+          if (parsedOrders.length > 0) {
+            session.currentDb = updatedDb;
+            session.cancelTimer();
+            session.state = 'collecting'; // Go back to collecting state
+            session.reminderCount = 0;
+            session.startInactivityTimer();
+            return { success: true, isChatBot: true, clientStatus: '',};
+          } else {
+            return {
+              success: false,
+              message: '☹️ Perdão, o item não foi reconhecido. Digite \'confirmar\' para confirmar ou \'nao\' para cancelar.',
+              isChatBot: true,
+              clientStatus: '',
+            };
+          }
+        } 
+        else {
+          const { disabledProductsFound } = orderParser.parse(message, session.currentDb);
+
+          const parsedOrders = [];
+
+          parsedOrders.push({
+            productName: message,
+            qty: 1,
+            score: 100.0
           });
-          errorMessage += '\nConfirmação interrompida. Você pode:\n';
-          errorMessage += '- Continuar adicionando outros produtos\n';
-          errorMessage += '- Digitar "pronto" para enviar o pedido sem estes itens\n';
-          errorMessage += '- Digitar "cancelar" para cancelar o seu pedido';
-          
-          return {
-            success: false,
-            message: errorMessage,
-            isChatBot: true,
-            clientStatus: '',
-          };
-        }
         
-        if (parsedOrders.length > 0) {
-          session.currentDb = updatedDb;
-          session.cancelTimer();
-          session.state = 'collecting'; // Go back to collecting state
-          session.reminderCount = 0;
-          session.startInactivityTimer();
-          return { success: true, isChatBot: true, clientStatus: '',};
-        } else {
-          return {
-            success: false,
-            message: '☹️ Perdão, o item não foi reconhecido. Digite \'confirmar\' para confirmar ou \'nao\' para cancelar.',
-            isChatBot: true,
-            clientStatus: '',
-          };
+          if (disabledProductsFound.length > 0) {
+            // Reset to collecting state when disabled product is ordered
+            session.cancelTimer();
+            session.state = 'collecting';
+            
+            let errorMessage = '❌ **ATENÇÃO:**\n\n';
+            errorMessage += disabledProductsFound.length > 1 
+            ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
+            : 'O seguinte produto está temporariamente fora de estoque:\n';
+            disabledProductsFound.forEach(item => {
+              errorMessage += `• *${item.product}*\n`;
+            });
+            errorMessage += '\nConfirmação interrompida. Você pode:\n';
+            errorMessage += '- Continuar adicionando outros produtos\n';
+            errorMessage += '- Digitar "pronto" para enviar o pedido sem estes itens\n';
+            errorMessage += '- Digitar "cancelar" para cancelar o seu pedido';
+            
+            return {
+              success: false,
+              message: errorMessage,
+              isChatBot: true,
+              clientStatus: '',
+            };
+          }
+          
+          if (parsedOrders.length > 0) {
+            const akas = '';
+            const enabled = true;
+            const product = [message, akas, enabled];
+            session.currentDb.push([product, 1]);
+            session.cancelTimer();
+            session.state = 'collecting'; // Go back to collecting state
+            session.reminderCount = 0;
+            session.startInactivityTimer();
+            return { success: true, isChatBot: true, clientStatus: '',};
+          } else {
+            return {
+              success: false,
+              message: '☹️ Perdão, o item não foi reconhecido. Digite \'confirmar\' para confirmar ou \'nao\' para cancelar.',
+              isChatBot: true,
+              clientStatus: '',
+            };
+          }
         }
       }
     }
@@ -748,60 +828,133 @@ class OrderService {
           return { success: false, message: '❌ Lista vazia. Adicione itens primeiro.', isChatBot: true, clientStatus: '', };
         }
       } else {
-        const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb);
-        
-        // If disabled products found, don't start timer but keep the enabled ones
-        if (disabledProductsFound.length > 0) {
-          // Keep the updatedDb (which includes disabled products)
-          session.currentDb = updatedDb;
+        if (session.orderType !== 'outro') {
+          const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb);
           
-          // Don't start the timer
-          session.cancelTimer();
-          
-          // Build informative message
-          let errorMessage = '❌ **ATENÇÃO:**\n\n';
-          errorMessage += disabledProductsFound.length > 1 
-          ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
-          : 'O seguinte produto está temporariamente fora de estoque:\n';
-          disabledProductsFound.forEach(item => {
-            errorMessage += `*• ${item.product}\n*`;
-          });
-          errorMessage += '\nVocê pode:\n';
-          errorMessage += '- Continuar adicionando outros produtos\n';
-          errorMessage += '- Digitar "pronto" para enviar o pedido sem estes itens\n';
-          errorMessage += '- Digitar "cancelar" para cancelar o seu pedido';
-          
-          return {
-            success: false,
-            message: errorMessage,
-            isChatBot: true,
-            clientStatus: '',
-          };
-        }
-        
-        if (parsedOrders.length > 0) {
-          session.currentDb = updatedDb;
-          session.startInactivityTimer(); // Only start timer if no disabled products
-          return { success: true, isChatBot: true, clientStatus: '', };
-        } else {
-          session.startInactivityTimer();
-          session.parseOrderAttempts++;
-          if(session.parseOrderAttempts >= 2 && !session.hasItems()) {
-            session.waitingForOption = false;
-            session.state = 'waiting_for_next';
+          // If disabled products found, don't start timer but keep the enabled ones
+          if (disabledProductsFound.length > 0) {
+            // Keep the updatedDb (which includes disabled products)
+            session.currentDb = updatedDb;
+            
+            // Don't start the timer
+            session.cancelTimer();
+            
+            // Build informative message
+            let errorMessage = '❌ **ATENÇÃO:**\n\n';
+            errorMessage += disabledProductsFound.length > 1 
+            ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
+            : 'O seguinte produto está temporariamente fora de estoque:\n';
+            disabledProductsFound.forEach(item => {
+              errorMessage += `• *${item.product}*\n`;
+            });
+            errorMessage += '\nVocê pode:\n';
+            errorMessage += '- Continuar adicionando outros produtos\n';
+            errorMessage += '- Digitar "pronto" para enviar o pedido sem estes itens\n';
+            errorMessage += '- Digitar "cancelar" para cancelar o seu pedido';
+            
             return {
-              success: true,
-              message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
-              isChatBot: false,
-              clientStatus: 'talkToEmployee',
+              success: false,
+              message: errorMessage,
+              isChatBot: true,
+              clientStatus: '',
             };
           }
-          return {
-            success: false,
-            message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. *Se desejar cancelar o pedido, digite "cancelar".*',
-            isChatBot: true,
-            clientStatus: '',
-          };
+          
+          if (parsedOrders.length > 0) {
+            session.currentDb = updatedDb;
+            session.startInactivityTimer(); // Only start timer if no disabled products
+            return { success: true, isChatBot: true, clientStatus: '', };
+          } else {
+            session.startInactivityTimer();
+            session.parseOrderAttempts++;
+            if(session.parseOrderAttempts >= 2 && !session.hasItems()) {
+              session.waitingForOption = false;
+              session.state = 'waiting_for_next';
+              return {
+                success: true,
+                message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
+                isChatBot: false,
+                clientStatus: 'talkToEmployee',
+              };
+            }
+            return {
+              success: false,
+              message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. *Se desejar cancelar o pedido, digite "cancelar".*',
+              isChatBot: true,
+              clientStatus: '',
+            };
+          }
+        }
+        else {
+          const { disabledProductsFound } = orderParser.parse(message, session.currentDb);
+
+          const parsedOrders = [];
+
+          parsedOrders.push({
+            productName: message,
+            qty: 1,
+            score: 100.0
+          });
+          
+          // If disabled products found, don't start timer but keep the enabled ones
+          if (disabledProductsFound.length > 0) {
+            // Keep the updatedDb (which includes disabled products)
+            const akas = '';
+            const enabled = true;
+            const product = [message, akas, enabled];
+            session.currentDb.push([product, 1]);
+            
+            // Don't start the timer
+            session.cancelTimer();
+            
+            // Build informative message
+            let errorMessage = '❌ **ATENÇÃO:**\n\n';
+            errorMessage += disabledProductsFound.length > 1 
+            ? 'Os seguintes produtos estão temporariamente fora de estoque:\n' 
+            : 'O seguinte produto está temporariamente fora de estoque:\n';
+            disabledProductsFound.forEach(item => {
+              errorMessage += `• *${item.product}*\n`;
+            });
+            errorMessage += '\nVocê pode:\n';
+            errorMessage += '- Continuar adicionando outros produtos\n';
+            errorMessage += '- Digitar "pronto" para enviar o pedido sem estes itens\n';
+            errorMessage += '- Digitar "cancelar" para cancelar o seu pedido';
+            
+            return {
+              success: false,
+              message: errorMessage,
+              isChatBot: true,
+              clientStatus: '',
+            };
+          }
+          
+          if (parsedOrders.length > 0) {
+            const akas = '';
+            const enabled = true;
+            const product = [message, akas, enabled];
+            session.currentDb.push([product, 1]);
+            session.startInactivityTimer(); // Only start timer if no disabled products
+            return { success: true, isChatBot: true, clientStatus: '', };
+          } else {
+            session.startInactivityTimer();
+            session.parseOrderAttempts++;
+            if(session.parseOrderAttempts >= 2 && !session.hasItems()) {
+              session.waitingForOption = false;
+              session.state = 'waiting_for_next';
+              return {
+                success: true,
+                message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
+                isChatBot: false,
+                clientStatus: 'talkToEmployee',
+              };
+            }
+            return {
+              success: false,
+              message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. *Se desejar cancelar o pedido, digite "cancelar".*',
+              isChatBot: true,
+              clientStatus: '',
+            };
+          }
         }
       }
     }

@@ -77,63 +77,91 @@ router.post('/manual-order', async (req, res) => {
       });
     }
 
-    const validOrderTypes = ['normal', 'quilo', 'dosado', 'dobrado', 'outro'];
+    const validOrderTypes = ['normal', 'quilo', 'dosado', 'outro'];
     if (!validOrderTypes.includes(order_type)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid order type'
       });
     }
+    if (order_type !== 'outro') {
+      // Get user's products to parse order
+      const userProducts = await databaseService.getAllProducts(req.userId);
+      const emptyDb = userProducts.map(p => [[p.name, p.akas, p.enabled], 0]);
 
-    // Get user's products to parse order
-    const userProducts = await databaseService.getAllProducts(req.userId);
-    const emptyDb = userProducts.map(p => [[p.name, p.akas, p.enabled], 0]);
+      const { parsedOrders, disabledProductsFound } = orderParser.parse(message, emptyDb);
 
-    const { parsedOrders, disabledProductsFound } = orderParser.parse(message, emptyDb);
-
-    if (disabledProductsFound.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Os seguintes produtos estão temporariamente fora de estoque: ${disabledProductsFound.map(item => `${item.qty}x ${item.product}`).join(', ')}`
-      });
-    }
-
-    if (parsedOrders.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No valid products found in message'
-      });
-    }
-
-    // Save order
-    await databaseService.saveUserOrder({
-      userId: req.userId,
-      phoneNumber: phone_number,
-      name: client_name,
-      orderType: order_type,
-      sessionId: 'manual_session',
-      originalMessage: message,
-      parsedOrders,
-      status: 'confirmed'
-    });
-
-    // Update product totals
-    for (const order of parsedOrders) {
-      if (order.qty > 0) {
-        await databaseService.updateProductTotal(req.userId, order.productName, order.qty);
+      if (disabledProductsFound.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Os seguintes produtos estão temporariamente fora de estoque: ${disabledProductsFound.map(item => `${item.qty}x ${item.product}`).join(', ')}`
+        });
       }
+
+      if (parsedOrders.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Nenhum produto válido encontrado na mensagem'
+        });
+      }
+
+      // Save order
+      await databaseService.saveUserOrder({
+        userId: req.userId,
+        phoneNumber: phone_number,
+        name: client_name,
+        orderType: order_type,
+        sessionId: 'manual_session',
+        originalMessage: message,
+        parsedOrders,
+        status: 'confirmed'
+      });
+
+      // Update product totals
+      for (const order of parsedOrders) {
+        if (order.qty > 0) {
+          await databaseService.updateProductTotal(req.userId, order.productName, order.qty);
+        }
+      }
+
+      const totalQuantity = parsedOrders.reduce((sum, o) => sum + o.qty, 0);
+
+      res.json({
+        success: true,
+        message: `Pedido manual processado: ${totalQuantity} itens`,
+        parsed_orders: parsedOrders,
+        total_quantity: totalQuantity,
+        client_name,
+        order_type
+      });
     }
+    else {
+      const parsedOrders = []
+      parsedOrders.push({
+        productName: message,
+        qty: 1,
+        score: 100.0
+      });
+      await databaseService.saveUserOrder({
+        userId: req.userId,
+        phoneNumber: phone_number,
+        name: client_name,
+        orderType: order_type,
+        sessionId: 'manual_session',
+        originalMessage: message,
+        parsedOrders,
+        status: 'confirmed'
+      });
 
-    const totalQuantity = parsedOrders.reduce((sum, o) => sum + o.qty, 0);
-
-    res.json({
-      success: true,
-      message: `Manual order processed: ${totalQuantity} items`,
-      parsed_orders: parsedOrders,
-      total_quantity: totalQuantity,
-      client_name,
-      order_type
-    });
+      res.json({
+        success: true,
+        message: `Pedido manual adicionado`,
+        parsed_orders: message,
+        total_quantity: undefined,
+        client_name,
+        order_type
+      });
+    }
 
   } catch (error) {
     console.error('Error adding manual order:', error);

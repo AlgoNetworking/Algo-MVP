@@ -750,7 +750,7 @@ class WhatsAppService {
 
       const clientInfo = clientUsers.find(u => u.phone === phoneNumber);
       if (!clientInfo) {
-        console.log(`🚫 Ignoring message from unregistered number for user ${userId}: ${phoneNumber}`);
+        console.log(`🚫 Ignoring message from unregistered number for user ${userId}: ${phoneNumber} ID: ${sender}`);
         return;
       }
 

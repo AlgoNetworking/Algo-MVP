@@ -1,7 +1,7 @@
 // Portuguese number words and parsing logic
 const units = {
   '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
-  'zero': 0, 'um': 1, 'uma': 1, 'dois': 2, 'duas': 2, 'dos': 2, 'tres': 3, 'trÃªs': 3, 'treis': 3,
+  'zero': 0, 'um': 1, 'uma': 1, 'dois': 2, 'duas': 2, 'dos': 2, 'tres': 3, 'três': 3, 'treis': 3, 'trêis': 3,
   'quatro': 4, 'quarto': 4, 'cinco': 5, 'cnico': 5, 'seis': 6, 'ses': 6, 'sete': 7, 'oito': 8, 'nove': 9, 'nov': 9
 };
 
@@ -190,45 +190,17 @@ function extractNumbersAndPositions(tokens) {
   return numbers.map(([pos, val, tokenIndex]) => [pos, val, tokenIndex]);
 }
 
-// NEW: Calculate distance from number to product, considering multi-word products
+// FIXED: Calculate distance to the START of multi-word products
+// Connector words (de, kg, etc.) count as 1 unit each
 function calculateDistanceToProduct(product, numberPos, tokens) {
-  // For multi-word products, we need to find all tokens that belong to this product
-  // and calculate the minimum distance to any of those tokens
+  // Distance is calculated to the first token of the product
+  const productStartPos = product.position;
   
-  // First, let's find all token positions that belong to this product
-  const productTokenPositions = [];
-  
-  // We know the product starts at product.position and has product.size non-whitespace tokens
-  let nonWhitespaceCount = 0;
-  let currentPos = product.position;
-  
-  while (nonWhitespaceCount < product.size && currentPos < tokens.length) {
-    if (!tokens[currentPos].isWhitespace) {
-      productTokenPositions.push(currentPos);
-      nonWhitespaceCount++;
-    }
-    currentPos++;
-  }
-  
-  if (productTokenPositions.length === 0) {
-    // Fallback: just use the product's position
-    return calculateSimpleDistance(product.position, numberPos, tokens);
-  }
-  
-  // Calculate distance to each product token and take the minimum
-  let minDistance = Infinity;
-  
-  for (const productTokenPos of productTokenPositions) {
-    const distance = calculateSimpleDistance(productTokenPos, numberPos, tokens);
-    if (distance < minDistance) {
-      minDistance = distance;
-    }
-  }
-  
-  return minDistance;
+  return calculateSimpleDistance(productStartPos, numberPos, tokens);
 }
 
 // Helper function: Calculate simple token distance between two positions
+// Each non-whitespace token = 1 unit, each whitespace character = 1 unit
 function calculateSimpleDistance(pos1, pos2, tokens) {
   // Count tokens between pos1 and pos2
   let distance = 0;
@@ -331,6 +303,11 @@ function buildAkaLookup(productsDb) {
   return akaLookup;
 }
 
+// FIXED: Check if token ranges overlap (for deduplication)
+function rangesOverlap(start1, end1, start2, end2) {
+  return start1 <= end2 && start2 <= end1;
+}
+
 // Process a single line with improved number assignment
 function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
   let normalized = normalize(line);
@@ -365,42 +342,54 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
     }
   });
 
-  // First pass - collect all products found in the message
-  const productsFound = [];
+  // Define connector/filler words that should be skipped but don't break matching
+  const connectorWords = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'com', 'em', 'por', 'para', 'no', 'na', 'nos', 'nas']);
+  const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada', 'momento', 'amiga', 'amigo', 'cadas', 'segue', 'kg', 'kgs', 'kilo', 'kilos', 'quilos', 'quilo']);
+
+  // IMPROVED: Collect all possible matches, then deduplicate
+  // This ensures we find "abacaxi com hortelã" even if "abacaxi" could also match
+  const allPossibleMatches = [];
   
-  let i = 0;
-  while (i < tokens.length) {
+  // For each position, try to match products of all sizes
+  for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     
-    if (token.isWhitespace) {
-      i++;
-      continue;
-    }
+    if (token.isWhitespace) continue;
+    
+    // Skip pure numbers and number words  
+    if (/^\d+$/.test(token.value) || allNumberWords[token.value]) continue;
 
-    const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada', 'momento', 'amiga', 'amigo', 'cadas', 'segue']);
-    if ((fillerWords.has(token.value) && !productWords.has(normalize(token.value))) ||
-      /^\d+$/.test(token.value) ||
-      allNumberWords[token.value]) {
-      i++;
-      continue;
-    }
-
-    let matched = false;
-
-    // Try to match multi-word products (from longest to shortest)
+    // Try multi-word products first (from longest to shortest)
     for (let size = Math.min(maxProdWords, 4); size > 0; size--) {
-      // We need to find a sequence of non-whitespace tokens that could form a product
-      // But we need to allow for gaps (whitespace) between the words
-      
-      // Collect up to 'size' non-whitespace tokens starting from position i
+      // Collect up to 'size' non-whitespace tokens, skipping connector/filler words
       const candidateTokens = [];
       const candidatePositions = [];
+      const allPositions = []; // Track all positions including connectors/fillers
       let currentPos = i;
+      let nonConnectorCount = 0;
       
-      while (candidateTokens.length < size && currentPos < tokens.length) {
+      while (nonConnectorCount < size && currentPos < tokens.length) {
         if (!tokens[currentPos].isWhitespace) {
-          candidateTokens.push(tokens[currentPos].value);
+          const t = tokens[currentPos].value;
+          const normalizedT = normalize(t);
+          
+          // Skip numbers
+          if (/^\d+$/.test(t) || allNumberWords[t]) {
+            break; // Stop collecting if we hit a number
+          }
+          
+          // Skip connector/filler words, but keep track of position
+          if ((connectorWords.has(normalizedT) || fillerWords.has(normalizedT)) && 
+              !productWords.has(normalizedT)) {
+            allPositions.push(currentPos);
+            currentPos++;
+            continue;
+          }
+          
+          candidateTokens.push(t);
           candidatePositions.push(currentPos);
+          allPositions.push(currentPos);
+          nonConnectorCount++;
         }
         currentPos++;
       }
@@ -408,29 +397,23 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
       if (candidateTokens.length < size) {
         continue; // Not enough tokens to form this size
       }
-      
-      const connectorWords = new Set(['e', 'com', 'de', 'da', 'do', 'das', 'dos', 'em', 'por', 'para', 'no', 'na', 'nos', 'nas']);
 
-      // Now check if any token in our candidate is a filler word or number
-      let skipPhrase = false;
-      for (let j = 0; j < candidateTokens.length; j++) {
-        const t = candidateTokens[j];
-        const normalizedT = normalize(t);
-        if (/^\d+$/.test(t) || allNumberWords[t] || 
-            (fillerWords.has(t) && !productWords.has(normalizedT)) ||
-            (connectorWords.has(normalizedT) && !productWords.has(normalizedT))) {
-          skipPhrase = true;
+      // Check if any token is a number (skip phrase if it contains numbers)
+      let containsNumber = false;
+      for (const t of candidateTokens) {
+        if (/^\d+$/.test(t) || allNumberWords[t]) {
+          containsNumber = true;
           break;
         }
       }
       
-      if (skipPhrase) continue;
+      if (containsNumber) continue;
       
       // Try the candidate as a phrase
       const phrase = candidateTokens.join(' ');
       const phraseNorm = normalize(phrase);
 
-      // First check aka lookup
+      // First check aka lookup for exact matches
       const akaMatch = akaLookup.get(phraseNorm);
       if (akaMatch) {
         let originalIndex = -1;
@@ -438,113 +421,97 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
         for (let idx = 0; idx < productsDb.length; idx++) {
           if (productsDb[idx][0][0] === akaMatch.mainProduct) {
             originalIndex = idx;
-            productEnabled = productsDb[idx][0][2]; // Get enabled status
+            productEnabled = productsDb[idx][0][2];
             break;
           }
         }
 
         if (originalIndex !== -1) {
-          productsFound.push({
-            position: candidatePositions[0], // First token position
-            tokenIndex: tokens[candidatePositions[0]].tokenIndex,
+          const startPos = candidatePositions[0];
+          const endPos = allPositions[allPositions.length - 1];
+          
+          allPossibleMatches.push({
+            position: startPos,
+            endPosition: endPos,
+            tokenIndex: tokens[startPos].tokenIndex,
             productIndex: originalIndex,
             productName: akaMatch.mainProduct,
             enabled: productEnabled,
-            size: size
+            size: size,
+            score: 100
           });
           
-          // Skip all the tokens we just matched
-          i = candidatePositions[candidatePositions.length - 1] + 1;
-          matched = true;
-          break;
-        }
-      }
-
-      // If no aka match, try similarity matching
-      let bestScore = 0;
-      let bestProduct = null;
-      let bestProductEnabled = true;
-      let bestOriginalIdx = null;
-
-      for (let idx = 0; idx < sortedProducts.length; idx++) {
-        const [productName, _, enabled] = sortedProducts[idx];
-        const prodNorm = normalize(productName);
-        const score = similarityPercentage(phraseNorm, prodNorm);
-        if (score > bestScore) {
-          bestScore = score;
-          bestProduct = productName;
-          bestProductEnabled = enabled;
-          bestOriginalIdx = sortedProducts[idx][4]; // Original index
-        }
-      }
-
-      if (bestScore >= similarityThreshold) {
-        productsFound.push({
-          position: candidatePositions[0], // First token position
-          tokenIndex: tokens[candidatePositions[0]].tokenIndex,
-          productIndex: bestOriginalIdx,
-          productName: bestProduct,
-          enabled: bestProductEnabled,
-          size: size
-        });
-        
-        // Skip all the tokens we just matched
-        i = candidatePositions[candidatePositions.length - 1] + 1;
-        matched = true;
-        break;
-      }
-    }
-
-    // If no multi-word match, try single word
-    if (!matched) {
-      const phrase = token.value;
-      let bestMatch = null;
-      let bestScore = 0;
-      let bestProductEnabled = true;
-      let bestOriginalIdx = null;
-      const phraseNorm = normalize(phrase);
-
-      const singleWordAkaMatch = akaLookup.get(phraseNorm);
-      if (singleWordAkaMatch) {
-        for (let idx = 0; idx < productsDb.length; idx++) {
-          if (productsDb[idx][0][0] === singleWordAkaMatch.mainProduct) {
-            bestOriginalIdx = idx;
-            bestMatch = singleWordAkaMatch.mainProduct;
-            bestProductEnabled = productsDb[idx][0][2];
-            bestScore = 100;
-            break;
-          }
+          // Don't break - continue checking other sizes for this position
         }
       } else {
+        // Try similarity matching
+        let bestScore = 0;
+        let bestProduct = null;
+        let bestProductEnabled = true;
+        let bestOriginalIdx = null;
+
         for (let idx = 0; idx < sortedProducts.length; idx++) {
           const [productName, _, enabled] = sortedProducts[idx];
-          const score = similarityPercentage(phraseNorm, normalize(productName));
+          const prodNorm = normalize(productName);
+          const score = similarityPercentage(phraseNorm, prodNorm);
           if (score > bestScore) {
             bestScore = score;
-            bestMatch = productName;
+            bestProduct = productName;
             bestProductEnabled = enabled;
             bestOriginalIdx = sortedProducts[idx][4];
           }
         }
-      }
 
-      if (bestMatch && bestScore >= similarityThreshold) {
-        productsFound.push({
-          position: i,
-          tokenIndex: tokens[i].tokenIndex,
-          productIndex: bestOriginalIdx,
-          productName: bestMatch,
-          enabled: bestProductEnabled,
-          size: 1
-        });
-        
-        matched = true;
-        i++;
-      } else {
-        i++;
+        if (bestScore >= similarityThreshold) {
+          const startPos = candidatePositions[0];
+          const endPos = allPositions[allPositions.length - 1];
+          
+          allPossibleMatches.push({
+            position: startPos,
+            endPosition: endPos,
+            tokenIndex: tokens[startPos].tokenIndex,
+            productIndex: bestOriginalIdx,
+            productName: bestProduct,
+            enabled: bestProductEnabled,
+            size: size,
+            score: bestScore
+          });
+          
+          // Don't break - continue checking other sizes
+        }
       }
     }
   }
+  
+  // IMPROVED: Sort matches by score and size, then deduplicate overlaps
+  // Priority: exact matches (score 100) and longer products (larger size) are preferred
+  allPossibleMatches.sort((a, b) => {
+    // First by score (higher is better)
+    if (b.score !== a.score) return b.score - a.score;
+    // Then by size (longer is better)
+    if (b.size !== a.size) return b.size - a.size;
+    // Then by position (leftmost is better)
+    return a.position - b.position;
+  });
+  
+  const productsFound = [];
+  for (const match of allPossibleMatches) {
+    // Check if this match overlaps with any already accepted match
+    let overlaps = false;
+    for (const accepted of productsFound) {
+      if (rangesOverlap(match.position, match.endPosition, accepted.position, accepted.endPosition)) {
+        overlaps = true;
+        break;
+      }
+    }
+    
+    if (!overlaps) {
+      productsFound.push(match);
+    }
+  }
+  
+  // Sort by position for number assignment
+  productsFound.sort((a, b) => a.position - b.position);
   
   // Now assign numbers to products using the proper algorithm with space consideration
   const numberAssignments = assignNumbersToProducts(productsFound, numbersWithPositions, tokens);

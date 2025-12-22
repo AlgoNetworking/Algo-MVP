@@ -251,7 +251,7 @@ function renderFolderClients() {
                 <option value="normal" ${client.type === 'normal' ? 'selected' : ''}>Normal</option>
                 <option value="quilo" ${client.type === 'quilo' ? 'selected' : ''}>Quilo</option>
                 <option value="dosado" ${client.type === 'dosado' ? 'selected' : ''}>Dosado</option>
-                <option value="dobrado" ${client.type === 'dobrado' ? 'selected' : ''}>Dobrado</option>
+                <option value="outro" ${client.type === 'outro' ? 'selected' : ''}>Outro</option>
               </select>
             </div>
             <div class="form-group" style="margin-top:8px;">
@@ -502,7 +502,7 @@ function addFolderClient() {
         <option value="normal">Normal</option>
         <option value="quilo">Quilo</option>
         <option value="dosado">Dosado</option>
-        <option value="dobrado">Dobrado</option>
+        <option value="outro">Outro</option>
       </select>
     </div>
     <div class="form-group" style="margin-top:8px;">
@@ -1528,7 +1528,7 @@ async function sendTraditionalBulkMessages(clients) {
     }
   } catch (error) {
     addLog('❌ Erro: ' + error.message, 'error');
-    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens em Massa';
+    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
     document.getElementById('sendBulkBtn').disabled = false;
   }
 }
@@ -1559,13 +1559,13 @@ async function sendCustomBulkMessages(clients, message) {
       customAlert('Erro', data.message);
     }
     
-    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens em Massa';
+    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
     document.getElementById('sendBulkBtn').disabled = false;
     
   } catch (error) {
     addLog('❌ Erro: ' + error.message, 'error');
     customAlert('Erro', 'Não foi possível enviar as mensagens.');
-    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens em Massa';
+    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
     document.getElementById('sendBulkBtn').disabled = false;
   }
 }
@@ -1621,7 +1621,7 @@ async function downloadOrdersTxt() {
     const normalOrders = [];
     const quiloOrders = [];
     const dosadoOrders = [];
-    const dobradoOrders = [];
+    const outroOrders = [];
     
     // Group orders by type
     data.user_orders.forEach(order => {
@@ -1633,8 +1633,8 @@ async function downloadOrdersTxt() {
                 case 'dosado':
                     dosadoOrders.push(order);
                     break;
-                case 'dobrado':
-                    dobradoOrders.push(order);
+                case 'outro':
+                    outroOrders.push(order);
                     break;
                 default:
                     normalOrders.push(order);
@@ -1726,34 +1726,6 @@ async function downloadOrdersTxt() {
             }
         });
     }
-
-    // Format dobrado orders
-    if (dobradoOrders.length > 0) {
-        txtContent += 'PEDIDOS DOBRADOS\n';
-        txtContent += '===============\n\n';
-        
-        dobradoOrders.forEach(order => {
-            if(order.status === 'confirmed') {
-                const parsedOrders = typeof order.parsed_orders === 'string' 
-                    ? JSON.parse(order.parsed_orders) 
-                    : order.parsed_orders;
-                
-                const formattedPhone = formatPhoneNumberForDisplay(order.phone_number);
-
-                txtContent += `Cliente: ${order.name}\n`;
-                txtContent += `Telefone: ${formattedPhone}\n`;
-                txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
-                txtContent += 'Tipo: DOBRADO\n';
-                txtContent += 'Itens:\n';
-                
-                parsedOrders.forEach(item => {
-                    txtContent += `  ${item.qty}x ${item.productName || item.product}\n`;
-                });
-                
-                txtContent += '---\n\n';
-            }
-        });
-    }
     
     // Summary
     txtContent += 'RESUMO\n';
@@ -1762,7 +1734,7 @@ async function downloadOrdersTxt() {
     txtContent += `- Normais: ${normalOrders.length}\n`;
     txtContent += `- Quilos: ${quiloOrders.length}\n`;
     txtContent += `- Dosados: ${dosadoOrders.length}\n`;
-    txtContent += `- Dobrados: ${dobradoOrders.length}\n\n`;
+    txtContent += `- Outros: ${outroOrders.length}\n\n`;
     
     
     // Calculate total items
@@ -1913,9 +1885,6 @@ function quantityTypeConverter(quantity, type) {
     else if (type === 'dosado') {
         return Math.floor(quantity / 10)/2;
     }
-    else if (type === 'dobrado') {
-        return 2 * quantity;
-    }
     else if (type === 'normal') {
         return quantity;
     }
@@ -1945,7 +1914,9 @@ function renderUserOrders(orders) {
                 </div>
                 <div class="order-items">
                     ${parsedOrders.map(item => 
-                        `<span class="order-item-badge">${item.qty}x ${item.productName}</span>`
+                        order.order_type !== 'outro' ?
+                        `<span class="order-item-badge">${item.qty}x ${item.productName}</span>` :
+                        `<span class="order-item-badge">${item.productName}</span>`
                     ).join('')}
                 </div>
                 <span class="order-type-badge">${order.order_type}</span>
@@ -2294,7 +2265,7 @@ function addClient() {
                 <option value="normal">Normal</option>
                 <option value="quilo">Quilo</option>
                 <option value="dosado">Dosado</option>
-                <option value="dobrado">Dobrado</option>
+                <option value="outro</option>
             </select>
         </div>
         <div class="edit-form-actions">
@@ -2753,7 +2724,7 @@ function showImportTxtForm() {
         8574002430, Carlos Sérgio, dosado
       </p>
       <p style="margin: 5px 0; font-size: 0.85em; color: #7f8c8d;">
-        <strong>Tipos válidos:</strong> normal, quilo, dosado, dobrado (padrão: normal)<br>
+        <strong>Tipos válidos:</strong> normal, quilo, dosado, outro (padrão: normal)<br>
         <strong>Nome padrão:</strong> "Cliente sem nome" (se não especificado)
       </p>
     </div>
@@ -2887,7 +2858,7 @@ function parseTxtLine(line) {
   // Extract order type (third part if exists)
   let type = 'normal';
   if (parts.length >= 3 && parts[2] !== '') {
-    const validTypes = ['normal', 'quilo', 'dosado', 'dobrado'];
+    const validTypes = ['normal', 'quilo', 'dosado', 'outro'];
     const inputType = parts[2].toLowerCase();
     type = validTypes.includes(inputType) ? inputType : 'normal';
   }
@@ -3231,7 +3202,7 @@ function updateConnectionStatus(isConnected, isConnecting = false, isSendingMess
                 sendBulkBtn.textContent = `📤 Enviando... (${sendingProgress.sent}/${sendingProgress.total})`;
             }
         } else {
-            sendBulkBtn.textContent = '📤 Enviar Mensagens em Massa';
+            sendBulkBtn.textContent = '📤 Enviar Mensagens para seus Clientes';
             sendBulkBtn.disabled = true;
         }
     } else if (isConnected) {
@@ -3251,7 +3222,7 @@ function updateConnectionStatus(isConnected, isConnecting = false, isSendingMess
                 sendBulkBtn.textContent = `📤 Enviando... (${sendingProgress.sent}/${sendingProgress.total})`;
             }
         } else {
-            sendBulkBtn.textContent = '📤 Enviar Mensagens em Massa';
+            sendBulkBtn.textContent = '📤 Enviar Mensagens para seus Clientes';
             sendBulkBtn.disabled = false;
         }
     } else {
@@ -3263,7 +3234,7 @@ function updateConnectionStatus(isConnected, isConnecting = false, isSendingMess
         document.getElementById('disconnectBtn').disabled = true;
         document.getElementById('sendBulkBtn').disabled = true;
         document.getElementById('folderSelect').disabled = false;
-        sendBulkBtn.textContent = '📤 Enviar Mensagens em Massa';
+        sendBulkBtn.textContent = '📤 Enviar Mensagens para seus Clientes';
         sendBulkBtn.disabled = true;
     }
 }
