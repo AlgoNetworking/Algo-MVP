@@ -77,7 +77,7 @@ router.post('/manual-order', async (req, res) => {
       });
     }
 
-    const validOrderTypes = ['normal', 'quilo', 'dosado'];
+    const validOrderTypes = ['normal', 'quilo', 'dosado', 'dobrado', 'outro'];
     if (!validOrderTypes.includes(order_type)) {
       return res.status(400).json({
         success: false,

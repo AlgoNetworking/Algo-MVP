@@ -1648,7 +1648,7 @@ async function downloadOrdersTxt() {
         txtContent += '================\n\n';
         
         normalOrders.forEach(order => {
-            if(order.status !== 'canceled') {
+            if(order.status === 'confirmed') {
                 const parsedOrders = typeof order.parsed_orders === 'string' 
                     ? JSON.parse(order.parsed_orders) 
                     : order.parsed_orders;
@@ -1658,7 +1658,7 @@ async function downloadOrdersTxt() {
                 txtContent += `Cliente: ${order.name}\n`;
                 txtContent += `Telefone: ${formattedPhone}\n`;
                 txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
-                txtContent += `Status: ${order.status === 'confirmed' ? 'Confirmado' : 'Pendente'}\n`;
+                txtContent += 'Tipo: NORMAL\n';
                 txtContent += 'Itens:\n';
                 
                 parsedOrders.forEach(item => {
@@ -1676,7 +1676,7 @@ async function downloadOrdersTxt() {
         txtContent += '================\n\n';
         
         quiloOrders.forEach(order => {
-            if(order.status !== 'canceled') {
+            if(order.status === 'confirmed') {
                 const parsedOrders = typeof order.parsed_orders === 'string' 
                     ? JSON.parse(order.parsed_orders) 
                     : order.parsed_orders;
@@ -1686,14 +1686,11 @@ async function downloadOrdersTxt() {
                 txtContent += `Cliente: ${order.name}\n`;
                 txtContent += `Telefone: ${formattedPhone}\n`;
                 txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
-                txtContent += `Status: ${order.status === 'confirmed' ? 'Confirmado' : 'Pendente'}\n`;
-                txtContent += 'Itens (quilos):\n';
+                txtContent += 'Tipo: QUILO\n';
+                txtContent += 'Itens:\n';
                 
                 parsedOrders.forEach(item => {
-                    const convertedQty = Math.floor(item.qty / 5)/2;
-                    if (convertedQty > 0) {
-                        txtContent += `  ${convertedQty}x ${item.productName || item.product}\n`;
-                    }
+                    txtContent += `  ${item.qty}x ${item.productName || item.product}\n`;
                 });
                 
                 txtContent += '---\n\n';
@@ -1707,7 +1704,7 @@ async function downloadOrdersTxt() {
         txtContent += '===============\n\n';
         
         dosadoOrders.forEach(order => {
-            if(order.status !== 'canceled') {
+            if(order.status === 'confirmed') {
                 const parsedOrders = typeof order.parsed_orders === 'string' 
                     ? JSON.parse(order.parsed_orders) 
                     : order.parsed_orders;
@@ -1717,14 +1714,12 @@ async function downloadOrdersTxt() {
                 txtContent += `Cliente: ${order.name}\n`;
                 txtContent += `Telefone: ${formattedPhone}\n`;
                 txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
-                txtContent += `Status: ${order.status === 'confirmed' ? 'Confirmado' : 'Pendente'}\n`;
-                txtContent += 'Itens (dosados):\n';
+                txtContent += 'Status: DOSADO\n';
+                txtContent += 'Itens:\n';
                 
                 parsedOrders.forEach(item => {
-                    const convertedQty = Math.floor(item.qty / 10)/2;
-                    if (convertedQty > 0) {
-                        txtContent += `  ${convertedQty}x ${item.productName || item.product}\n`;
-                    }
+                    
+                    txtContent += `  ${item.qty}x ${item.productName || item.product}\n`;
                 });
                 
                 txtContent += '---\n\n';
@@ -1738,7 +1733,7 @@ async function downloadOrdersTxt() {
         txtContent += '===============\n\n';
         
         dobradoOrders.forEach(order => {
-            if(order.status !== 'canceled') {
+            if(order.status === 'confirmed') {
                 const parsedOrders = typeof order.parsed_orders === 'string' 
                     ? JSON.parse(order.parsed_orders) 
                     : order.parsed_orders;
@@ -1748,12 +1743,11 @@ async function downloadOrdersTxt() {
                 txtContent += `Cliente: ${order.name}\n`;
                 txtContent += `Telefone: ${formattedPhone}\n`;
                 txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
-                txtContent += `Status: ${order.status === 'confirmed' ? 'Confirmado' : 'Pendente'}\n`;
-                txtContent += 'Itens (dobrados):\n';
+                txtContent += 'Tipo: DOBRADO\n';
+                txtContent += 'Itens:\n';
                 
                 parsedOrders.forEach(item => {
-                    const convertedQty = 2 * item.qty;
-                    txtContent += `  ${convertedQty}x ${item.productName || item.product}\n`;
+                    txtContent += `  ${item.qty}x ${item.productName || item.product}\n`;
                 });
                 
                 txtContent += '---\n\n';
@@ -1951,9 +1945,7 @@ function renderUserOrders(orders) {
                 </div>
                 <div class="order-items">
                     ${parsedOrders.map(item => 
-                        quantityTypeConverter(item.qty, order.order_type) !== 0 ? 
-                        `<span class="order-item-badge">${quantityTypeConverter(item.qty, order.order_type)}x ${item.productName}</span>` :
-                        ''
+                        `<span class="order-item-badge">${item.qty}x ${item.productName}</span>`
                     ).join('')}
                 </div>
                 <span class="order-type-badge">${order.order_type}</span>
