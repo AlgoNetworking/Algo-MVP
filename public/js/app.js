@@ -3204,9 +3204,16 @@ function initializeSocket() {
   });
 
   socket.on('bot-status', (data) => {
-    document.getElementById('sessionCount').textContent = data.sessions.length;
-    updateConnectionStatus(data.isConnected, data.isSendingMessages, data.sendingProgress);
+    document.getElementById('sessionCount').textContent = (data.sessions || []).length;
+    // pass: isConnected, isConnecting, isSendingMessages, sendingProgress
+    updateConnectionStatus(
+      data.isConnected,
+      data.isConnecting || false,
+      data.isSendingMessages || false,
+      data.sendingProgress || null
+    );
   });
+
 }
 
 // alterei umas coisas aqui pra quando o usuario reiniciar a pagina

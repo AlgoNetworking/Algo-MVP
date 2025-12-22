@@ -392,6 +392,7 @@ class WhatsAppService {
     this.postgresStore = null;
     this.saveTimers = new Map(); // Timer to trigger manual saves
     this.usersInSelectedFolder = null;
+    this.connectingUsers = new Set();
   }
 
   initialize(io) {
@@ -401,6 +402,10 @@ class WhatsAppService {
     this.postgresStore = new PostgresStore(db);
     
     console.log('📱 WhatsApp Service initialized with RemoteAuth + PostgreSQL');
+  }
+
+  isConnecting(userId) {
+    return this.connectingUsers.has(userId);
   }
 
   async connect(userId, users = null) {
@@ -434,6 +439,18 @@ class WhatsAppService {
           };
         }
         await this.disconnect(userId);
+      }
+      // mark as connecting and notify UI
+      this.connectingUsers.add(userId);
+      if (this.io) {
+        const sendingStatus = this.getSendingStatus(userId) || { isSendingMessages: false, progress: null };
+        this.io.to(`user-${userId}`).emit('bot-status', {
+          isConnected: false,
+          isConnecting: true,
+          sessions: this.getActiveSessions(userId),
+          isSendingMessages: sendingStatus.isSendingMessages,
+          sendingProgress: sendingStatus.progress
+        });
       }
       
       if (users) {
@@ -596,22 +613,25 @@ class WhatsAppService {
     client.on('ready', () => {
       console.log('✅ WhatsApp client ready for user:', userId);
       this.userQRCodes.delete(userId);
-      
-      // Trigger another save when ready
-      setTimeout(async () => {
-        console.log(`💾 Final save after ready for user ${userId}`);
-        try {
-          await this.postgresStore.save({ session: `RemoteAuth-user-${userId}` });
-          console.log(`✅ Final save completed for user ${userId}`);
-        } catch (error) {
-          console.error(`❌ Final save failed for user ${userId}:`, error);
-        }
-      }, 3000);
-      
+
+      // Clear connecting flag
+      this.connectingUsers.delete(userId);
+
+      // emit bot-ready as before
       if (this.io) {
         this.io.to(`user-${userId}`).emit('bot-ready', {
           userId,
           clientInfo: client.info
+        });
+
+        // emit updated bot-status (connected, not connecting)
+        const sendingStatus = this.getSendingStatus(userId) || { isSendingMessages: false, progress: null };
+        this.io.to(`user-${userId}`).emit('bot-status', {
+          isConnected: true,
+          isConnecting: false,
+          sessions: this.getActiveSessions(userId),
+          isSendingMessages: sendingStatus.isSendingMessages,
+          sendingProgress: sendingStatus.progress
         });
       }
     });
@@ -619,12 +639,23 @@ class WhatsAppService {
     client.on('auth_failure', (msg) => {
       console.error('❌ Authentication failed for user:', userId, msg);
       this.userQRCodes.delete(userId);
-      
+
+      // clear connecting
+      this.connectingUsers.delete(userId);
+
       if (this.io) {
-        this.io.to(`user-${userId}`).emit('bot-error', { 
-          message: 'Authentication failed', 
+        this.io.to(`user-${userId}`).emit('bot-error', {
+          message: 'Authentication failed',
           error: msg,
-          userId 
+          userId
+        });
+        // also emit updated bot-status (not connected, not connecting)
+        this.io.to(`user-${userId}`).emit('bot-status', {
+          isConnected: false,
+          isConnecting: false,
+          sessions: this.getActiveSessions(userId),
+          isSendingMessages: false,
+          sendingProgress: null
         });
       }
     });
@@ -650,6 +681,15 @@ class WhatsAppService {
         this.io.to(`user-${userId}`).emit('bot-disconnected', { 
           reason,
           userId 
+        });
+
+        // updated status
+        this.io.to(`user-${userId}`).emit('bot-status', {
+          isConnected: false,
+          isConnecting: false,
+          sessions: this.getActiveSessions(userId),
+          isSendingMessages: false,
+          sendingProgress: null
         });
       }
     });
