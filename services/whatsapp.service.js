@@ -416,7 +416,6 @@ class WhatsAppService {
       }
     } catch (err) {
       console.error('Error verifying enabled flag:', err);
-      // Em caso de erro ao checar a flag, negue por segurança
       return {
         success: false,
         message: 'Erro interno ao verificar permissão do usuário. Tente novamente mais tarde.'
@@ -424,10 +423,20 @@ class WhatsAppService {
     }
     
     try {
+      // Check if already connecting or connected
       if (this.clients.has(userId)) {
+        const client = this.clients.get(userId);
+        // Check if client is in the process of connecting
+        if (client && client.pupetteer && client.pupetteer.browser && !client.pupetteer.browser.connected) {
+          return {
+            success: false,
+            message: 'Já está conectando. Aguarde...'
+          };
+        }
         await this.disconnect(userId);
       }
-      if(users) {
+      
+      if (users) {
         this.usersInSelectedFolder = users;
       }
 
@@ -504,7 +513,7 @@ class WhatsAppService {
         const { LocalAuth } = require('whatsapp-web.js');
         clientConfig.authStrategy = new LocalAuth({
           clientId: `user-${userId}`,
-          dataPath: AUTH_DIR // ensure LocalAuth writes into the mounted dir
+          dataPath: AUTH_DIR
         });
         console.log(`📁 Using LocalAuth for user ${userId}`);
       }
@@ -522,6 +531,13 @@ class WhatsAppService {
       return { success: true, message: 'WhatsApp client starting...' };
     } catch (error) {
       console.error('❌ Failed to connect WhatsApp for user', userId, error);
+      // Clean up on error
+      if (this.clients.has(userId)) {
+        this.clients.delete(userId);
+      }
+      if (this.userSessions.has(userId)) {
+        this.userSessions.delete(userId);
+      }
       throw error;
     }
   }

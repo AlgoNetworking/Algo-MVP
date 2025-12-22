@@ -61,6 +61,7 @@ let folders = [];
 let currentFolder = null;
 let folderClients = [];
 let folderHasUnsavedChanges = false;
+let isConnecting = false;
 
 // Modal system variables
 let modalResolve = null;
@@ -1184,9 +1185,18 @@ function setupTabs() {
 // WhatsApp connection functions
 async function connectWhatsApp() {
   try {
+    // Don't allow multiple connection attempts
+    if (isConnecting) {
+      addLog('⚠️ Já está conectando...');
+      return;
+    }
+    
     addLog('📱 Conectando WhatsApp...');
+    isConnecting = true; // Set connecting state
+    updateConnectionStatus(false, true); // Pass connecting=true
 
     document.getElementById('connectBtn').disabled = true;
+    document.getElementById('connectBtn').innerHTML = '⏳ Conectando...';
     
     // Get clients from selected folder
     let selectedClients = [];
@@ -1247,6 +1257,8 @@ async function connectWhatsApp() {
   } catch (error) {
     addLog('❌ Erro de conexão: ' + error.message, 'error');
     customAlert('Erro de Conexão', error.message);
+    isConnecting = false; // Reset connecting state on error
+    updateConnectionStatus(false, false); // Update UI
   }
 }
 
@@ -1256,6 +1268,9 @@ async function disconnectWhatsApp() {
       if (!confirmed) return;
 
       addLog('🔌 Desconectando WhatsApp...');
+      isConnecting = false; // Reset connecting state
+      updateConnectionStatus(false, false); // Ensure button is re-enabled
+      
       const response = await fetch('/api/whatsapp/disconnect', { method: 'POST' });
       const data = await response.json();
       
@@ -3051,7 +3066,8 @@ function initializeSocket() {
 
   socket.on('bot-ready', () => {
     addLog('✅ WhatsApp conectado e pronto!');
-    updateConnectionStatus(true);
+    isConnecting = false; // Reset connecting state
+    updateConnectionStatus(true, false); // Now connected, not connecting
   });
 
   socket.on('bot-authenticated', () => {
@@ -3060,11 +3076,15 @@ function initializeSocket() {
 
   socket.on('bot-error', (data) => {
     addLog(`❌ Erro: ${data.message}`, 'error');
+    isConnecting = false; // Reset connecting state on error
+    updateConnectionStatus(false, false); // Disconnected, not connecting
   });
 
   socket.on('bot-disconnected', (data) => {
     addLog(`🔌 WhatsApp desconectado: ${data.reason}`);
-  });
+    isConnecting = false; // Reset connecting state
+    updateConnectionStatus(false, false); // Disconnected, not connecting
+});
 
   socket.on('bot-stopped', () => {
     addLog('🛑 Bot parado');
@@ -3190,15 +3210,37 @@ function initializeSocket() {
 }
 
 // alterei umas coisas aqui pra quando o usuario reiniciar a pagina
-function updateConnectionStatus(isConnected, isSendingMessages = false, sendingProgress = null) {
+function updateConnectionStatus(isConnected, isConnecting = false, isSendingMessages = false, sendingProgress = null) {
     const statusBadge = document.getElementById('connectionStatus');
     const sendBulkBtn = document.getElementById('sendBulkBtn');
+    const connectBtn = document.getElementById('connectBtn');
     
-    if (isConnected) {
+    if (isConnecting) {
+        statusBadge.textContent = 'Conectando...';
+        statusBadge.classList.remove('offline', 'online');
+        statusBadge.classList.add('offline');
+        connectBtn.disabled = true;
+        connectBtn.innerHTML = '⏳ Conectando...';
+        document.getElementById('disconnectBtn').disabled = true;
+        document.getElementById('sendBulkBtn').disabled = true;
+        document.getElementById('folderSelect').disabled = true;
+        
+        if (isSendingMessages) {
+            sendBulkBtn.textContent = '📤 Enviando...';
+            sendBulkBtn.disabled = true;
+            if (sendingProgress) {
+                sendBulkBtn.textContent = `📤 Enviando... (${sendingProgress.sent}/${sendingProgress.total})`;
+            }
+        } else {
+            sendBulkBtn.textContent = '📤 Enviar Mensagens em Massa';
+            sendBulkBtn.disabled = true;
+        }
+    } else if (isConnected) {
         statusBadge.textContent = 'Conectado';
         statusBadge.classList.remove('offline');
         statusBadge.classList.add('online');
-        document.getElementById('connectBtn').disabled = true;
+        connectBtn.disabled = true;
+        connectBtn.innerHTML = '📱 Conectado';
         document.getElementById('disconnectBtn').disabled = false;
         document.getElementById('sendBulkBtn').disabled = false;
         document.getElementById('folderSelect').disabled = true;
@@ -3206,7 +3248,6 @@ function updateConnectionStatus(isConnected, isSendingMessages = false, sendingP
         if (isSendingMessages) {
             sendBulkBtn.textContent = '📤 Enviando...';
             sendBulkBtn.disabled = true;
-            // Optional: Show progress
             if (sendingProgress) {
                 sendBulkBtn.textContent = `📤 Enviando... (${sendingProgress.sent}/${sendingProgress.total})`;
             }
@@ -3218,8 +3259,10 @@ function updateConnectionStatus(isConnected, isSendingMessages = false, sendingP
         statusBadge.textContent = 'Desconectado';
         statusBadge.classList.remove('online');
         statusBadge.classList.add('offline');
-        document.getElementById('connectBtn').disabled = false;
+        connectBtn.disabled = false;
+        connectBtn.innerHTML = '📱 Conectar WhatsApp';
         document.getElementById('disconnectBtn').disabled = true;
+        document.getElementById('sendBulkBtn').disabled = true;
         document.getElementById('folderSelect').disabled = false;
         sendBulkBtn.textContent = '📤 Enviar Mensagens em Massa';
         sendBulkBtn.disabled = true;
@@ -3407,7 +3450,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Status updates
 setInterval(() => {
-    if (!socket || !currentUser) return;
+    if (!socket || !currentUser || isConnecting) {
+        // Don't update status while connecting
+        return;
+    }
     
     fetch('/api/whatsapp/status')
         .then(r => r.json())
@@ -3419,6 +3465,7 @@ setInterval(() => {
                         if (sendingData.success) {
                             updateConnectionStatus(
                                 data.isConnected, 
+                                false, // Never set connecting=true from periodic check
                                 sendingData.isSendingMessages,
                                 sendingData.progress
                             );
