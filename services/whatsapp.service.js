@@ -405,6 +405,7 @@ class WhatsAppService {
 
   async connect(userId, users = null) {
     try {
+      // Check if user is enabled before connecting
       const enabled = await databaseService.isUserEnabled(userId);
       if (!enabled) {
         console.log(`⚠️ User ${userId} attempted to start bot but is disabled`);
@@ -421,6 +422,7 @@ class WhatsAppService {
         message: 'Erro interno ao verificar permissão do usuário. Tente novamente mais tarde.'
       };
     }
+    
     try {
       if (this.clients.has(userId)) {
         await this.disconnect(userId);
@@ -679,6 +681,14 @@ class WhatsAppService {
       const messageBody = message.body;
       const phoneNumber = this.formatPhoneNumber(sender);
 
+      // Check if user is still enabled before processing messages
+      const enabled = await databaseService.isUserEnabled(userId);
+      if (!enabled) {
+        console.log(`⚠️ User ${userId} is disabled, stopping message processing`);
+        await this.disconnect(userId);
+        return;
+      }
+
       // get clients (from folder or DB)
       const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
 
@@ -751,8 +761,6 @@ class WhatsAppService {
         const sessionId = uuidv4();
         userSessions.set(sender, sessionId);
         console.log(`🆕 Session created for user ${userId}: ${sessionId} for ${phoneNumber}`);
-        
-        // await orderService.startSession(sessionId, userId);
       }
 
       const sessionId = userSessions.get(sender);
@@ -844,6 +852,14 @@ class WhatsAppService {
   }
 
   async sendBulkMessages(userId, users) {
+    // Check if user is still enabled before sending bulk messages
+    const enabled = await databaseService.isUserEnabled(userId);
+    if (!enabled) {
+      console.log(`⚠️ User ${userId} is disabled, cannot send bulk messages`);
+      await this.disconnect(userId);
+      throw new Error('Conta desabilitada. Não é possível enviar mensagens.');
+    }
+
     const client = this.clients.get(userId);
     if (!client) {
       throw new Error('Bot not running for user ' + userId);
@@ -863,6 +879,15 @@ class WhatsAppService {
     for (const user of users) {
       if (status.isSendingMessages) {
         try {
+          // Check user enabled status before each message
+          const enabled = await databaseService.isUserEnabled(userId);
+          if (!enabled) {
+            console.log(`⚠️ User ${userId} was disabled during bulk sending, stopping`);
+            status.isSendingMessages = false;
+            await this.disconnect(userId);
+            break;
+          }
+
           if (user.answered) {
             results.push({ phone: user.phone, status: 'skipped', reason: 'Already answered' });
             status.progress.skipped++;
@@ -928,6 +953,14 @@ class WhatsAppService {
   }
 
   async sendCustomBulkMessages(userId, users, message) {
+    // Check if user is still enabled before sending custom bulk messages
+    const enabled = await databaseService.isUserEnabled(userId);
+    if (!enabled) {
+      console.log(`⚠️ User ${userId} is disabled, cannot send custom bulk messages`);
+      await this.disconnect(userId);
+      throw new Error('Conta desabilitada. Não é possível enviar mensagens.');
+    }
+
     const client = this.clients.get(userId);
     if (!client) {
       throw new Error('Bot not running for user ' + userId);
@@ -947,6 +980,15 @@ class WhatsAppService {
     for (const user of users) {
       if (status.isSendingMessages) {
         try {
+          // Check user enabled status before each message
+          const enabled = await databaseService.isUserEnabled(userId);
+          if (!enabled) {
+            console.log(`⚠️ User ${userId} was disabled during custom bulk sending, stopping`);
+            status.isSendingMessages = false;
+            await this.disconnect(userId);
+            break;
+          }
+
           const phoneId = user.phone.replace(/[+\-\s]/g, '') + '@c.us';
           const numberId = await client.getNumberId(phoneId);
           
@@ -1018,6 +1060,15 @@ class WhatsAppService {
       }
 
       try {
+        // Check if user is still enabled before processing
+        const enabled = await databaseService.isUserEnabled(userId);
+        if (!enabled) {
+          console.log(`⚠️ User ${userId} is disabled during polling, disconnecting`);
+          this.stopPolling(userId);
+          await this.disconnect(userId);
+          return;
+        }
+
         const userSessions = this.userSessions.get(userId);
         if (!userSessions) return;
 

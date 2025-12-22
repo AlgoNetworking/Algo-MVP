@@ -551,15 +551,17 @@ class DatabaseService {
         stmt.run(userId, phoneNumber, name, orderType, sessionId, originalMessage, JSON.stringify(parsedOrders), totalQuantity, status);
       }
 
+      /*
       if (status === 'confirmed') {
         this.writeToTextFile(phoneNumber, name, orderType, parsedOrders);
       }
+      */
     } catch (error) {
       console.error('❌ Error saving user order:', error);
       throw error;
     }
   }
-
+/*
   writeToTextFile(phoneNumber, name, orderType, parsedOrders) {
     try {
       const ordersDir = path.join(__dirname, '..', 'orders');
@@ -601,6 +603,7 @@ class DatabaseService {
       console.error('❌ Error writing to text file:', error);
     }
   }
+*/
 
   async createNotification(userId, type, title, message) {
     try {
@@ -829,9 +832,9 @@ class DatabaseService {
         const stmt = db.prepare('UPDATE user_orders SET status = ? WHERE id = ? AND user_id = ?');
         stmt.run('confirmed', orderId, userId);
       }
-
+      /*
       this.writeToTextFile(order.phone_number, order.name, order.order_type, parsedOrders);
-
+      */
       return { success: true };
     } catch (error) {
       console.error('❌ Error confirming order:', error);

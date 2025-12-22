@@ -66,15 +66,6 @@
                         <button id="sendBulkBtn" class="btn btn-success" disabled onclick="sendBulkMessages()">
                             📤 Enviar Mensagens em Massa
                         </button>
-                        <button id="downloadExcelBtn" class="btn btn-info">
-                            📥 Baixar Totais
-                        </button>
-                        <button id="downloadTxtBtn" class="btn btn-info">
-                            📝 Baixar Pedidos (TXT)
-                        </button>
-                        <button id="clearDbBtn" class="btn btn-warning">
-                            🗑️ Limpar Banco de Dados
-                        </button>
                     </div>
 
                     <div class="stats-grid">
@@ -115,6 +106,12 @@
                         <button class="btn btn-sm btn-success" id="autoRefreshBtn" onclick="toggleAutoRefresh()">
                             🔁 Auto: OFF
                         </button>
+                        <button class="btn btn-sm btn-warning" onclick="clearDatabase()">
+                            🗑️ Limpar Todos
+                        </button>
+                        <button class="btn btn-info" onclick="downloadExcel()">
+                            📝 Baixar Totais (Arquivo Excel)
+                        </button>
                     </div>
                     <div id="ordersTable" class="table-container"></div>
                 </div>
@@ -148,6 +145,9 @@
                     </button>
                     <button class="btn btn-sm btn-warning" onclick="clearUserOrders()">
                         🗑️ Limpar Todos
+                    </button>
+                    <button class="btn btn-info" onclick="downloadOrdersTxt()">
+                        📝 Baixar Pedidos (Arquivo de texto)
                     </button>
                 </div>
                 <div id="userOrdersContainer"></div>

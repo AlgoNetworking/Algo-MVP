@@ -1185,6 +1185,8 @@ function setupTabs() {
 async function connectWhatsApp() {
   try {
     addLog('📱 Conectando WhatsApp...');
+
+    document.getElementById('connectBtn').disabled = true;
     
     // Get clients from selected folder
     let selectedClients = [];
@@ -1586,11 +1588,19 @@ async function downloadOrdersTxt() {
         return;
     }
     
+    let totalOrdersCount = 0;
+
+    data.user_orders.forEach(order => {
+        if(order.status !== 'canceled') {
+          totalOrdersCount++;
+        }
+    });
+
     // Create text content
     let txtContent = 'RELATÓRIO DE PEDIDOS\n';
     txtContent += '=====================\n\n';
     txtContent += `Data de exportação: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}\n`;
-    txtContent += `Total de pedidos: ${data.user_orders.length}\n\n`;
+    txtContent += `Total de pedidos: ${totalOrdersCount}\n\n`;
     
     // Separate orders by type
     const normalOrders = [];
@@ -1600,15 +1610,20 @@ async function downloadOrdersTxt() {
     
     // Group orders by type
     data.user_orders.forEach(order => {
-        switch(order.order_type) {
-            case 'quilo':
-                quiloOrders.push(order);
-                break;
-            case 'dosado':
-                dosadoOrders.push(order);
-                break;
-            default:
-                normalOrders.push(order);
+        if(order.status !== 'canceled') {
+            switch(order.order_type) {
+                case 'quilo':
+                    quiloOrders.push(order);
+                    break;
+                case 'dosado':
+                    dosadoOrders.push(order);
+                    break;
+                case 'dobrado':
+                    dobradoOrders.push(order);
+                    break;
+                default:
+                    normalOrders.push(order);
+            }                    
         }
     });
     
@@ -1618,25 +1633,25 @@ async function downloadOrdersTxt() {
         txtContent += '================\n\n';
         
         normalOrders.forEach(order => {
-            const parsedOrders = typeof order.parsed_orders === 'string' 
-                ? JSON.parse(order.parsed_orders) 
-                : order.parsed_orders;
-            
-            txtContent += `Cliente: ${order.name}\n`;
-            txtContent += `Telefone: ${order.phone_number}\n`;
-            txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
-            txtContent += `Status: ${order.status}\n`;
-            txtContent += 'Itens:\n';
-            
-            parsedOrders.forEach(item => {
-                txtContent += `  ${item.qty}x ${item.productName || item.product}\n`;
-            });
-            
-            if (order.original_message) {
-                txtContent += `Mensagem original: ${order.original_message}\n`;
+            if(order.status !== 'canceled') {
+                const parsedOrders = typeof order.parsed_orders === 'string' 
+                    ? JSON.parse(order.parsed_orders) 
+                    : order.parsed_orders;
+                
+                const formattedPhone = formatPhoneNumberForDisplay(order.phone_number);
+
+                txtContent += `Cliente: ${order.name}\n`;
+                txtContent += `Telefone: ${formattedPhone}\n`;
+                txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
+                txtContent += `Status: ${order.status === 'confirmed' ? 'Confirmado' : 'Pendente'}\n`;
+                txtContent += 'Itens:\n';
+                
+                parsedOrders.forEach(item => {
+                    txtContent += `  ${item.qty}x ${item.productName || item.product}\n`;
+                });
+                
+                txtContent += '---\n\n';
             }
-            
-            txtContent += '---\n\n';
         });
     }
     
@@ -1646,28 +1661,28 @@ async function downloadOrdersTxt() {
         txtContent += '================\n\n';
         
         quiloOrders.forEach(order => {
-            const parsedOrders = typeof order.parsed_orders === 'string' 
-                ? JSON.parse(order.parsed_orders) 
-                : order.parsed_orders;
-            
-            txtContent += `Cliente: ${order.name}\n`;
-            txtContent += `Telefone: ${order.phone_number}\n`;
-            txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
-            txtContent += `Status: ${order.status}\n`;
-            txtContent += 'Itens (convertido para unidades):\n';
-            
-            parsedOrders.forEach(item => {
-                const convertedQty = Math.floor(item.qty / 10); // Assuming 10 = 1kg
-                if (convertedQty > 0) {
-                    txtContent += `  ${convertedQty}x ${item.productName || item.product}\n`;
-                }
-            });
-            
-            if (order.original_message) {
-                txtContent += `Mensagem original: ${order.original_message}\n`;
+            if(order.status !== 'canceled') {
+                const parsedOrders = typeof order.parsed_orders === 'string' 
+                    ? JSON.parse(order.parsed_orders) 
+                    : order.parsed_orders;
+                
+                const formattedPhone = formatPhoneNumberForDisplay(order.phone_number);
+
+                txtContent += `Cliente: ${order.name}\n`;
+                txtContent += `Telefone: ${formattedPhone}\n`;
+                txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
+                txtContent += `Status: ${order.status === 'confirmed' ? 'Confirmado' : 'Pendente'}\n`;
+                txtContent += 'Itens (quilos):\n';
+                
+                parsedOrders.forEach(item => {
+                    const convertedQty = Math.floor(item.qty / 5)/2;
+                    if (convertedQty > 0) {
+                        txtContent += `  ${convertedQty}x ${item.productName || item.product}\n`;
+                    }
+                });
+                
+                txtContent += '---\n\n';
             }
-            
-            txtContent += '---\n\n';
         });
     }
     
@@ -1677,35 +1692,67 @@ async function downloadOrdersTxt() {
         txtContent += '===============\n\n';
         
         dosadoOrders.forEach(order => {
-            const parsedOrders = typeof order.parsed_orders === 'string' 
-                ? JSON.parse(order.parsed_orders) 
-                : order.parsed_orders;
-            
-            txtContent += `Cliente: ${order.name}\n`;
-            txtContent += `Telefone: ${order.phone_number}\n`;
-            txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
-            txtContent += `Status: ${order.status}\n`;
-            txtContent += 'Itens (dosados):\n';
-            
-            parsedOrders.forEach(item => {
-                txtContent += `  ${item.qty}x ${item.productName || item.product} (dosado)\n`;
-            });
-            
-            if (order.original_message) {
-                txtContent += `Mensagem original: ${order.original_message}\n`;
+            if(order.status !== 'canceled') {
+                const parsedOrders = typeof order.parsed_orders === 'string' 
+                    ? JSON.parse(order.parsed_orders) 
+                    : order.parsed_orders;
+                
+                const formattedPhone = formatPhoneNumberForDisplay(order.phone_number);
+
+                txtContent += `Cliente: ${order.name}\n`;
+                txtContent += `Telefone: ${formattedPhone}\n`;
+                txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
+                txtContent += `Status: ${order.status === 'confirmed' ? 'Confirmado' : 'Pendente'}\n`;
+                txtContent += 'Itens (dosados):\n';
+                
+                parsedOrders.forEach(item => {
+                    const convertedQty = Math.floor(item.qty / 10)/2;
+                    if (convertedQty > 0) {
+                        txtContent += `  ${convertedQty}x ${item.productName || item.product}\n`;
+                    }
+                });
+                
+                txtContent += '---\n\n';
             }
-            
-            txtContent += '---\n\n';
+        });
+    }
+
+    // Format dobrado orders
+    if (dobradoOrders.length > 0) {
+        txtContent += 'PEDIDOS DOBRADOS\n';
+        txtContent += '===============\n\n';
+        
+        dobradoOrders.forEach(order => {
+            if(order.status !== 'canceled') {
+                const parsedOrders = typeof order.parsed_orders === 'string' 
+                    ? JSON.parse(order.parsed_orders) 
+                    : order.parsed_orders;
+                
+                const formattedPhone = formatPhoneNumberForDisplay(order.phone_number);
+
+                txtContent += `Cliente: ${order.name}\n`;
+                txtContent += `Telefone: ${formattedPhone}\n`;
+                txtContent += `Data: ${new Date(order.created_at).toLocaleString()}\n`;
+                txtContent += `Status: ${order.status === 'confirmed' ? 'Confirmado' : 'Pendente'}\n`;
+                txtContent += 'Itens (dobrados):\n';
+                
+                parsedOrders.forEach(item => {
+                    const convertedQty = 2 * item.qty;
+                    txtContent += `  ${convertedQty}x ${item.productName || item.product}\n`;
+                });
+                
+                txtContent += '---\n\n';
+            }
         });
     }
     
     // Summary
     txtContent += 'RESUMO\n';
     txtContent += '======\n\n';
-    txtContent += `Total de pedidos: ${data.user_orders.length}\n`;
+    txtContent += `Total de pedidos: ${totalOrdersCount}\n`;
     txtContent += `- Normais: ${normalOrders.length}\n`;
     txtContent += `- Quilos: ${quiloOrders.length}\n`;
-    txtContent += `- Dosados: ${dosadoOrders.length}\n\n`;
+    txtContent += `- Dosados: ${dosadoOrders.length}\n`;
     txtContent += `- Dobrados: ${dobradoOrders.length}\n\n`;
     
     
@@ -1743,7 +1790,7 @@ async function downloadOrdersTxt() {
 }
 
 async function clearDatabase() {
-    const confirmed = await confirmAction('⚠️ Confirmar', 'Limpar TODOS os dados do banco?');
+    const confirmed = await confirmAction('⚠️ Confirmar', 'Limpar todos os dados do banco de totais?');
     if (!confirmed) return;
     
     try {
@@ -1850,6 +1897,21 @@ async function refreshUserOrders() {
     }
 }
 
+function quantityTypeConverter(quantity, type) {
+    if (type === 'quilo') {
+        return Math.floor(quantity / 5)/2;
+    }
+    else if (type === 'dosado') {
+        return Math.floor(quantity / 10)/2;
+    }
+    else if (type === 'dobrado') {
+        return 2 * quantity;
+    }
+    else if (type === 'normal') {
+        return quantity;
+    }
+}
+
 function renderUserOrders(orders) {
     const container = document.getElementById('userOrdersContainer');
     
@@ -1874,7 +1936,9 @@ function renderUserOrders(orders) {
                 </div>
                 <div class="order-items">
                     ${parsedOrders.map(item => 
-                        `<span class="order-item-badge">${item.qty}x ${item.productName}</span>`
+                        quantityTypeConverter(item.qty, order.order_type) !== 0 ? 
+                        `<span class="order-item-badge">${quantityTypeConverter(item.qty, order.order_type)}x ${item.productName}</span>` :
+                        ''
                     ).join('')}
                 </div>
                 <span class="order-type-badge">${order.order_type}</span>
@@ -2567,8 +2631,12 @@ function formatPhoneNumberForDisplay(phone) {
     const cleanPhone = phone.replace('@c.us', '');
     
     if (cleanPhone.length === 13) { // Brazil format with country code
+        return `+${cleanPhone.slice(0, 2)} ${cleanPhone.slice(2, 4)} ${cleanPhone.slice(4, 9)}-${cleanPhone.slice(9, 13)}`;
+    } 
+    else if (cleanPhone.length === 12) { // Brazil format without 9
         return `+${cleanPhone.slice(0, 2)} ${cleanPhone.slice(2, 4)} ${cleanPhone.slice(4, 8)}-${cleanPhone.slice(8, 12)}`;
-    } else if (cleanPhone.length === 11) { // Brazil format without +
+    } 
+    else if (cleanPhone.length === 11) { // Brazil format without +
         return `${cleanPhone.slice(0, 2)} ${cleanPhone.slice(2, 7)}-${cleanPhone.slice(7, 11)}`;
     }
     
@@ -3288,9 +3356,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('connectBtn').addEventListener('click', connectWhatsApp);
   document.getElementById('disconnectBtn').addEventListener('click', disconnectWhatsApp);
   document.getElementById('sendBulkBtn').addEventListener('click', sendBulkMessages);
-  document.getElementById('downloadExcelBtn').addEventListener('click', downloadExcel);
-  document.getElementById('downloadTxtBtn').addEventListener('click', downloadOrdersTxt);
-  document.getElementById('clearDbBtn').addEventListener('click', clearDatabase);
 
   try {
     // Load the folder for THIS specific user
