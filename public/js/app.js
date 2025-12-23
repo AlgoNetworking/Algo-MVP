@@ -912,13 +912,25 @@ function renderNotifications() {
     
     const unreadNotifications = notifications.filter(n => !n.isRead);
     
-    if (unreadNotifications.length === 0) {
+    // Filter out duplicates based on title and message
+    const uniqueNotifications = [];
+    const seenKeys = new Set();
+    
+    unreadNotifications.forEach(notification => {
+        const key = `${notification.title}-${notification.message}`;
+        if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            uniqueNotifications.push(notification);
+        }
+    });
+    
+    if (uniqueNotifications.length === 0) {
         notificationsContainer.innerHTML = '<div class="empty-state">Nenhuma notificação</div>';
         return;
     }
     
     let html = '';
-    unreadNotifications.forEach(notification => {
+    uniqueNotifications.forEach(notification => {
         const time = new Date(notification.createdAt).toLocaleTimeString();
         const date = new Date(notification.createdAt).toLocaleDateString();
         

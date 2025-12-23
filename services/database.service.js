@@ -611,6 +611,35 @@ class DatabaseService {
 
   async createNotification(userId, type, title, message) {
     try {
+      // First, check if a similar notification already exists (to prevent duplicates)
+      if (isProduction) {
+        const existingResult = await db.query(
+          `SELECT id FROM notifications 
+          WHERE user_id = $1 AND type = $2 AND title = $3 
+          AND message = $4 AND is_read = false
+          AND created_at > NOW() - INTERVAL '1 hour'`,
+          [userId, type, title, message]
+        );
+        
+        if (existingResult.rows.length > 0) {
+          console.log(`ℹ️ Duplicate notification skipped for user ${userId}: ${title}`);
+          return existingResult.rows[0];
+        }
+      } else {
+        const existingStmt = db.prepare(
+          `SELECT id FROM notifications 
+          WHERE user_id = ? AND type = ? AND title = ? 
+          AND message = ? AND is_read = 0
+          AND created_at > datetime('now', '-1 hour')`
+        );
+        const existing = existingStmt.get(userId, type, title, message);
+        
+        if (existing) {
+          console.log(`ℹ️ Duplicate notification skipped for user ${userId}: ${title}`);
+          return existing;
+        }
+      }
+
       if (isProduction) {
         const result = await db.query(
           `INSERT INTO notifications (user_id, type, title, message) 
@@ -731,16 +760,57 @@ class DatabaseService {
   async clearAllNotifications(userId) {
     try {
       if (isProduction) {
-        await db.query(
-          'DELETE FROM notifications WHERE user_id = $1',
-          [userId]
-        );
+        // Use explicit transaction and disable triggers temporarily if needed
+        await db.query('BEGIN');
+        try {
+          // First, let's check if there are any notifications for this user
+          const checkResult = await db.query(
+            'SELECT COUNT(*) as count FROM notifications WHERE user_id = $1',
+            [userId]
+          );
+          
+          console.log(`Clearing ${checkResult.rows[0].count} notifications for user ${userId}`);
+          
+          // Delete notifications
+          const deleteResult = await db.query(
+            'DELETE FROM notifications WHERE user_id = $1 RETURNING id',
+            [userId]
+          );
+          
+          await db.query('COMMIT');
+          
+          console.log(`✅ Successfully cleared ${deleteResult.rowCount} notifications for user ${userId} in PostgreSQL`);
+          
+          // Return the count for verification
+          return deleteResult.rowCount;
+        } catch (error) {
+          await db.query('ROLLBACK');
+          throw error;
+        }
       } else {
         const stmt = db.prepare('DELETE FROM notifications WHERE user_id = ?');
-        stmt.run(userId);
+        const info = stmt.run(userId);
+        console.log(`✅ Cleared ${info.changes} notifications for user ${userId} in SQLite`);
+        return info.changes;
       }
     } catch (error) {
       console.error('❌ Error clearing notifications:', error);
+      
+      // Try a simpler approach if the transaction fails
+      if (isProduction) {
+        try {
+          console.log('Attempting alternative delete method...');
+          const result = await db.query(
+            'DELETE FROM notifications WHERE user_id = $1',
+            [userId]
+          );
+          console.log(`✅ Alternative method cleared ${result.rowCount} notifications`);
+          return result.rowCount;
+        } catch (fallbackError) {
+          console.error('❌ Alternative method also failed:', fallbackError);
+        }
+      }
+      
       throw error;
     }
   }

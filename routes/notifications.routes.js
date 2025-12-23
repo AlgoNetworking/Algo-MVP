@@ -63,11 +63,19 @@ router.put('/read-all', async (req, res) => {
 // Clear all notifications (delete)
 router.delete('/', async (req, res) => {
   try {
-    await databaseService.clearAllNotifications(req.userId);
-    res.json({ success: true });
+    const deletedCount = await databaseService.clearAllNotifications(req.userId);
+    res.json({
+      success: true,
+      message: `Cleared ${deletedCount} notifications`,
+      deletedCount
+    });
   } catch (error) {
     console.error('Error clearing notifications:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      details: 'Check server logs for more information'
+    });
   }
 });
 
