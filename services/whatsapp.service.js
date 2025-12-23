@@ -453,9 +453,12 @@ class WhatsAppService {
         });
       }
       
-      if (users) {
-        this.usersInSelectedFolder.set(userId, users);
+      if (users && Array.isArray(users)) {
+        this.setSelectedFolderForUser(userId, users);
         console.log(`📁 Selected folder set for user ${userId}: ${Array.isArray(users) ? users.length + ' entries' : String(users)}`);
+      }
+      else {
+        console.log(`connect(): received non-array users for user ${userId}`, { users });
       }
 
       this.disabledUsers.set(userId, new Set());
@@ -731,7 +734,88 @@ class WhatsAppService {
     });
   }
 
-  // (handleMessage, sendMessage, sendBulkMessages, etc.)
+  // require logger and databaseService as used elsewhere
+  async getClientUsersFor(userId) {
+    // 1) attempt in-memory selected folder (per-user Map)
+    try {
+      const selectedRaw = this.usersInSelectedFolder && this.usersInSelectedFolder.get
+        ? this.usersInSelectedFolder.get(userId)
+        : null;
+
+      if (selectedRaw) {
+        const arr = this.coerceToClientArray(selectedRaw, { source: 'map', userId, stack: new Error().stack.split('\n').slice(0,6) });
+        if (arr.length) return arr;
+        // if empty after coercion, fallthrough to DB
+      }
+
+      // 2) fallback to DB
+      const dbRaw = await databaseService.getUserClients(userId);
+      console.log('DEBUG dbRaw sample for user', userId, typeof dbRaw, Object.keys(dbRaw||{}).slice(0,6));
+      const arrFromDb = this.coerceToClientArray(dbRaw, { source: 'db', userId, stack: new Error().stack.split('\n').slice(0,6) });
+      if (arrFromDb.length) return arrFromDb;
+
+      // 3) nothing useful — log full objects (first time only)
+      console.log(`getClientUsersFor: no clients found (map or db) for user ${userId}`, {
+        mapSample: (selectedRaw && (Array.isArray(selectedRaw) ? selectedRaw.length : Object.keys(selectedRaw || {}).slice(0,6))) || null,
+        dbSample: (dbRaw && (Array.isArray(dbRaw) ? dbRaw.length : Object.keys(dbRaw || {}).slice(0,6))) || null,
+      });
+
+      return [];
+    } catch (err) {
+      console.error(`getClientUsersFor: unexpected error for user ${userId}`, err && (err.stack || err));
+      return [];
+    }
+  }
+
+
+  coerceToClientArray(raw, ctx = {}) {
+    // If already an array — done.
+    if (Array.isArray(raw)) return raw;
+
+    // Prepare a small diagnostic preview for logging
+    const preview = (() => {
+      try {
+        const keys = raw && typeof raw === 'object' ? Object.keys(raw).slice(0,6) : String(raw).slice(0,200);
+        return { type: typeof raw, keys };
+      } catch (e) { return { type: typeof raw, keys: [] }; }
+    })();
+
+    // 1) common wrappers
+    if (raw && typeof raw === 'object') {
+      // common shapes: { clients: [...] } or { data: [...] } or { users: [...] }
+      if (Array.isArray(raw.clients)) return raw.clients;
+      if (Array.isArray(raw.data)) return raw.data;
+      if (Array.isArray(raw.users)) return raw.users;
+
+      // If it's an object keyed by phone or id, convert values -> array
+      const maybeValues = Object.values(raw);
+      if (maybeValues.length > 0 && maybeValues.every(v => typeof v === 'object')) {
+        console.log(`coerceToClientArray: converting object->array (likely map)`, { ctx, preview });
+        return maybeValues;
+      }
+    }
+
+    // Not convertible -> log what it was and return empty array
+    console.error(`coerceToClientArray: unexpected clientUsers shape; coerced to []`, { ctx, preview });
+    return [];
+  }
+
+  setSelectedFolderForUser(userId, users) {
+    if (!users) {
+      this.usersInSelectedFolder.delete(userId);
+      return;
+    }
+    if (!Array.isArray(users)) {
+      const coerced = this.coerceToClientArray(users, { source: 'setSelectedFolderForUser', userId });
+      if (!coerced.length) {
+        console.log(`setSelectedFolderForUser: received invalid users for ${userId}; ignoring`, { userId });
+        return;
+      }
+      this.usersInSelectedFolder.set(userId, coerced);
+      return;
+    }
+    this.usersInSelectedFolder.set(userId, users);
+  }
 
   async handleMessage(userId, message) {
     try {
@@ -758,12 +842,31 @@ class WhatsAppService {
         return; // or handle as you need (ignore / flag)
       }
 
+      console.log('DEBUG incoming rawFrom:', sender);
+      console.log('DEBUG usersInSelectedFolder.get(userId) sample:', (() => {
+      try {
+          const s = this.usersInSelectedFolder && this.usersInSelectedFolder.get ? this.usersInSelectedFolder.get(userId) : undefined;
+          return s && (Array.isArray(s) ? `array(${s.length})` : `object keys:${Object.keys(s||{}).slice(0,6)}`);
+        } catch (e) { return String(e); }
+      })());
+
       // get clients (from folder or DB)
-      const clientUsers = (this.usersInSelectedFolder.get(userId) || await databaseService.getUserClients(userId));
+      const clientUsers = await this.getClientUsersFor(userId); // always an array
+      if (!Array.isArray(clientUsers)) {
+        // defensive fallback (shouldn't happen because helper always returns array)
+        console.error(`❌ Unexpected clientUsers type for user ${userId}`, { clientUsers });
+        console.log(typeof clientUsers);
+      }
+
+      // Helpful debug logging for the first few occurrences
+      if (clientUsers.length === 0) {
+        console.log(`⚠️ clientUsers empty for user ${userId}. incoming from=${sender}`);
+      }
       console.log(`ℹ️ Using ${ this.usersInSelectedFolder.has(userId) ? 'selected folder' : 'DB clients' } for user ${userId} (clients: ${clientUsers?.length || 0})`);
 
       if (!clientUsers || !Array.isArray(clientUsers)) {
         console.error(`❌ Error: clientUsers is not an array for user ${userId}`);
+        console.log(typeof clientUsers);
         return;
       }
 
@@ -860,12 +963,8 @@ class WhatsAppService {
         response.clientStatus === 'confirmedOrder'
       )) {
 
-        const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
-        // Ensure clientUsers is always an array
-        if (!clientUsers || !Array.isArray(clientUsers)) {
-          console.error(`❌ Error: clientUsers is not an array for user ${userId}`);
-          return;
-        }
+        const clientUsers = await this.getClientUsersFor(userId);
+
         if(response.isChatBot === false) {
           console.log(`🚫 Disabling bot for user ${userId}: ${phoneNumber}`);
           userDisabled.add(sender);
@@ -1157,12 +1256,7 @@ class WhatsAppService {
           
             if (updates.has_message && updates.client_status[1] === 'autoConfirmedOrder') {
 
-              const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
-              // Ensure clientUsers is always an array
-              if (!clientUsers || !Array.isArray(clientUsers)) {
-                console.error(`❌ Error: clientUsers is not an array for user ${userId}`);
-                return;
-              }
+              const clientUsers = await this.getClientUsersFor(userId);
 
               if (this.io) {
                 this.io.to(`user-${userId}`).emit('auto-confirmed-order', {
