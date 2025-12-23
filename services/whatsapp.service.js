@@ -699,7 +699,8 @@ class WhatsAppService {
       const chat = await message.getChat();
       const type = message.type;  
       // More comprehensive filtering of system messages
-      if(!(message.from === 'status@broadcast' || 
+      if(!(
+          message.from === 'status@broadcast' || 
           message.fromMe || 
           chat.isGroup ||
           type === 'ack' || // Delivery receipts
@@ -736,6 +737,7 @@ class WhatsAppService {
       const sender = message.from;
       const messageBody = message.body;
       const phoneNumber = this.formatPhoneNumber(sender);
+      const phoneNumberDigits = this.extractDigitsFromJid(sender);
 
       // Check if user is still enabled before processing messages
       const enabled = await databaseService.isUserEnabled(userId);
@@ -745,12 +747,22 @@ class WhatsAppService {
         return;
       }
 
+      if (sender.includes('@g.us') || sender.includes('status@') || sender.includes('broadcast')) {
+        console.log(`Received group/broadcast/system message: ${sender}`);
+        return;
+      }
+
+      if (!this.isLikelyPhoneDigits(phoneNumberDigits)) {
+        console.log(`🚫 Ignoring message from invalid WhatsApp id for user ${userId}: raw='${sender}', digits='${phoneNumberDigits}'`);
+        return; // or handle as you need (ignore / flag)
+      }
+
       // get clients (from folder or DB)
       const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
 
-      const clientInfo = this.findUserInfo(clientUsers, phoneNumber);
+      const clientInfo = this.findUserInfoByDigits(clientUsers, phoneNumberDigits);
       if (!clientInfo) {
-        console.log(`🚫 Ignoring message from unregistered number for user ${userId}: ${phoneNumber} ID: ${sender}`);
+        console.log(`🚫 Ignoring message from unregistered number for user ${userId}: raw='${sender}', digits='${phoneNumberDigits}'`);
         console.log(clientUsers);
         return;
       }
@@ -1254,12 +1266,32 @@ class WhatsAppService {
     }) || null;
   }
 
+  findUserInfoByDigits(users, targetDigits) {
+    const normalize = (p) => (p ? String(p).replace(/\D/g, '') : '');
+    return users.find(u => {
+      const up = normalize(u.phone);
+      return up && up === targetDigits;
+    }) || null;
+  }
+
   formatPhoneNumber(whatsappId) {
     const numbers = whatsappId.replace('@c.us', '');
     if (numbers.length >= 12) {
       return `+${numbers.slice(0, 2)} ${numbers.slice(2, 4)} ${numbers.slice(4, 8)}-${numbers.slice(8, 12)}`;
     }
     return numbers;
+  }
+
+  extractDigitsFromJid(raw) {
+    if (!raw) return '';
+    // If it's a JID like '558597084174@c.us', take left side.
+    const left = String(raw).split('@')[0];
+    return left.replace(/\D/g, ''); // keep only digits
+  }
+
+  isLikelyPhoneDigits(digits) {
+    // WhatsApp phone digits normally between ~8 and 15 digits. Adjust if needed.
+    return /^\d{8,15}$/.test(digits);
   }
 
   async generateInitialMessage(userId, userName) {
