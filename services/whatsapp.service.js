@@ -391,7 +391,7 @@ class WhatsAppService {
     this.botStartTimes = new Map();
     this.postgresStore = null;
     this.saveTimers = new Map(); // Timer to trigger manual saves
-    this.usersInSelectedFolder = null;
+    this.usersInSelectedFolder = new Map();
     this.connectingUsers = new Set();
   }
 
@@ -454,7 +454,8 @@ class WhatsAppService {
       }
       
       if (users) {
-        this.usersInSelectedFolder = users;
+        this.usersInSelectedFolder.set(userId, users);
+        console.log(`📁 Selected folder set for user ${userId}: ${Array.isArray(users) ? users.length + ' entries' : String(users)}`);
       }
 
       this.disabledUsers.set(userId, new Set());
@@ -758,7 +759,13 @@ class WhatsAppService {
       }
 
       // get clients (from folder or DB)
-      const clientUsers = this.usersInSelectedFolder || await databaseService.getUserClients(userId);
+      const clientUsers = (this.usersInSelectedFolder.get(userId) || await databaseService.getUserClients(userId));
+      console.log(`ℹ️ Using ${ this.usersInSelectedFolder.has(userId) ? 'selected folder' : 'DB clients' } for user ${userId} (clients: ${clientUsers?.length || 0})`);
+
+      if (!clientUsers || !Array.isArray(clientUsers)) {
+        console.error(`❌ Error: clientUsers is not an array for user ${userId}`);
+        return;
+      }
 
       const clientInfo = this.findUserInfoByDigits(clientUsers, phoneNumberDigits);
       if (!clientInfo) {
@@ -1213,6 +1220,7 @@ class WhatsAppService {
       this.disabledUsers.delete(userId);
       this.sendingStatus.delete(userId);
       this.botStartTimes.delete(userId);
+      this.usersInSelectedFolder.delete(userId);
       
       console.log('✅ WhatsApp disconnected for user:', userId);
       
