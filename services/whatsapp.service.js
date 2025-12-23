@@ -763,7 +763,6 @@ class WhatsAppService {
       const clientInfo = this.findUserInfoByDigits(clientUsers, phoneNumberDigits);
       if (!clientInfo) {
         console.log(`🚫 Ignoring message from unregistered number for user ${userId}: raw='${sender}', digits='${phoneNumberDigits}'`);
-        console.log(clientUsers);
         return;
       }
 
