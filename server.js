@@ -316,13 +316,16 @@ io.on('connection', (socket) => {
   console.log('🔌 Client connected for user:', socket.userId);
   
   // Send initial status for this user
-  const sendingStatus = whatsappService.getSendingStatus(socket.userId) || { isSendingMessages: false, progress: null };
+  const requestStatus = whatsappService.getRequestSendingStatus(socket.userId) || { isSendingRequestMessages: false, requestProgress: null };
+  const customStatus = whatsappService.getCustomSendingStatus(socket.userId) || { isSendingCustomMessages: false, customProgress: null };
   socket.emit('bot-status', {
     isConnected: whatsappService.isConnected(socket.userId),
     isConnecting: whatsappService.isConnecting ? whatsappService.isConnecting(socket.userId) : false,
     sessions: whatsappService.getActiveSessions(socket.userId),
-    isSendingMessages: sendingStatus.isSendingMessages,
-    sendingProgress: sendingStatus.progress
+    isSendingRequestMessages: requestStatus.isSendingRequestMessages,
+    requestSendingProgress: requestStatus.requestProgress,
+    isSendingCustomMessages: customStatus.isSendingRequestMessages,
+    customSendingProgress: customStatus.requestProgress
   });
 
   socket.on('disconnect', () => {

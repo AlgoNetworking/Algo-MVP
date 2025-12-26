@@ -61,12 +61,71 @@ let folders = [];
 let currentFolder = null;
 let folderClients = [];
 let folderHasUnsavedChanges = false;
+let selectedFolderIds = []; // Array of selected folder IDs
+let selectedFolderNames = []; // Array of selected folder names
 let isConnecting = false;
+let isSendingRequestMessages = false;
+let isSendingCustomMessages = false;
 
 // Modal system variables
 let modalResolve = null;
 let currentEditingIndex = -1;
 let currentEditingType = null; // 'client' or 'product'
+
+// Confirm folder selection (multiple folders)
+async function confirmFolderSelection() {
+  const selectElement = document.getElementById('folderSelect');
+  const selectedOptions = Array.from(selectElement.selectedOptions);
+  
+  if (selectedOptions.length === 0) {
+    customAlert('Erro', 'Por favor, selecione pelo menos uma pasta.');
+    return;
+  }
+  
+  selectedFolderIds = selectedOptions.map(opt => opt.value);
+  selectedFolderNames = selectedOptions.map(opt => opt.textContent);
+  
+  // Update UI to show selected folders
+  const infoDiv = document.getElementById('selectedFoldersInfo');
+  const listDiv = document.getElementById('selectedFoldersList');
+  
+  listDiv.innerHTML = selectedFolderNames.map((name, idx) => 
+    `<div style="padding: 5px 0;">• ${name}</div>`
+  ).join('');
+  
+  infoDiv.style.display = 'block';
+  
+  // Save to localStorage for this user
+  if (currentUser && currentUser.id) {
+    localStorage.setItem(`botSelectedFolderIds_${currentUser.id}`, JSON.stringify(selectedFolderIds));
+    localStorage.setItem(`botSelectedFolderNames_${currentUser.id}`, JSON.stringify(selectedFolderNames));
+  }
+  
+  addLog(`✅ ${selectedFolderIds.length} pasta(s) selecionada(s)`);
+}
+
+// Load all clients from selected folders
+async function loadClientsFromSelectedFolders() {
+  if (selectedFolderIds.length === 0) {
+    return [];
+  }
+  
+  const allClients = [];
+  
+  for (const folderId of selectedFolderIds) {
+    try {
+      const response = await fetch(`/api/clients?folderId=${folderId}`);
+      const data = await response.json();
+      if (data.success && data.clients) {
+        allClients.push(...data.clients);
+      }
+    } catch (error) {
+      console.error(`Error loading clients from folder ${folderId}:`, error);
+    }
+  }
+  
+  return allClients;
+}
 
 // Load folders from database
 async function loadFolders() {
@@ -717,7 +776,7 @@ async function cancelFolderChanges() {
   addLog(`❌ Alterações na pasta "${currentFolder.name}" descartadas.`);
 }
 
-// Update folder selection dropdown
+// Update folder select to support multiple selection
 async function updateFolderSelect() {
   try {
     const response = await fetch('/api/folders');
@@ -725,12 +784,9 @@ async function updateFolderSelect() {
     if (data.success) {
       folders = data.folders;
       const select = document.getElementById('folderSelect');
-      const info = document.getElementById('selectedFolderInfo');
       
-      // Clear existing options except first
-      while (select.options.length > 1) {
-        select.remove(1);
-      }
+      // Clear existing options
+      select.innerHTML = '';
       
       // Add folder options
       folders.forEach(folder => {
@@ -740,13 +796,32 @@ async function updateFolderSelect() {
         select.appendChild(option);
       });
       
-      // Restore selected folder if exists
-      if (selectedFolderId) {
-        select.value = selectedFolderId;
-        info.textContent = `Selecionada: ${selectedFolderName}`;
-        info.style.display = 'block';
-      } else {
-        info.style.display = 'none';
+      // Restore selected folders if exists
+      if (currentUser && currentUser.id) {
+        const savedIds = localStorage.getItem(`botSelectedFolderIds_${currentUser.id}`);
+        const savedNames = localStorage.getItem(`botSelectedFolderNames_${currentUser.id}`);
+        
+        if (savedIds && savedNames) {
+          selectedFolderIds = JSON.parse(savedIds);
+          selectedFolderNames = JSON.parse(savedNames);
+          
+          // Select the options in the select element
+          Array.from(select.options).forEach(opt => {
+            if (selectedFolderIds.includes(opt.value)) {
+              opt.selected = true;
+            }
+          });
+          
+          // Update info display
+          const infoDiv = document.getElementById('selectedFoldersInfo');
+          const listDiv = document.getElementById('selectedFoldersList');
+          
+          listDiv.innerHTML = selectedFolderNames.map((name, idx) => 
+            `<div style="padding: 5px 0;">• ${name}</div>`
+          ).join('');
+          
+          infoDiv.style.display = 'block';
+        }
       }
     }
   } catch (error) {
@@ -1194,74 +1269,60 @@ function setupTabs() {
     });
 }
 
-// WhatsApp connection functions
+// Modified connect function to use multiple folders
 async function connectWhatsApp() {
   try {
-    // Don't allow multiple connection attempts
     if (isConnecting) {
       addLog('⚠️ Já está conectando...');
       return;
     }
     
+    if (selectedFolderIds.length === 0) {
+      customAlert('Aviso', 'Por favor, selecione pelo menos uma pasta primeiro.');
+      return;
+    }
+    
     addLog('📱 Conectando WhatsApp...');
-    isConnecting = true; // Set connecting state
-    updateConnectionStatus(false, true); // Pass connecting=true
+    isConnecting = true;
+    updateConnectionStatus(false, true);
 
     document.getElementById('connectBtn').disabled = true;
     document.getElementById('connectBtn').innerHTML = '⏳ Conectando...';
     
-    // Get clients from selected folder
-    let selectedClients = [];
-    if (selectedFolderId) {
-      const response = await fetch(`/api/clients?folderId=${selectedFolderId}`);
-      const data = await response.json();
-      if (data.success) {
-        selectedClients = data.clients;
-        addLog(`📁 Usando pasta selecionada com ${selectedClients.length} clientes`);
-      }
-    } else {
-      // Fallback to all clients if no folder selected
-      const response = await fetch('/api/clients');
-      const data = await response.json();
-      if (data.success) {
-        selectedClients = data.clients;
-        addLog('⚠️ Nenhuma pasta selecionada, usando todos os clientes');
-      }
+    // Load all clients from all selected folders
+    const allClients = await loadClientsFromSelectedFolders();
+    
+    if (allClients.length === 0) {
+      customAlert('Aviso', 'Nenhum cliente encontrado nas pastas selecionadas!');
+      isConnecting = false;
+      updateConnectionStatus(false, false);
+      document.getElementById('connectBtn').disabled = false;
+      document.getElementById('connectBtn').innerHTML = '📱 Conectar WhatsApp';
+      return;
     }
-
-    // 🔄 Reset ALL clients when reconnecting WhatsApp
-    for(let client of selectedClients) {
+    
+    addLog(`✅ ${allClients.length} cliente(s) carregado(s) de ${selectedFolderIds.length} pasta(s)`);
+    
+    // Reset answered status for all clients
+    for(let client of allClients) {
       client.answered = false;
-      client.isChatBot = true; // Reset bot functionality for everyone
-      // Update client in database
+      client.isChatBot = true;
       await fetch(`/api/clients/${encodeURIComponent(client.phone)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(client)
       });
     }
-    
-    renderFolderClients(); // Update the UI
 
     const response = await fetch('/api/whatsapp/connect', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ users: selectedClients })
+        body: JSON.stringify({ users: allClients })
     });
     const data = await response.json();
     
     if (data.success) {
       addLog('⌛ WhatsApp conectando...');
-      // Salva qual pasta estava selecionada quando o bot foi ligado.
-      // (se não houver pasta selecionada, removemos a chave)
-      if (selectedFolderId && currentUser && currentUser.id) {
-        localStorage.setItem(`botSelectedFolderId_${currentUser.id}`, String(selectedFolderId));
-        localStorage.setItem(`botSelectedFolderName_${currentUser.id}`, selectedFolderName || '');
-        addLog(`💾 Pasta salva para restauração: ${selectedFolderName || selectedFolderId}`);
-      } else if (currentUser && currentUser.id) {
-        localStorage.removeItem(`botSelectedFolderId_${currentUser.id}`);
-        localStorage.removeItem(`botSelectedFolderName_${currentUser.id}`);
-      }
     } else {
       addLog('❌ Erro: ' + data.message, 'error');
       customAlert('Erro', data.message);
@@ -1269,8 +1330,8 @@ async function connectWhatsApp() {
   } catch (error) {
     addLog('❌ Erro de conexão: ' + error.message, 'error');
     customAlert('Erro de Conexão', error.message);
-    isConnecting = false; // Reset connecting state on error
-    updateConnectionStatus(false, false); // Update UI
+    isConnecting = false;
+    updateConnectionStatus(false, false);
   }
 }
 
@@ -1292,6 +1353,314 @@ async function disconnectWhatsApp() {
     } catch (error) {
         addLog('❌ Erro: ' + error.message, 'error');
     }
+}
+
+// Window 1 - Main bulk message options
+function showBulkMessageOptions() {
+  if (selectedFolderIds.length === 0) {
+    customAlert('Aviso', 'Por favor, selecione pelo menos uma pasta primeiro.');
+    return;
+  }
+
+  const overlay = document.getElementById('modalOverlay');
+  const modal = document.querySelector('.modal');
+  
+  modal.style.maxWidth = '500px';
+  
+  document.getElementById('modalTitle').textContent = 'Enviar Mensagens';
+  
+  const modalBody = document.querySelector('.modal-body');
+  modalBody.innerHTML = `
+    <p style="margin-bottom: 15px; color: #2c3e50; font-size: 1.1em;">
+      Escolha o tipo de mensagem que deseja enviar:
+    </p>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <button id="requestMessageBtn" class="btn btn-primary" style="width: 100%; padding: 15px;">
+        📋 Enviar Mensagem Requisitando o Pedido
+      </button>
+      <button id="customMessageBtn" class="btn" style="background: #F0B513; color: white; width: 100%; padding: 15px;">
+        📝 Enviar Mensagem Customizada
+      </button>
+    </div>
+  `;
+  
+  const modalFooter = document.querySelector('.modal-footer');
+  modalFooter.innerHTML = `
+    <button id="modalCancelMainBtn" class="btn btn-sm btn-danger">Cancelar</button>
+  `;
+  
+  overlay.style.display = 'flex';
+  
+  // Click outside to close
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      overlay.style.display = 'none';
+      resetModalFooter();
+      overlay.onclick = null;
+    }
+  };
+
+  if(isSendingRequestMessages) {
+    addLog('requestbtnbox');
+    document.getElementById('requestMessageBtn').textContent = 'Enviando...';
+    document.getElementById('requestMessageBtn').disabled = true;
+  }
+  else {
+    addLog('requestbtnbox: disabled = false');
+    document.getElementById('requestMessageBtn').textContent = '📋 Enviar Mensagem Requisitando o Pedido';
+    document.getElementById('requestMessageBtn').disabled = false;
+  }
+
+  if(isSendingCustomMessages) {
+    document.getElementById('customMessageBtn').textContent = 'Enviando...';
+    document.getElementById('customMessageBtn').disabled = true;
+  }
+  else {
+    document.getElementById('customMessageBtn').textContent = '📝 Enviar Mensagem Customizada';
+    document.getElementById('customMessageBtn').disabled = false;
+  }
+  
+  // Cancel button
+  document.getElementById('modalCancelMainBtn').onclick = () => {
+    overlay.style.display = 'none';
+    resetModalFooter();
+    overlay.onclick = null;
+  };
+  
+  // Request message button - goes to Window 2-request
+  document.getElementById('requestMessageBtn').onclick = () => {
+    showRequestMessageFolderSelection();
+  };
+  
+  // Custom message button - goes to Window 2-custom
+  document.getElementById('customMessageBtn').onclick = () => {
+    showCustomMessageInput();
+  };
+}
+
+// Window 2-request - Select folders for request messages
+function showRequestMessageFolderSelection() {
+  const overlay = document.getElementById('modalOverlay');
+  const modal = document.querySelector('.modal');
+  modal.style.maxWidth = '600px';
+  
+  document.getElementById('modalTitle').textContent = 'Selecionar Pastas para Requisição';
+  
+  const modalBody = document.querySelector('.modal-body');
+  modalBody.innerHTML = `
+    <p style="margin-bottom: 15px; color: #2c3e50;">
+      Selecione as pastas para enviar mensagens requisitando o pedido:
+    </p>
+    <div id="requestFolderCheckboxes" style="max-height: 300px; overflow-y: auto; border: 2px solid #e9ecef; border-radius: 8px; padding: 15px;">
+      ${selectedFolderNames.map((name, idx) => `
+        <div style="margin-bottom: 10px;">
+          <label style="display: flex; align-items: center; cursor: pointer;">
+            <input type="checkbox" class="request-folder-checkbox" value="${selectedFolderIds[idx]}" checked 
+                   style="margin-right: 10px; width: 18px; height: 18px; cursor: pointer;">
+            <span style="font-size: 1em;">📁 ${name}</span>
+          </label>
+        </div>
+      `).join('')}
+    </div>
+    <div style="margin-top: 15px; display: flex; gap: 10px;">
+      <button id="selectAllRequestBtn" class="btn btn-sm btn-info" style="flex: 1;">✅ Selecionar Todas</button>
+      <button id="deselectAllRequestBtn" class="btn btn-sm btn-warning" style="flex: 1;">❌ Desmarcar Todas</button>
+    </div>
+  `;
+  
+  const modalFooter = document.querySelector('.modal-footer');
+  modalFooter.innerHTML = `
+    <button id="modalBackRequestBtn" class="btn btn-sm btn-danger">← Voltar</button>
+    <button id="modalSendRequestBtn" class="btn btn-sm btn-success">
+      📤 Enviar Mensagens Requisitando o Pedido
+    </button>
+  `;
+  
+  // Select/Deselect all buttons
+  setTimeout(() => {
+    document.getElementById('selectAllRequestBtn').onclick = () => {
+      document.querySelectorAll('.request-folder-checkbox').forEach(cb => cb.checked = true);
+    };
+    
+    document.getElementById('deselectAllRequestBtn').onclick = () => {
+      document.querySelectorAll('.request-folder-checkbox').forEach(cb => cb.checked = false);
+    };
+  }, 100);
+  
+  // Back button
+  document.getElementById('modalBackRequestBtn').onclick = () => {
+    modal.style.maxWidth = '500px';
+    showBulkMessageOptions();
+  };
+  
+  // Send button
+  document.getElementById('modalSendRequestBtn').onclick = async () => {
+    const checkedBoxes = document.querySelectorAll('.request-folder-checkbox:checked');
+    
+    if (checkedBoxes.length === 0) {
+      customAlert('Erro', 'Por favor, selecione pelo menos uma pasta.');
+      return;
+    }
+    
+    const folderIds = Array.from(checkedBoxes).map(cb => cb.value);
+    overlay.style.display = 'none';
+    resetModalFooter();
+    overlay.onclick = null;
+    
+    await sendRequestBulkMessages(folderIds);
+  };
+}
+
+// Window 2-custom - Custom message input with folder selection
+function showCustomMessageInput() {
+  const overlay = document.getElementById('modalOverlay');
+  const modal = document.querySelector('.modal');
+  modal.style.maxWidth = '600px';
+  
+  document.getElementById('modalTitle').textContent = 'Mensagem Customizada';
+  
+  const modalBody = document.querySelector('.modal-body');
+  modalBody.innerHTML = `
+    <p style="margin-bottom: 15px; color: #2c3e50;">
+      Digite a mensagem que deseja enviar:
+    </p>
+    <textarea id="customMessageInput" 
+              style="width: 100%; min-height: 150px; padding: 10px; border: 2px solid #e9ecef; 
+                     border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical;"
+              placeholder="Digite sua mensagem aqui..."></textarea>
+    <small style="display: block; margin-top: 10px; color: #7f8c8d;">
+      ⚠️ Esta mensagem será enviada para TODOS os clientes nas pastas selecionadas, independente se já responderam ou não.
+    </small>
+    
+    <div style="margin-top: 20px;">
+      <p style="margin-bottom: 10px; color: #2c3e50; font-weight: 600;">
+        Selecione as pastas para enviar:
+      </p>
+      <div id="customFolderCheckboxes" style="max-height: 200px; overflow-y: auto; border: 2px solid #e9ecef; border-radius: 8px; padding: 15px;">
+        ${selectedFolderNames.map((name, idx) => `
+          <div style="margin-bottom: 10px;">
+            <label style="display: flex; align-items: center; cursor: pointer;">
+              <input type="checkbox" class="custom-folder-checkbox" value="${selectedFolderIds[idx]}" checked 
+                     style="margin-right: 10px; width: 18px; height: 18px; cursor: pointer;">
+              <span style="font-size: 1em;">📁 ${name}</span>
+            </label>
+          </div>
+        `).join('')}
+      </div>
+      <div style="margin-top: 10px; display: flex; gap: 10px;">
+        <button id="selectAllCustomBtn" class="btn btn-sm btn-info" style="flex: 1;">✅ Selecionar Todas</button>
+        <button id="deselectAllCustomBtn" class="btn btn-sm btn-warning" style="flex: 1;">❌ Desmarcar Todas</button>
+      </div>
+    </div>
+  `;
+  
+  const modalFooter = document.querySelector('.modal-footer');
+  modalFooter.innerHTML = `
+    <button id="modalBackCustomBtn" class="btn btn-sm btn-danger">← Voltar</button>
+    <button id="modalSendCustomBtn" class="btn btn-sm btn-success">📤 Enviar Mensagem Customizada</button>
+  `;
+  
+  // Select/Deselect all buttons
+  setTimeout(() => {
+    document.getElementById('selectAllCustomBtn').onclick = () => {
+      document.querySelectorAll('.custom-folder-checkbox').forEach(cb => cb.checked = true);
+    };
+    
+    document.getElementById('deselectAllCustomBtn').onclick = () => {
+      document.querySelectorAll('.custom-folder-checkbox').forEach(cb => cb.checked = false);
+    };
+  }, 100);
+  
+  // Back button
+  document.getElementById('modalBackCustomBtn').onclick = () => {
+    modal.style.maxWidth = '500px';
+    showBulkMessageOptions();
+  };
+  
+  // Send button
+  document.getElementById('modalSendCustomBtn').onclick = async () => {
+    const message = document.getElementById('customMessageInput').value.trim();
+    const checkedBoxes = document.querySelectorAll('.custom-folder-checkbox:checked');
+    
+    if (!message) {
+      customAlert('Erro', 'Por favor, digite uma mensagem!');
+      return;
+    }
+    
+    if (checkedBoxes.length === 0) {
+      customAlert('Erro', 'Por favor, selecione pelo menos uma pasta.');
+      return;
+    }
+    
+    const folderIds = Array.from(checkedBoxes).map(cb => cb.value);
+    overlay.style.display = 'none';
+    resetModalFooter();
+    overlay.onclick = null;
+    
+    await sendCustomBulkMessages(folderIds, message);
+  };
+  
+  // Focus on textarea
+  setTimeout(() => {
+    document.getElementById('customMessageInput').focus();
+  }, 100);
+}
+
+// Send request messages (traditional bulk messages)
+async function sendRequestBulkMessages(folderIds) {
+  if (isSendingRequestMessages) {
+    customAlert('Aviso', 'Já está enviando mensagens de requisição!');
+    return;
+  }
+  
+  try {
+    isSendingRequestMessages = true;
+    const modalSendRequestBtn = document.getElementById('modalSendRequestBtn')
+    if(modalSendRequestBtn) {
+      modalSendRequestBtn.textContent = '📤 Enviando...';
+      modalSendRequestBtn.disabled = true;
+    }
+    addLog(document.getElementById('modalSendRequestBtn'));
+
+
+    // Load clients from selected folders
+    const allClients = [];
+    for (const folderId of folderIds) {
+      const response = await fetch(`/api/clients?folderId=${folderId}`);
+      const data = await response.json();
+      if (data.success && data.clients) {
+        allClients.push(...data.clients);
+      }
+    }
+    
+    if (allClients.length === 0) {
+      customAlert('Aviso', 'Nenhum cliente encontrado nas pastas selecionadas!');
+      isSendingRequestMessages = false;
+      return;
+    }
+    
+    addLog(`📤 Iniciando envio de mensagens de requisição para ${allClients.length} cliente(s)...`);
+    
+    const response = await fetch('/api/whatsapp/send-bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ users: allClients })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      addLog('✅ Envio de mensagens de requisição iniciado');
+    } else {
+      addLog('❌ Erro ao iniciar envio: ' + data.message, 'error');
+      customAlert('Erro', data.message);
+    }
+  } catch (error) {
+    addLog('❌ Erro: ' + error.message, 'error');
+    customAlert('Erro', 'Não foi possível enviar as mensagens.');
+    document.getElementById('modalSendRequestBtn').textContent = '📤 Enviar Mensagens Requisitando o Pedido';
+    document.getElementById('modalSendRequestBtn').disabled = false;
+    isSendingRequestMessages = false;
+  } 
 }
 
 // Modified sendBulkMessages function - Window 1
@@ -1322,122 +1691,6 @@ async function sendBulkMessages() {
 
   // Window 1 - Show custom modal with yellow button
   showBulkMessageOptions(clients);
-}
-
-// Window 1 - Bulk message options
-function showBulkMessageOptions(clients) {
-  const overlay = document.getElementById('modalOverlay');
-  const modal = document.querySelector('.modal');
-  
-  // Reset modal size
-  modal.style.maxWidth = '500px';
-  
-  // Reset modal body to default structure
-  const modalBody = document.querySelector('.modal-body');
-  modalBody.innerHTML = '<p id="modalMessage"></p>';
-  
-  document.getElementById('modalTitle').textContent = 'Enviar Mensagens';
-  document.getElementById('modalMessage').textContent = 
-    `Enviar mensagens para ${clients.length} clientes da pasta "${selectedFolderName}"?`;
-  
-  const modalFooter = document.querySelector('.modal-footer');
-  modalFooter.innerHTML = `
-    <button id="modalCustomBtn" class="btn btn-sm" style="background: #F0B513; color: white; font-weight: 600;">
-      📝 Enviar Mensagem Customizada
-    </button>
-    <button id="modalCancelBtn" class="btn btn-sm btn-danger">Não</button>
-    <button id="modalConfirmBtn" class="btn btn-sm btn-success">Sim</button>
-  `;
-  
-  overlay.style.display = 'flex';
-  
-  // Click outside to close - cancel action
-  overlay.onclick = (e) => {
-    if (e.target === overlay) {
-      overlay.style.display = 'none';
-      resetModalFooter();
-      overlay.onclick = null; // Remove handler
-    }
-  };
-  
-  // Cancel button
-  document.getElementById('modalCancelBtn').onclick = () => {
-    overlay.style.display = 'none';
-    resetModalFooter();
-    overlay.onclick = null;
-  };
-  
-  // Custom message button - goes to Window 2
-  document.getElementById('modalCustomBtn').onclick = () => {
-    showCustomMessageInput(clients);
-  };
-  
-  // Confirm button - send traditional bulk messages
-  document.getElementById('modalConfirmBtn').onclick = async () => {
-    overlay.style.display = 'none';
-    resetModalFooter();
-    overlay.onclick = null;
-    await sendTraditionalBulkMessages(clients);
-  };
-}
-
-// Window 2 - Custom message input
-function showCustomMessageInput(clients) {
-  const overlay = document.getElementById('modalOverlay');
-  const modal = document.querySelector('.modal');
-  modal.style.maxWidth = '600px';
-  
-  document.getElementById('modalTitle').textContent = 'Mensagem Customizada';
-  
-  const modalBody = document.querySelector('.modal-body');
-  modalBody.innerHTML = `
-    <p style="margin-bottom: 15px; color: #2c3e50;">
-      Digite a mensagem que deseja enviar para ${clients.length} cliente(s):
-    </p>
-    <textarea id="customMessageInput" 
-              style="width: 100%; min-height: 150px; padding: 10px; border: 2px solid #e9ecef; 
-                     border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical;"
-              placeholder="Digite sua mensagem aqui..."></textarea>
-    <small style="display: block; margin-top: 10px; color: #7f8c8d;">
-      ⚠️ Esta mensagem não iniciará sessões automáticas com os clientes.
-    </small>
-  `;
-  
-  const modalFooter = document.querySelector('.modal-footer');
-  modalFooter.innerHTML = `
-    <button id="modalBackBtn" class="btn btn-sm btn-danger">← Voltar</button>
-    <button id="modalSendCustomBtn" class="btn btn-sm btn-success">Enviar Mensagem</button>
-  `;
-  
-  // Click outside to close - cancel action
-  overlay.onclick = (e) => {
-    if (e.target === overlay) {
-      overlay.style.display = 'none';
-      resetModalFooter();
-      overlay.onclick = null; // Remove handler
-    }
-  };
-  
-  // Back button - goes to Window 1
-  document.getElementById('modalBackBtn').onclick = () => {
-    modal.style.maxWidth = '500px';
-    showBulkMessageOptions(clients);
-  };
-  
-  // Send button - goes to Window 3
-  document.getElementById('modalSendCustomBtn').onclick = () => {
-    const message = document.getElementById('customMessageInput').value.trim();
-    if (!message) {
-      customAlert('Erro', 'Por favor, digite uma mensagem!');
-      return;
-    }
-    showCustomMessageConfirmation(clients, message);
-  };
-  
-  // Focus on textarea
-  setTimeout(() => {
-    document.getElementById('customMessageInput').focus();
-  }, 100);
 }
 
 // Window 3 - Custom message confirmation with preview
@@ -1520,7 +1773,7 @@ function resetModalFooter() {
   const modalBody = document.querySelector('.modal-body');
   modalBody.innerHTML = '<p id="modalMessage">Você tem certeza?</p>';
 }
-
+/*
 // Send traditional bulk messages (existing functionality)
 async function sendTraditionalBulkMessages(clients) {
   try {
@@ -1544,20 +1797,42 @@ async function sendTraditionalBulkMessages(clients) {
     document.getElementById('sendBulkBtn').disabled = false;
   }
 }
+*/
 
-// Send custom bulk messages (NEW - no session logic)
-async function sendCustomBulkMessages(clients, message) {
+// Send custom bulk messages
+async function sendCustomBulkMessages(folderIds, message) {
+  if (isSendingCustomMessages) {
+    customAlert('Aviso', 'Já está enviando mensagens customizadas!');
+    return;
+  }
+  
   try {
-    document.getElementById('sendBulkBtn').textContent = '📤 Enviando mensagens customizadas...';
-    document.getElementById('sendBulkBtn').disabled = true;
+    isSendingCustomMessages = true;
     
-    addLog(`📤 Enviando mensagens customizadas para ${clients.length} cliente(s)...`);
+    // Load ALL clients from selected folders (regardless of answered status)
+    const allClients = [];
+    for (const folderId of folderIds) {
+      const response = await fetch(`/api/clients?folderId=${folderId}`);
+      const data = await response.json();
+      if (data.success && data.clients) {
+        // Include ALL clients, not filtering by answered status
+        allClients.push(...data.clients);
+      }
+    }
+    
+    if (allClients.length === 0) {
+      customAlert('Aviso', 'Nenhum cliente encontrado nas pastas selecionadas!');
+      isSendingCustomMessages = false;
+      return;
+    }
+    
+    addLog(`📤 Enviando mensagens customizadas para ${allClients.length} cliente(s)...`);
     
     const response = await fetch('/api/whatsapp/send-custom-bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
-        users: clients,
+        users: allClients,
         message: message
       })
     });
@@ -1565,23 +1840,18 @@ async function sendCustomBulkMessages(clients, message) {
     const data = await response.json();
     if (data.success) {
       addLog('✅ Mensagens customizadas enviadas com sucesso!');
-      customAlert('Sucesso', `Mensagens enviadas para ${clients.length} cliente(s)!`);
+      customAlert('Sucesso', `Mensagens enviadas para ${allClients.length} cliente(s)!`);
     } else {
       addLog('❌ Erro ao enviar mensagens: ' + data.message, 'error');
       customAlert('Erro', data.message);
     }
-    
-    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
-    document.getElementById('sendBulkBtn').disabled = false;
-    
   } catch (error) {
     addLog('❌ Erro: ' + error.message, 'error');
     customAlert('Erro', 'Não foi possível enviar as mensagens.');
-    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
-    document.getElementById('sendBulkBtn').disabled = false;
+  } finally {
+    isSendingCustomMessages = false;
   }
 }
-
 async function downloadExcel() {
     try {
         addLog('📥 Baixando planilha...');
@@ -3165,7 +3435,30 @@ function initializeSocket() {
   });
 
   socket.on('bulk-messages-complete', (data) => {
-    addLog('✅ Envio de mensagens concluído!');
+    addLog('✅ Envio de mensagens de requisição concluído!');
+    const modalSendRequestBtn = document.getElementById('modalSendRequestBtn');
+    if (modalSendRequestBtn) {
+      modalSendRequestBtn.textContent = '📤 Enviar Mensagens Requisitando o Pedido';
+      modalSendRequestBtn.disabled = false;
+    }
+    addLog(`request btn: ${modalSendRequestBtn}`);
+    
+    const successful = data.results.filter(r => r.status === 'sent').length;
+    if (successful == 1) {
+      addLog(`Envio concluído!\n${successful} mensagem enviada com sucesso!`);
+    }
+    else if (successful > 1) {
+      addLog(`Envio concluído!\n${successful} mensagens enviadas com sucesso!`);
+    }
+    renderClients();
+  });
+
+  socket.on('custom-bulk-message-progress', (data) => {
+    addLog(`📤 Enviado para ${data.name} (${data.phone})`);
+  });
+
+  socket.on('custom-bulk-messages-complete', (data) => {
+    addLog('✅ Envio de mensagens customizadas concluído!');
     document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
     
     const successful = data.results.filter(r => r.status === 'sent').length;
@@ -3180,21 +3473,28 @@ function initializeSocket() {
 
   socket.on('bot-status', (data) => {
     document.getElementById('sessionCount').textContent = (data.sessions || []).length;
-    // pass: isConnected, isConnecting, isSendingMessages, sendingProgress
+    // pass: isConnected, isConnecting, isSendingRequestMessages, requestProgress, isSendingCustomMessages, customProgress
     updateConnectionStatus(
       data.isConnected,
       data.isConnecting || false,
-      data.isSendingMessages || false,
-      data.sendingProgress || null
+      data.isSendingRequestMessages || false,
+      data.requestProgress || null,
+      data.isSendingCustomMessages || false,
+      data.customProgress || null
     );
   });
 
 }
 
 // alterei umas coisas aqui pra quando o usuario reiniciar a pagina
-function updateConnectionStatus(isConnected, isConnecting = false, isSendingMessages = false, sendingProgress = null) {
+function updateConnectionStatus(
+  isConnected, isConnecting = false, 
+  isSendingRequestMessages = false, isSendingCustomMessages = false,
+  requestProgress = null, customProgress = null
+) {
     const statusBadge = document.getElementById('connectionStatus');
-    const sendBulkBtn = document.getElementById('sendBulkBtn');
+    const modalSendRequestBtn = document.getElementById('modalSendRequestBtn');
+    const modalSendCustomBtn = document.getElementById('modalSendCustomBtn');
     const connectBtn = document.getElementById('connectBtn');
     
     if (isConnecting) {
@@ -3207,15 +3507,30 @@ function updateConnectionStatus(isConnected, isConnecting = false, isSendingMess
         document.getElementById('sendBulkBtn').disabled = true;
         document.getElementById('folderSelect').disabled = true;
         
-        if (isSendingMessages) {
-            sendBulkBtn.textContent = '📤 Enviando...';
-            sendBulkBtn.disabled = true;
-            if (sendingProgress) {
-                sendBulkBtn.textContent = `📤 Enviando... (${sendingProgress.sent}/${sendingProgress.total})`;
+        if (modalSendRequestBtn) {
+            if (isSendingRequestMessages) {
+                modalSendRequestBtn.textContent = '📤 Enviando...';
+                modalSendRequestBtn.disabled = true;
+                if (requestProgress) {
+                    modalSendRequestBtn.textContent = `📤 Enviando... (${requestProgress.sent}/${requestProgress.total})`;
+                }
+            } else {
+                modalSendRequestBtn.textContent = '📤 Enviar Mensagens Requisitando o Pedido';
+                modalSendRequestBtn.disabled = true;
             }
-        } else {
-            sendBulkBtn.textContent = '📤 Enviar Mensagens para seus Clientes';
-            sendBulkBtn.disabled = true;
+        }
+        
+        if (modalSendCustomBtn) {
+            if (isSendingCustomMessages) {
+                modalSendCustomBtn.textContent = '📤 Enviando...';
+                modalSendCustomBtn.disabled = true;
+                if (customProgress) {
+                    modalSendCustomBtn.textContent = `📤 Enviando... (${customProgress.sent}/${customProgress.total})`;
+                }
+            } else {
+                modalSendCustomBtn.textContent = '📤 Enviar Mensagem Customizada';
+                modalSendCustomBtn.disabled = true;
+            }
         }
     } else if (isConnected) {
         statusBadge.textContent = 'Conectado';
@@ -3227,15 +3542,31 @@ function updateConnectionStatus(isConnected, isConnecting = false, isSendingMess
         document.getElementById('sendBulkBtn').disabled = false;
         document.getElementById('folderSelect').disabled = true;
         
-        if (isSendingMessages) {
-            sendBulkBtn.textContent = '📤 Enviando...';
-            sendBulkBtn.disabled = true;
-            if (sendingProgress) {
-                sendBulkBtn.textContent = `📤 Enviando... (${sendingProgress.sent}/${sendingProgress.total})`;
+        if (modalSendRequestBtn) {
+            if (isSendingRequestMessages) {
+                addLog('enviando request');
+                modalSendRequestBtn.textContent = '📤 Enviando...';
+                modalSendRequestBtn.disabled = true;
+                if (requestProgress) {
+                    modalSendRequestBtn.textContent = `📤 Enviando... (${requestProgress.sent}/${requestProgress.total})`;
+                }
+            } else {
+                modalSendRequestBtn.textContent = '📤 Enviar Mensagens Requisitando o Pedido';
+                modalSendRequestBtn.disabled = false;
             }
-        } else {
-            sendBulkBtn.textContent = '📤 Enviar Mensagens para seus Clientes';
-            sendBulkBtn.disabled = false;
+        }
+        
+        if (modalSendCustomBtn) {
+            if (isSendingCustomMessages) {
+                modalSendCustomBtn.textContent = '📤 Enviando...';
+                modalSendCustomBtn.disabled = true;
+                if (customProgress) {
+                    modalSendCustomBtn.textContent = `📤 Enviando... (${customProgress.sent}/${customProgress.total})`;
+                }
+            } else {
+                modalSendCustomBtn.textContent = '📤 Enviar Mensagem Customizada';
+                modalSendCustomBtn.disabled = false;
+            }
         }
     } else {
         statusBadge.textContent = 'Desconectado';
@@ -3400,6 +3731,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const option = [...folderSelect.options].find(o => String(o.value) === String(folderObj.id));
             if (option) {
               folderSelect.value = option.value;
+              console.log('USING DEPRECATED FUNCTION "updateSelectedFolder"');
               updateSelectedFolder(folderObj.id);
             }
           }
@@ -3448,8 +3780,10 @@ setInterval(() => {
                             updateConnectionStatus(
                                 data.isConnected, 
                                 false, // Never set connecting=true from periodic check
-                                sendingData.isSendingMessages,
-                                sendingData.progress
+                                sendingData.isSendingRequestMessages,
+                                sendingData.requestProgress,
+                                sendingData.isSendingCustomMessages,
+                                sendingData.customProgress,
                             );
                             document.getElementById('sessionCount').textContent = data.sessions.length;
                         }

@@ -134,10 +134,12 @@ router.post('/send-warning', async (req, res) => {
 // Get sending status
 router.get('/sending-status', (req, res) => {
   try {
-    const status = whatsappService.getSendingStatus(req.userId);
+    const requestStatus = whatsappService.getRequestSendingStatus(req.userId);
+    const customStatus = whatsappService.getCustomSendingStatus(req.userId);
     res.json({
       success: true,
-      ...status
+      ...requestStatus,
+      ...customStatus
     });
   } catch (error) {
     console.error('Error getting sending status:', error);

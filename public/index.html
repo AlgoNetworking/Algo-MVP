@@ -12,7 +12,6 @@
             <h1>🤖 Algo de Pedidos 1.0</h1>
             <div class="subtitle">Sistema Automatizado de Gestão de Pedidos</div>
             
-            <!-- User info and logout button -->
             <div class="user-info-bar" style="margin-top: 15px; display: flex; justify-content: center; align-items: center; gap: 20px;">
                 <div class="user-info" style="background: rgba(255,255,255,0.2); padding: 8px 20px; border-radius: 20px; display: flex; align-items: center; gap: 10px;">
                     <span class="user-avatar" style="width: 32px; height: 32px; background: white; color: #F0B513; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px;" id="userAvatar">U</span>
@@ -47,14 +46,22 @@
                 <div class="panel">
                     <h2>🎛️ Controles do Bot</h2>
                     <div class="controls">
-                        <!-- Add folder selection -->
+                        <!-- Updated folder selection for MULTIPLE folders -->
                         <div class="form-group">
-                            <label for="folderSelect">📁 Selecionar Pasta para Mensagens:</label>
-                            <select id="folderSelect" class="form-control" onchange="updateSelectedFolder(this.value)">
-                                <option value="">-- Selecione uma pasta --</option>
+                            <label for="folderSelect">📁 Selecionar Pastas para Mensagens:</label>
+                            <select id="folderSelect" class="form-control" multiple size="5" style="height: auto;">
                                 <!-- Folders will be populated by JavaScript -->
                             </select>
-                            <small id="selectedFolderInfo" style="display: none; color: #27ae60; margin-top: 5px;"></small>
+                            <small style="display: block; margin-top: 5px; color: #7f8c8d;">
+                                Mantenha Ctrl (ou Cmd) pressionado para selecionar múltiplas pastas
+                            </small>
+                            <button class="btn btn-sm btn-primary" style="margin-top: 10px;" onclick="confirmFolderSelection()">
+                                ✅ Confirmar Seleção
+                            </button>
+                            <div id="selectedFoldersInfo" style="display: none; margin-top: 10px; padding: 10px; background: #e9f7ef; border-radius: 8px; border-left: 4px solid #27ae60;">
+                                <strong>📁 Pastas Selecionadas:</strong>
+                                <div id="selectedFoldersList" style="margin-top: 5px;"></div>
+                            </div>
                         </div>
                         
                         <button id="connectBtn" class="btn btn-primary">
@@ -63,7 +70,7 @@
                         <button id="disconnectBtn" class="btn btn-danger" disabled>
                             🔌 Desconectar
                         </button>
-                        <button id="sendBulkBtn" class="btn btn-success" disabled onclick="sendBulkMessages()">
+                        <button id="sendBulkBtn" class="btn btn-success" disabled onclick="showBulkMessageOptions()">
                             📤 Enviar Mensagens para seus Clientes
                         </button>
                     </div>
@@ -94,6 +101,7 @@
             </div>
         </div>
 
+        <!-- Other tabs remain the same... -->
         <!-- Database Tab -->
         <div id="database" class="tab-content">
             <div class="grid-2">
@@ -110,7 +118,7 @@
                             🗑️ Limpar Todos
                         </button>
                         <button class="btn btn-info" onclick="downloadExcel()">
-                            📝 Baixar Totais (Arquivo Excel)
+                            📄 Baixar Totais (Arquivo Excel)
                         </button>
                     </div>
                     <div id="ordersTable" class="table-container"></div>
@@ -147,7 +155,7 @@
                         🗑️ Limpar Todos
                     </button>
                     <button class="btn btn-info" onclick="downloadOrdersTxt()">
-                        📝 Baixar Pedidos (Arquivo de texto)
+                        📄 Baixar Pedidos (Arquivo de texto)
                     </button>
                 </div>
                 <div id="userOrdersContainer"></div>
@@ -170,9 +178,7 @@
                             <option value="normal">Normal</option>
                             <option value="quilo">Quilo</option>
                             <option value="dosado">Dosado</option>
-                            <option value="dobrado">Dobrado</option>
                             <option value="outro">Outro</option>
-
                         </select>
                     </div>
                     <div class="form-group">

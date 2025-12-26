@@ -386,7 +386,9 @@ class WhatsAppService {
     this.io = null;
     this.userQRCodes = new Map();
     this.disabledUsers = new Map();
-    this.sendingStatus = new Map();
+    this.requestSendingStatus = new Map();  // For request messages
+    this.customSendingStatus = new Map();   // For custom messages
+    this.sendingStatus = new Map();   // DEPRECATED
     this.pollingIntervals = new Map();
     this.botStartTimes = new Map();
     this.postgresStore = null;
@@ -443,16 +445,20 @@ class WhatsAppService {
       // mark as connecting and notify UI
       this.connectingUsers.add(userId);
       if (this.io) {
-        const sendingStatus = this.getSendingStatus(userId) || { isSendingMessages: false, progress: null };
-        this.io.to(`user-${userId}`).emit('bot-status', {
-          isConnected: false,
-          isConnecting: true,
-          sessions: this.getActiveSessions(userId),
-          isSendingMessages: sendingStatus.isSendingMessages,
-          sendingProgress: sendingStatus.progress
-        });
+          const requestStatus = this.getRequestSendingStatus(userId);
+          const customStatus = this.getCustomSendingStatus(userId);
+          
+          this.io.to(`user-${userId}`).emit('bot-status', {
+              isConnected: true,
+              isConnecting: false,
+              sessions: this.getActiveSessions(userId),
+              isSendingRequestMessages: requestStatus.isSendingRequestMessages,
+              requestProgress: requestStatus.requestProgress,
+              isSendingCustomMessages: customStatus.isSendingCustomMessages,
+              customProgress: customStatus.customProgress
+          });
       }
-      
+            
       if (users && Array.isArray(users)) {
         this.setSelectedFolderForUser(userId, users);
         console.log(`📁 Selected folder set for user ${userId}: ${Array.isArray(users) ? users.length + ' entries' : String(users)}`);
@@ -466,9 +472,14 @@ class WhatsAppService {
       
       console.log(`⏰ Bot start time set for user ${userId}: ${new Date(Date.now()).toISOString()}`);
 
-      this.sendingStatus.set(userId, {
-        isSendingMessages: false,
-        progress: null
+      this.requestSendingStatus.set(userId, {
+          isSendingRequestMessages: false,
+          requestProgress: null
+      });
+
+      this.customSendingStatus.set(userId, {
+          isSendingCustomMessages: false,
+          customProgress: null
       });
 
       const useRemoteAuth = process.env.DATABASE_URL !== undefined;
@@ -629,13 +640,17 @@ class WhatsAppService {
         });
 
         // emit updated bot-status (connected, not connecting)
-        const sendingStatus = this.getSendingStatus(userId) || { isSendingMessages: false, progress: null };
+        const requestStatus = this.getRequestSendingStatus(userId) || { isSendingRequestMessages: false, progress: null };
+        const customStatus = this.getCustomSendingStatus(userId) || { isSendingCustomMessages: false, progress: null };
+        
         this.io.to(`user-${userId}`).emit('bot-status', {
           isConnected: true,
           isConnecting: false,
           sessions: this.getActiveSessions(userId),
-          isSendingMessages: sendingStatus.isSendingMessages,
-          sendingProgress: sendingStatus.progress
+          isSendingRequestMessages: requestStatus.isSendingRequestMessages,
+          requestProgress: requestStatus.requestProgress,
+          isSendingCustomMessages: customStatus.isSendingCustomMessages,
+          customProgress: customStatus.customProgress
         });
       }
     });
@@ -658,8 +673,10 @@ class WhatsAppService {
           isConnected: false,
           isConnecting: false,
           sessions: this.getActiveSessions(userId),
-          isSendingMessages: false,
-          sendingProgress: null
+          isSendingRequestMessages: false,
+          requestProgress: null,
+          isSendingCustomMessages: false,
+          customProgress: null
         });
       }
     });
@@ -677,7 +694,8 @@ class WhatsAppService {
       this.userSessions.delete(userId);
       this.userQRCodes.delete(userId);
       this.disabledUsers.delete(userId);
-      this.sendingStatus.delete(userId);
+      this.requestSendingStatus.delete(userId);
+      this.customSendingStatus.delete(userId);
       this.botStartTimes.delete(userId);
       this.stopPolling(userId);
       
@@ -692,43 +710,49 @@ class WhatsAppService {
           isConnected: false,
           isConnecting: false,
           sessions: this.getActiveSessions(userId),
-          isSendingMessages: false,
-          sendingProgress: null
+          isSendingRequestMessages: false,
+          requestProgress: null,
+          isSendingCustomMessages: false,
+          customProgress: null
         });
       }
     });
 
     client.on('message', async (message) => {
-
       const chat = await message.getChat();
-      const type = message.type;  
-      // More comprehensive filtering of system messages
-      if(!(
-          message.from === 'status@broadcast' || 
-          message.fromMe || 
-          chat.isGroup ||
-          type === 'ack' || // Delivery receipts
-          type === 'protocol' || // System messages
-          type === 'e2e_notification' ||
-          message.isStatus) && (
-          type === 'chat' ||
-          type === 'image' ||
-          type === 'video' ||
-          type === 'audio' ||
-          type === 'document' ||
-          type === 'sticker' ||
-          type === 'location' ||
-          type === 'vcard' ||
-          type === 'contacts_array' ||
-          type === 'list_response' ||
-          type === 'buttons_response' ||
-          type === 'poll_creation' ||
-          type === 'template_button_reply' ||
-          type === 'template_button_list_reply' ||
-          type === 'event_creation' ||
-          type === 'ptt'
-          )
-        ) { // Status updates
+      const type = message.type;
+      
+      // Updated filtering to handle @lid
+      const isValidMessage = !(
+        message.from === 'status@broadcast' || 
+        message.fromMe || 
+        chat.isGroup ||
+        message.from.includes('@g.us') ||  // Add explicit group check
+        message.from.includes('broadcast') ||  // Add explicit broadcast check
+        type === 'ack' ||
+        type === 'protocol' ||
+        type === 'e2e_notification' ||
+        message.isStatus
+      ) && (
+        type === 'chat' ||
+        type === 'image' ||
+        type === 'video' ||
+        type === 'audio' ||
+        type === 'document' ||
+        type === 'sticker' ||
+        type === 'location' ||
+        type === 'vcard' ||
+        type === 'contacts_array' ||
+        type === 'list_response' ||
+        type === 'buttons_response' ||
+        type === 'poll_creation' ||
+        type === 'template_button_reply' ||
+        type === 'template_button_list_reply' ||
+        type === 'event_creation' ||
+        type === 'ptt'
+      );
+      
+      if (isValidMessage) {
         await this.handleMessage(userId, message);
       }
     });
@@ -824,7 +848,11 @@ class WhatsAppService {
       const phoneNumber = this.formatPhoneNumber(sender);
       const phoneNumberDigits = this.extractDigitsFromJid(sender);
 
-      // Check if user is still enabled before processing messages
+      // Enhanced logging for @lid
+      const senderType = sender.includes('@lid') ? '@lid' : sender.includes('@c.us') ? '@c.us' : 'unknown';
+      console.log(`📨 Message from ${senderType}: raw=${sender}, digits=${phoneNumberDigits}, formatted=${phoneNumber}`);
+
+      // Check if user is still enabled
       const enabled = await databaseService.isUserEnabled(userId);
       if (!enabled) {
         console.log(`⚠️ User ${userId} is disabled, stopping message processing`);
@@ -832,47 +860,36 @@ class WhatsAppService {
         return;
       }
 
+      // Skip invalid formats
       if (sender.includes('@g.us') || sender.includes('status@') || sender.includes('broadcast')) {
         console.log(`Received group/broadcast/system message: ${sender}`);
         return;
       }
 
+      // Updated validation for @lid
       if (!this.isLikelyPhoneDigits(phoneNumberDigits)) {
-        console.log(`🚫 Ignoring message from invalid WhatsApp id for user ${userId}: raw='${sender}', digits='${phoneNumberDigits}'`);
-        return; // or handle as you need (ignore / flag)
-      }
-
-      console.log('DEBUG incoming rawFrom:', sender);
-      console.log('DEBUG usersInSelectedFolder.get(userId) sample:', (() => {
-      try {
-          const s = this.usersInSelectedFolder && this.usersInSelectedFolder.get ? this.usersInSelectedFolder.get(userId) : undefined;
-          return s && (Array.isArray(s) ? `array(${s.length})` : `object keys:${Object.keys(s||{}).slice(0,6)}`);
-        } catch (e) { return String(e); }
-      })());
-
-      // get clients (from folder or DB)
-      const clientUsers = await this.getClientUsersFor(userId); // always an array
-      if (!Array.isArray(clientUsers)) {
-        // defensive fallback (shouldn't happen because helper always returns array)
-        console.error(`❌ Unexpected clientUsers type for user ${userId}`, { clientUsers });
-        console.log(typeof clientUsers);
-      }
-
-      // Helpful debug logging for the first few occurrences
-      if (clientUsers.length === 0) {
-        console.log(`⚠️ clientUsers empty for user ${userId}. incoming from=${sender}`);
-      }
-      console.log(`ℹ️ Using ${ this.usersInSelectedFolder.has(userId) ? 'selected folder' : 'DB clients' } for user ${userId} (clients: ${clientUsers?.length || 0})`);
-
-      if (!clientUsers || !Array.isArray(clientUsers)) {
-        console.error(`❌ Error: clientUsers is not an array for user ${userId}`);
-        console.log(typeof clientUsers);
+        console.log(`🚫 Ignoring message from invalid WhatsApp id for user ${userId}: raw='${sender}', digits='${phoneNumberDigits}', type='${senderType}'`);
         return;
       }
 
+      // Get clients
+      const clientUsers = await this.getClientUsersFor(userId);
+      
+      if (clientUsers.length === 0) {
+        console.log(`⚠️ clientUsers empty for user ${userId}. incoming from=${sender}`);
+      }
+      
+      console.log(`ℹ️ Using ${this.usersInSelectedFolder.has(userId) ? 'selected folder' : 'DB clients'} for user ${userId} (clients: ${clientUsers?.length || 0})`);
+
+      // Find client - this is where the matching happens
       const clientInfo = this.findUserInfoByDigits(clientUsers, phoneNumberDigits);
+      
       if (!clientInfo) {
-        console.log(`🚫 Ignoring message from unregistered number for user ${userId}: raw='${sender}', digits='${phoneNumberDigits}'`);
+        console.log(`🚫 Ignoring message from unregistered number for user ${userId}: raw='${sender}', digits='${phoneNumberDigits}', type='${senderType}'`);
+        console.log(`📋 Available client numbers (first 5):`, clientUsers.slice(0, 5).map(c => ({
+          phone: c.phone,
+          normalized: c.phone ? String(c.phone).replace(/\D/g, '') : 'none'
+        })));
         return;
       }
 
@@ -1014,8 +1031,15 @@ class WhatsAppService {
 
     try {
       if (message && message.trim()) {
-        await client.sendMessage(recipient, message);
-        console.log(`✅ Message sent from user ${userId} to ${recipient}`);
+        // Ensure recipient has proper WhatsApp ID format
+        let formattedRecipient = recipient;
+        if (!recipient.includes('@')) {
+          formattedRecipient = recipient.replace(/[+\-\s]/g, '') + '@c.us';
+        }
+        // If it already has @lid or @c.us, use as-is
+        
+        await client.sendMessage(formattedRecipient, message);
+        console.log(`✅ Message sent from user ${userId} to ${formattedRecipient}`);
         return true;
       }
       return false;
@@ -1029,19 +1053,20 @@ class WhatsAppService {
     // Check if user is still enabled before sending bulk messages
     const enabled = await databaseService.isUserEnabled(userId);
     if (!enabled) {
-      console.log(`⚠️ User ${userId} is disabled, cannot send bulk messages`);
-      await this.disconnect(userId);
-      throw new Error('Conta desabilitada. Não é possível enviar mensagens.');
+        console.log(`⚠️ User ${userId} is disabled, cannot send bulk messages`);
+        await this.disconnect(userId);
+        throw new Error('Conta desabilitada. Não é possível enviar mensagens.');
     }
 
     const client = this.clients.get(userId);
     if (!client) {
-      throw new Error('Bot not running for user ' + userId);
+        throw new Error('Bot not running for user ' + userId);
     }
 
-    const status = this.sendingStatus.get(userId);
-    status.isSendingMessages = true;
-    status.progress = {
+    // Use requestSendingStatus for request bulk messages
+    const status = this.requestSendingStatus.get(userId);
+    status.isSendingRequestMessages = true;
+    status.requestProgress = {
       total: users.length,
       sent: 0,
       failed: 0,
@@ -1051,76 +1076,78 @@ class WhatsAppService {
     const results = [];
 
     for (const user of users) {
-      if (status.isSendingMessages) {
-        try {
-          // Check user enabled status before each message
-          const enabled = await databaseService.isUserEnabled(userId);
-          if (!enabled) {
-            console.log(`⚠️ User ${userId} was disabled during bulk sending, stopping`);
-            status.isSendingMessages = false;
-            await this.disconnect(userId);
+        if (status.isSendingRequestMessages) {
+            try {
+                // Check user enabled status before each message
+                const enabled = await databaseService.isUserEnabled(userId);
+                if (!enabled) {
+                    console.log(`⚠️ User ${userId} was disabled during bulk sending, stopping`);
+                    status.isSendingRequestMessages = false;
+                    await this.disconnect(userId);
+                    break;
+                }
+
+                if (user.answered) {
+                    results.push({ phone: user.phone, status: 'skipped', reason: 'Already answered' });
+                    status.requestProgress.skipped++;
+                    continue;
+                }
+
+                const phoneId = user.phone.replace(/[+\-\s]/g, '') + '@c.us';
+                const numberId = await client.getNumberId(phoneId);
+                
+                if (!numberId) {
+                    results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
+                    status.requestProgress.failed++;
+                    continue;
+                }
+
+                const userSessions = this.userSessions.get(userId);
+                if (!userSessions.has(phoneId)) {
+                    const sessionId = uuidv4();
+                    userSessions.set(phoneId, sessionId);
+                    await orderService.startSession(sessionId, userId);
+                }
+
+                const message = await this.generateInitialMessage(userId, user.name);
+                await this.sendMessage(userId, phoneId, message);
+
+                results.push({ phone: user.phone, status: 'sent' });
+                status.requestProgress.sent++;
+
+                // Emit request-specific progress
+                if (this.io) {
+                    this.io.to(`user-${userId}`).emit('request-bulk-message-progress', {
+                        phone: user.phone,
+                        name: user.name,
+                        progress: status.requestProgress,
+                        userId
+                    });
+                }
+
+                const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+
+            } catch (error) {
+                console.error(`❌ Error sending to ${user.phone} for user ${userId}:`, error);
+                results.push({ phone: user.phone, status: 'failed', reason: error.message });
+                status.requestProgress.failed++;
+            }
+        } else {
+            console.log(`Envio de mensagens de pedido interrompido para usuário ${userId}`);
             break;
-          }
-
-          if (user.answered) {
-            results.push({ phone: user.phone, status: 'skipped', reason: 'Already answered' });
-            status.progress.skipped++;
-            continue;
-          }
-
-          const phoneId = user.phone.replace(/[+\-\s]/g, '') + '@c.us';
-          const numberId = await client.getNumberId(phoneId);
-          
-          if (!numberId) {
-            results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
-            status.progress.failed++;
-            continue;
-          }
-
-          const userSessions = this.userSessions.get(userId);
-          if (!userSessions.has(phoneId)) {
-            const sessionId = uuidv4();
-            userSessions.set(phoneId, sessionId);
-            await orderService.startSession(sessionId, userId);
-          }
-
-          const message = await this.generateInitialMessage(userId, user.name);
-          await this.sendMessage(userId, phoneId, message);
-
-          results.push({ phone: user.phone, status: 'sent' });
-          status.progress.sent++;
-
-          if (this.io) {
-            this.io.to(`user-${userId}`).emit('bulk-message-progress', {
-              phone: user.phone,
-              name: user.name,
-              progress: status.progress,
-              userId
-            });
-          }
-
-          const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
-          await new Promise(resolve => setTimeout(resolve, delay));
-
-        } catch (error) {
-          console.error(`❌ Error sending to ${user.phone} for user ${userId}:`, error);
-          results.push({ phone: user.phone, status: 'failed', reason: error.message });
-          status.progress.failed++;
         }
-      } else {
-        console.log(`Envio de mensagens interrompido para usuário ${userId}`);
-        break;
-      }
     }
 
-    status.isSendingMessages = false;
+    // Clear request sending status
+    status.isSendingRequestMessages = false;
     status.progress = null;
 
     if (this.io) {
-      this.io.to(`user-${userId}`).emit('bulk-messages-complete', { 
-        results,
-        userId 
-      });
+        this.io.to(`user-${userId}`).emit('bulk-messages-complete', { 
+            results,
+            userId 
+        });
     }
 
     return results;
@@ -1130,97 +1157,118 @@ class WhatsAppService {
     // Check if user is still enabled before sending custom bulk messages
     const enabled = await databaseService.isUserEnabled(userId);
     if (!enabled) {
-      console.log(`⚠️ User ${userId} is disabled, cannot send custom bulk messages`);
-      await this.disconnect(userId);
-      throw new Error('Conta desabilitada. Não é possível enviar mensagens.');
+        console.log(`⚠️ User ${userId} is disabled, cannot send custom bulk messages`);
+        await this.disconnect(userId);
+        throw new Error('Conta desabilitada. Não é possível enviar mensagens.');
     }
 
     const client = this.clients.get(userId);
     if (!client) {
-      throw new Error('Bot not running for user ' + userId);
+        throw new Error('Bot not running for user ' + userId);
     }
 
-    const status = this.sendingStatus.get(userId);
-    status.isSendingMessages = true;
-    status.progress = {
-      total: users.length,
-      sent: 0,
-      failed: 0,
-      skipped: 0
+    // Use customSendingStatus for custom bulk messages
+    const status = {
+        isSendingCustomMessages: true,
+        customProgress: {
+            total: users.length,
+            sent: 0,
+            failed: 0,
+            skipped: 0
+        }
     };
+    this.customSendingStatus.set(userId, status);
 
     const results = [];
 
     for (const user of users) {
-      if (status.isSendingMessages) {
-        try {
-          // Check user enabled status before each message
-          const enabled = await databaseService.isUserEnabled(userId);
-          if (!enabled) {
-            console.log(`⚠️ User ${userId} was disabled during custom bulk sending, stopping`);
-            status.isSendingMessages = false;
-            await this.disconnect(userId);
+        if (status.isSendingCustomMessages) {
+            try {
+                // Check user enabled status before each message
+                const enabled = await databaseService.isUserEnabled(userId);
+                if (!enabled) {
+                    console.log(`⚠️ User ${userId} was disabled during custom bulk sending, stopping`);
+                    status.isSendingCustomMessages = false;
+                    await this.disconnect(userId);
+                    break;
+                }
+
+                const phoneId = user.phone.replace(/[+\-\s]/g, '') + '@c.us';
+                const numberId = await client.getNumberId(phoneId);
+                
+                if (!numberId) {
+                    results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
+                    status.customProgress.failed++;
+                    continue;
+                }
+
+                // ⚠️ CRITICAL: NO session creation, NO orderService.startSession()
+                // Just send the raw message
+                await this.sendMessage(userId, phoneId, message);
+
+                results.push({ phone: user.phone, status: 'sent' });
+                status.customProgress.sent++;
+
+                // Emit custom-specific progress
+                if (this.io) {
+                    this.io.to(`user-${userId}`).emit('custom-bulk-message-progress', {
+                        phone: user.phone,
+                        name: user.name,
+                        progress: status.customProgress,
+                        userId
+                    });
+                }
+
+                // Random delay between messages
+                const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+
+            } catch (error) {
+                console.error(`❌ Error sending custom message to ${user.phone} for user ${userId}:`, error);
+                results.push({ phone: user.phone, status: 'failed', reason: error.message });
+                status.customProgress.failed++;
+            }
+        } else {
+            console.log(`Envio de mensagens customizadas interrompido para usuário ${userId}`);
             break;
-          }
-
-          const phoneId = user.phone.replace(/[+\-\s]/g, '') + '@c.us';
-          const numberId = await client.getNumberId(phoneId);
-          
-          if (!numberId) {
-            results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
-            status.progress.failed++;
-            continue;
-          }
-
-          // ⚠️ CRITICAL: NO session creation, NO orderService.startSession()
-          // Just send the raw message
-          await this.sendMessage(userId, phoneId, message);
-
-          results.push({ phone: user.phone, status: 'sent' });
-          status.progress.sent++;
-
-          if (this.io) {
-            this.io.to(`user-${userId}`).emit('bulk-message-progress', {
-              phone: user.phone,
-              name: user.name,
-              progress: status.progress,
-              userId
-            });
-          }
-
-          // Random delay between messages
-          const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
-          await new Promise(resolve => setTimeout(resolve, delay));
-
-        } catch (error) {
-          console.error(`❌ Error sending custom message to ${user.phone} for user ${userId}:`, error);
-          results.push({ phone: user.phone, status: 'failed', reason: error.message });
-          status.progress.failed++;
         }
-      } else {
-        console.log(`Envio de mensagens customizadas interrompido para usuário ${userId}`);
-        break;
-      }
     }
 
-    status.isSendingMessages = false;
-    status.progress = null;
+    // Clear custom sending status
+    status.isSendingCustomMessages = false;
+    this.customSendingStatus.set(userId, status);
 
     if (this.io) {
-      this.io.to(`user-${userId}`).emit('custom-bulk-messages-complete', { 
-        results,
-        userId 
-      });
+        this.io.to(`user-${userId}`).emit('custom-bulk-messages-complete', { 
+            results,
+            userId 
+        });
     }
 
     return results;
   }
-
+  /*
   getSendingStatus(userId) {
     return this.sendingStatus.get(userId) || {
-      isSendingMessages: false,
-      progress: null
+      isSendingRequestMessages: false,
+      requestProgress: null,
+      isSendingCustomMessages: false,
+      customProgress: null,
     };
+  }
+  */
+  getRequestSendingStatus(userId) {
+    return this.requestSendingStatus.get(userId) || {
+        isSendingRequestMessages: false,
+        requestProgress: null
+    };
+  }
+
+  getCustomSendingStatus(userId) {
+      return this.customSendingStatus.get(userId) || {
+          isSendingCustomMessages: false,
+          customProgress: null
+      };
   }
 
   startPolling(userId) {
@@ -1312,7 +1360,8 @@ class WhatsAppService {
       this.userSessions.delete(userId);
       this.userQRCodes.delete(userId);
       this.disabledUsers.delete(userId);
-      this.sendingStatus.delete(userId);
+      this.requestSendingStatus.delete(userId);
+      this.customSendingStatus.delete(userId);
       this.botStartTimes.delete(userId);
       this.usersInSelectedFolder.delete(userId);
       
@@ -1376,7 +1425,9 @@ class WhatsAppService {
   }
 
   formatPhoneNumber(whatsappId) {
-    const numbers = whatsappId.replace('@c.us', '');
+    // Handle both @c.us and @lid formats
+    const numbers = whatsappId.replace('@c.us', '').replace('@lid', '');
+    
     if (numbers.length >= 12) {
       return `+${numbers.slice(0, 2)} ${numbers.slice(2, 4)} ${numbers.slice(4, 8)}-${numbers.slice(8, 12)}`;
     }
@@ -1385,14 +1436,14 @@ class WhatsAppService {
 
   extractDigitsFromJid(raw) {
     if (!raw) return '';
-    // If it's a JID like '558597084174@c.us', take left side.
+    // Handle both @c.us and @lid formats
     const left = String(raw).split('@')[0];
     return left.replace(/\D/g, ''); // keep only digits
   }
 
   isLikelyPhoneDigits(digits) {
-    // WhatsApp phone digits normally between ~8 and 15 digits. Adjust if needed.
-    return /^\d{8,15}$/.test(digits);
+    // @lid numbers can be longer (15+ digits), so expand the range
+    return /^\d{8,20}$/.test(digits);
   }
 
   async generateInitialMessage(userId, userName) {
