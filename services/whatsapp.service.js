@@ -10,6 +10,89 @@ const path = require('path');
 
 const AUTH_DIR = process.env.WWEBJS_AUTH_PATH || path.join(process.cwd(), '.wwebjs_auth');
 
+const __lidPhoneCache = new Map();
+function cacheSetLidPhone(lid, phone, ttlMs = 1000 * 60 * 5) {
+  __lidPhoneCache.set(String(lid), { phone, expiresAt: Date.now() + ttlMs });
+}
+function cacheGetLidPhone(lid) {
+  const e = __lidPhoneCache.get(String(lid));
+  if (!e) return null;
+  if (e.expiresAt < Date.now()) { __lidPhoneCache.delete(String(lid)); return null; }
+  return e.phone;
+}
+
+/**
+ * Batch resolve usando client.getContactLidAndPhone(userIds).
+ * Retorna objeto { <lid>: <phone> } (phone pode ser '5585...' ou '5585...@c.us')
+ */
+async function batchResolveLidsToPhones(client, userIds = []) {
+  const result = {};
+  if (!client || !Array.isArray(userIds) || userIds.length === 0) return result;
+
+  // usar cache
+  const toQuery = [];
+  for (const id of userIds) {
+    const cached = cacheGetLidPhone(id);
+    if (cached) result[id] = cached;
+    else toQuery.push(id);
+  }
+  if (toQuery.length === 0) return result;
+
+  try {
+    const res = await client.getContactLidAndPhone(toQuery);
+
+    // Normaliza formas defensivamente
+    if (!res) {
+      // nada retornado
+    } else if (Array.isArray(res)) {
+      for (let i = 0; i < res.length; i++) {
+        const r = res[i];
+        const lid = toQuery[i];
+        if (!r) continue;
+        if (typeof r === 'string') {
+          result[lid] = r;
+          cacheSetLidPhone(lid, r);
+        } else if (r.phone) {
+          const key = String(r.lid || lid);
+          result[key] = r.phone;
+          cacheSetLidPhone(key, r.phone);
+        } else {
+          const maybe = Object.values(r).find(v => typeof v === 'string' && /\d{6,}/.test(v));
+          if (maybe) { result[lid] = maybe; cacheSetLidPhone(lid, maybe); }
+        }
+      }
+    } else if (typeof res === 'object') {
+      // forma map-like { "<lid>": "5585..." } ou { lid: 'x', phone: 'y' }
+      for (const k of Object.keys(res)) {
+        const v = res[k];
+        if (typeof v === 'string' && /\d{6,}/.test(v)) {
+          result[String(k)] = v;
+          cacheSetLidPhone(k, v);
+        } else if (v && v.phone) {
+          result[String(k)] = v.phone;
+          cacheSetLidPhone(k, v.phone);
+        }
+      }
+    } else if (typeof res === 'string' && toQuery.length === 1) {
+      result[toQuery[0]] = res;
+      cacheSetLidPhone(toQuery[0], res);
+    }
+  } catch (err) {
+    (console.debug || console.log)('batchResolveLidsToPhones error', err);
+  }
+
+  return result;
+}
+
+/** Conveniência: resolve um único lid */
+async function resolveLidToPhone(client, lid) {
+  if (!lid) return null;
+  const cached = cacheGetLidPhone(lid);
+  if (cached) return cached;
+  const map = await batchResolveLidsToPhones(client, [lid]);
+  return map[String(lid)] || null;
+}
+
 // 🔥 WORKING: Hybrid PostgreSQL Store
 // Let RemoteAuth handle file operations, we just store the data in PostgreSQL
 class PostgresStore {
@@ -843,10 +926,10 @@ class WhatsAppService {
 
   async handleMessage(userId, message) {
     try {
-      const sender = message.from;
+      let sender = message.from;
       const messageBody = message.body;
-      const phoneNumber = this.formatPhoneNumber(sender);
-      const phoneNumberDigits = this.extractDigitsFromJid(sender);
+      let phoneNumber = this.formatPhoneNumber(sender);
+      let phoneNumberDigits = this.extractDigitsFromJid(sender);
 
       // Enhanced logging for @lid
       const senderType = sender.includes('@lid') ? '@lid' : sender.includes('@c.us') ? '@c.us' : 'unknown';
@@ -882,8 +965,46 @@ class WhatsAppService {
       console.log(`ℹ️ Using ${this.usersInSelectedFolder.has(userId) ? 'selected folder' : 'DB clients'} for user ${userId} (clients: ${clientUsers?.length || 0})`);
 
       // Find client - this is where the matching happens
-      const clientInfo = this.findUserInfoByDigits(clientUsers, phoneNumberDigits);
-      
+      let clientInfo = this.findUserInfoByDigits(clientUsers, phoneNumberDigits);
+
+      // If not found and sender looks like a @lid, attempt to resolve via wwebjs client.getContactLidAndPhone
+      if (!clientInfo && String(sender).includes('@lid')) {
+        try {
+          const client = this.clients.get(userId);
+          if (client && typeof client.getContactLidAndPhone === 'function') {
+            const lid = String(sender).split('@')[0];
+            console.log(`ℹ️ Attempting to resolve lid "${lid}" for user ${userId}`);
+            const resolvedPhone = await resolveLidToPhone(client, lid); // helper above
+
+            if (resolvedPhone) {
+              // normalize digits only
+              const resolvedDigits = String(resolvedPhone).split('@')[0].replace(/\D/g, '');
+              console.log(`✅ Resolved lid "${lid}" -> ${resolvedDigits}`);
+
+              // update variables to normalized @c.us id
+              sender = `${resolvedDigits}@c.us`;
+              phoneNumber = this.formatPhoneNumber(sender);
+              phoneNumberDigits = resolvedDigits;
+
+              // re-check client list with resolved digits
+              clientInfo = this.findUserInfoByDigits(clientUsers, phoneNumberDigits);
+
+              if (clientInfo) {
+                console.log(`ℹ️ Mapped lid ${lid} -> ${sender} to existing client`);
+              } else {
+                console.log(`ℹ️ Resolved lid ${lid} -> ${sender} but no matching client entry found for user ${userId}`);
+              }
+            } else {
+              console.log(`⚠️ getContactLidAndPhone returned nothing usable for lid "${lid}"`);
+            }
+          } else {
+            console.log(`⚠️ client.getContactLidAndPhone not available for user ${userId}`);
+          }
+        } catch (err) {
+          console.error('❌ Error resolving @lid:', err);
+        }
+      }
+
       if (!clientInfo) {
         console.log(`🚫 Ignoring message from unregistered number for user ${userId}: raw='${sender}', digits='${phoneNumberDigits}', type='${senderType}'`);
         console.log(`📋 Available client numbers (first 5):`, clientUsers.slice(0, 5).map(c => ({
