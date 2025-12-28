@@ -208,31 +208,17 @@ app.post('/api/debug/force-save-session/:userId', async (req, res) => {
     const { userId } = req.params;
     const whatsappService = require('./services/whatsapp.service');
     
-    // Check if client exists
     if (!whatsappService.isConnected(userId)) {
       return res.status(404).json({
         success: false,
-        message: 'No active WhatsApp client for this user'
+        message: 'No active WhatsApp socket for this user'
       });
     }
-    // Attempt manual save via the PostgresStore if available
-    try {
-      if (whatsappService.postgresStore && typeof whatsappService.postgresStore.save === 'function') {
-        await whatsappService.postgresStore.save({ session: `RemoteAuth-user-${userId}` });
-        return res.json({
-          success: true,
-          message: 'Manual save attempted. Check /api/debug/whatsapp-sessions for results.'
-        });
-      } else {
-        return res.status(500).json({
-          success: false,
-          message: 'PostgresStore not available. Ensure DATABASE_URL is set and service initialized.'
-        });
-      }
-    } catch (error) {
-      console.error('Error forcing session save:', error);
-      return res.status(500).json({ success: false, error: error.message });
-    }
+    
+    return res.json({
+      success: true,
+      message: 'Baileys manages auth state automatically. Session is saved on creds.update events.'
+    });
   } catch (error) {
     res.status(500).json({ 
       success: false, 
@@ -248,27 +234,26 @@ app.get('/api/debug/test-restore/:userId', async (req, res) => {
     const db = databaseService.getDatabase();
     const isProduction = process.env.DATABASE_URL !== undefined;
     
-    const sessionId = `RemoteAuth-user-${userId}`;
-    const normalized = sessionId.replace(/^RemoteAuth-/, '');
+    const sessionId = `baileys-${userId}`;
 
     let result;
     if (isProduction) {
       result = await db.query(
         'SELECT session_id, LENGTH(session_data) as data_size, created_at, updated_at FROM whatsapp_sessions WHERE session_id = $1',
-        [normalized]
+        [sessionId]
       );
     } else {
       const stmt = db.prepare(
         'SELECT session_id, LENGTH(session_data) as data_size, created_at, updated_at FROM whatsapp_sessions WHERE session_id = ?'
       );
-      result = { rows: [stmt.get(normalized)] };
+      result = { rows: [stmt.get(sessionId)] };
     }
     
     if (!result.rows || result.rows.length === 0 || !result.rows[0]) {
       return res.json({
         success: false,
         message: 'No session found in database',
-        sessionId: normalized,
+        sessionId: sessionId,
         recommendation: 'User needs to scan QR code first'
       });
     }
