@@ -115,6 +115,12 @@ class WhatsAppService {
     this.usersInSelectedFolder = new Map();
     this.connectingUsers = new Set();
     this.manualDisconnects = new Set(); // Track manual disconnects
+
+    // LID mapping caches (in-memory per running process)
+    // lidMaps: userId -> Map(pnJid -> lidJid)
+    // lidReverseMaps: userId -> Map(lidJid -> pnJid)
+    this.lidMaps = new Map();
+    this.lidReverseMaps = new Map();
   }
 
   initialize(io) {
@@ -385,6 +391,18 @@ class WhatsAppService {
         }
 
         this.startPolling(userId);
+
+        // Build initial LID mappings for this user (non-blocking)
+        (async () => {
+          try {
+            const res = await this.buildLidMappingsForUser(userId);
+            if (this.io) {
+              this.io.to(`user-${userId}`).emit('lid-mapping-built', { userId, ...res });
+            }
+          } catch (err) {
+            console.warn('⚠️ buildLidMappingsForUser failed at startup', err && err.message ? err.message : err);
+          }
+        })();
       }
     });
 
@@ -455,18 +473,169 @@ class WhatsAppService {
         return;
       }
       this.usersInSelectedFolder.set(userId, coerced);
-      return;
+    } else {
+      this.usersInSelectedFolder.set(userId, users);
     }
-    this.usersInSelectedFolder.set(userId, users);
+
+    // Kick off mapping refresh in background (non-blocking)
+    (async () => {
+      try {
+        await this.buildLidMappingsForUser(userId);
+      } catch (err) {
+        console.warn('⚠️ buildLidMappingsForUser failed after setSelectedFolderForUser', err && err.message ? err.message : err);
+      }
+    })();
+  }
+
+  /**
+   * Build/refresh LID mappings for the user's selected clients.
+   * Attempts batch lookup via Baileys' lidMapping store and falls back to per-PN lookups.
+   */
+  async buildLidMappingsForUser(userId) {
+    const sock = this.sockets.get(userId);
+    if (!sock) {
+      console.log(`⚠️ buildLidMappingsForUser: no socket for user ${userId}`);
+      return { success: false, reason: 'no-socket' };
+    }
+
+    // get clients (uses selected folder if present)
+    const clients = await this.getClientUsersFor(userId);
+    if (!clients || clients.length === 0) {
+      console.log(`⚠️ No clients to map LIDs for user ${userId}`);
+      this.lidMaps.set(userId, new Map());
+      this.lidReverseMaps.set(userId, new Map());
+      return { success: true, mapped: 0 };
+    }
+
+    // prepare unique PN JIDs (e.g. 5511999999999@s.whatsapp.net)
+    const pns = Array.from(new Set(
+      clients.map(c => {
+        const phone = String(c.phone || '').trim();
+        if (!phone) return null;
+        return this.phoneToJid(phone);
+      }).filter(Boolean)
+    ));
+
+    if (pns.length === 0) {
+      console.log(`⚠️ No valid phone JIDs found for mapping for user ${userId}`);
+      this.lidMaps.set(userId, new Map());
+      this.lidReverseMaps.set(userId, new Map());
+      return { success: true, mapped: 0 };
+    }
+
+    const userLidMap = new Map(); // pn -> lid
+    const userLidReverse = new Map(); // lid -> pn
+
+    try {
+      const lidStore = sock.signalRepository && sock.signalRepository.lidMapping;
+      let results = [];
+
+      // preferred: batch call if available
+      if (lidStore && typeof lidStore.getLIDsForPNs === 'function') {
+        try {
+          const batch = await lidStore.getLIDsForPNs(pns);
+          // normalize batch output
+          if (Array.isArray(batch)) {
+            results = batch;
+          } else if (batch && typeof batch === 'object') {
+            results = Object.entries(batch).map(([pn, lid]) => ({ pn, lid }));
+          }
+        } catch (err) {
+          console.warn('⚠️ lidMapping.getLIDsForPNs failed, falling back to per-PN lookup', err && err.message ? err.message : err);
+        }
+      }
+
+      // fallback: per-PN resolution
+      if ((!results || results.length === 0) && lidStore && typeof lidStore.getLIDForPN === 'function') {
+        const promises = pns.map(async (pn) => {
+          try {
+            const lid = await lidStore.getLIDForPN(pn);
+            return { pn, lid: lid || null };
+          } catch (err) {
+            return { pn, lid: null };
+          }
+        });
+        results = await Promise.all(promises);
+      }
+
+      // final fallback: try sock.onWhatsApp (some forks return info)
+      if ((!results || results.length === 0) && typeof sock.onWhatsApp === 'function') {
+        const promises = pns.map(async (pn) => {
+          try {
+            const infoArr = await sock.onWhatsApp(pn);
+            // infoArr often looks like [{ exists: true, jid: '...' }] but some forks may include lid
+            if (Array.isArray(infoArr) && infoArr[0]) {
+              // if the provider returns lid, try it
+              const maybeLid = infoArr[0].lid || infoArr[0].jid?.endsWith('@lid') ? infoArr[0].jid : null;
+              return { pn, lid: maybeLid };
+            }
+            return { pn, lid: null };
+          } catch (err) {
+            return { pn, lid: null };
+          }
+        });
+        results = await Promise.all(promises);
+      }
+
+      // process results and populate maps
+      for (const r of results) {
+        const pn = r?.pn || r?.pnJid || null;
+        const lid = r?.lid || r?.lidJid || null;
+        const normPn = pn ? (pn.includes('@') ? pn : `${pn}@s.whatsapp.net`) : null;
+        const normLid = lid ? (lid.includes('@') ? lid : `${lid}@lid`) : null;
+        if (normPn && normLid) {
+          userLidMap.set(normPn, normLid);
+          userLidReverse.set(normLid, normPn);
+        }
+      }
+
+      // attach caches
+      this.lidMaps.set(userId, userLidMap);
+      this.lidReverseMaps.set(userId, userLidReverse);
+
+      console.log(`🔁 LID mapping built for user ${userId}: ${userLidMap.size} / ${pns.length} resolved`);
+
+      return { success: true, mapped: userLidMap.size, total: pns.length };
+    } catch (err) {
+      console.error('❌ buildLidMappingsForUser error', err);
+      return { success: false, error: String(err && err.message ? err.message : err) };
+    }
+  }
+
+  /**
+   * Public wrapper to refresh user mapping on demand.
+   */
+  async refreshLidMappings(userId) {
+    return this.buildLidMappingsForUser(userId);
   }
 
   async handleMessage(userId, message) {
     try {
-      const sender = message.key.remoteJid;
+      // -------------------------
+      // Resolve canonical sender JID (including mapping if incoming is @lid)
+      // -------------------------
+      let sender = message.key.remoteJid;
       const messageBody = message.message?.conversation || 
                           message.message?.extendedTextMessage?.text || '';
       
       if (!messageBody) return; // Skip non-text messages for now
+
+      // If incoming sender is a lid and we have a cached mapping, translate it
+      try {
+        if (/@lid$/.test(String(sender))) {
+          const lidReverse = this.lidReverseMaps.get(userId);
+          if (lidReverse && lidReverse.has(String(sender))) {
+            const mappedPn = lidReverse.get(String(sender));
+            if (mappedPn) {
+              const old = sender;
+              sender = mappedPn;
+              console.log(`🔁 Resolved incoming LID ${old} -> ${sender} using cached map for user ${userId}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.debug('⚠️ lid reverse lookup error', err && err.message ? err.message : err);
+      }
 
       let phoneNumber = this.formatPhoneNumber(sender);
       let phoneNumberDigits = this.extractDigitsFromJid(sender);
@@ -488,7 +657,7 @@ class WhatsAppService {
         console.log(`⚠️ clientUsers empty for user ${userId}. incoming from=${sender}`);
       }
 
-      // Find client
+      // Find client (try using resolved digits)
       let clientInfo = this.findUserInfoByDigits(clientUsers, phoneNumberDigits);
 
       if (!clientInfo) {
@@ -838,7 +1007,7 @@ class WhatsAppService {
     if (this.io) {
       this.io.to(`user-${userId}`).emit('custom-bulk-messages-complete', { 
         results,
-        userId 
+        userId
       });
     }
 
@@ -970,6 +1139,8 @@ class WhatsAppService {
         this.botStartTimes.delete(userId);
         this.usersInSelectedFolder.delete(userId);
         this.manualDisconnects.delete(userId);
+        this.lidMaps.delete(userId);
+        this.lidReverseMaps.delete(userId);
         
         if (this.io) {
           this.io.to(`user-${userId}`).emit('bot-stopped', { userId });
@@ -1025,12 +1196,35 @@ class WhatsAppService {
     }) || null;
   }
 
+  // improved find by digits (exact, suffix, contains) for robustness
   findUserInfoByDigits(users, targetDigits) {
     const normalize = (p) => (p ? String(p).replace(/\D/g, '') : '');
-    return users.find(u => {
+    const t = normalize(targetDigits);
+    if (!t) return null;
+
+    // 1) exact match
+    let user = users.find(u => normalize(u.phone) === t);
+    if (user) return user;
+
+    // 2) try suffix matches (last 11..8 digits)
+    const suffixLengths = [11, 10, 9, 8];
+    for (const len of suffixLengths) {
+      if (t.length < len) continue;
+      const suf = t.slice(-len);
+      user = users.find(u => {
+        const up = normalize(u.phone);
+        return up && up.endsWith(suf);
+      });
+      if (user) return user;
+    }
+
+    // 3) try cross-contains (one contains the other)
+    user = users.find(u => {
       const up = normalize(u.phone);
-      return up && up === targetDigits;
-    }) || null;
+      return up && (up.endsWith(t) || t.endsWith(up) || up.includes(t) || t.includes(up));
+    });
+
+    return user || null;
   }
 
   formatPhoneNumber(jid) {
@@ -1051,8 +1245,8 @@ class WhatsAppService {
 
   phoneToJid(phone) {
     // Remove all non-digits and format to WhatsApp JID
-    const digits = phone.replace(/\D/g, '');
-    return `${digits}@s.whatsapp.net`;
+    const digits = String(phone || '').replace(/\D/g, '');
+    return digits ? `${digits}@s.whatsapp.net` : '';
   }
 
   async generateInitialMessage(userId, userName) {

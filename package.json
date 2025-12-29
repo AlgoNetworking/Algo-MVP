@@ -19,7 +19,7 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.21",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^9.6.0",
     "connect-pg-simple": "^10.0.0",
