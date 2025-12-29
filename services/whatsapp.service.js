@@ -410,6 +410,20 @@ class WhatsAppService {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type === 'notify') {
         for (const message of messages) {
+          const botStart = this.botStartTimes.get(userId);
+          const rawTs =
+            message.messageTimestamp ||
+            message.message?.messageTimestamp ||
+            message.message?.timestamp;
+
+          if (rawTs && botStart) {
+            const msgTsMs = Number(rawTs) * 1000;
+
+            if (msgTsMs < botStart) {
+              // IGNORA mensagens antigas (antes do bot iniciar)
+              continue;
+            }
+          }
           // Skip if message is from me
           if (message.key.fromMe) continue;
           
@@ -611,6 +625,18 @@ class WhatsAppService {
 
   async handleMessage(userId, message) {
     try {
+      const botStart = this.botStartTimes.get(userId);
+      const rawTs =
+        message.messageTimestamp ||
+        message.message?.messageTimestamp ||
+        message.message?.timestamp;
+
+      if (rawTs && botStart) {
+        const msgTsMs = Number(rawTs) * 1000;
+        if (msgTsMs < botStart) {
+          return;
+        }
+      }
       // -------------------------
       // Resolve canonical sender JID (including mapping if incoming is @lid)
       // -------------------------
@@ -808,7 +834,7 @@ class WhatsAppService {
     return 'unknown';
   }
 
-  async sendMessage(userId, recipient, message) {
+  async sendMessage(userId, recipient, message, media = null) {
     const sock = this.sockets.get(userId);
     if (!sock) {
       console.log('🛑 Cannot send message: No socket for user', userId);
@@ -816,17 +842,56 @@ class WhatsAppService {
     }
 
     try {
+      // Handle media messages
+      if (media && media.data && media.mimetype) {
+        const buffer = Buffer.from(media.data, 'base64');
+        
+        if (media.mimetype.startsWith('image/')) {
+          // Send image with optional caption
+          await sock.sendMessage(recipient, {
+            image: buffer,
+            caption: message || undefined,
+            mimetype: media.mimetype
+          });
+          console.log(`✅ Image sent from user ${userId} to ${recipient}`);
+        } else if (media.mimetype === 'application/pdf' || 
+                  media.mimetype.includes('document') ||
+                  media.mimetype.includes('officedocument')) {
+          // Send document with optional caption
+          await sock.sendMessage(recipient, {
+            document: buffer,
+            caption: message || undefined,
+            mimetype: media.mimetype,
+            fileName: media.filename || 'document'
+          });
+          console.log(`✅ Document sent from user ${userId} to ${recipient}`);
+        } else {
+          // Generic document handling
+          await sock.sendMessage(recipient, {
+            document: buffer,
+            caption: message || undefined,
+            mimetype: media.mimetype,
+            fileName: media.filename || 'file'
+          });
+          console.log(`✅ File sent from user ${userId} to ${recipient}`);
+        }
+        return true;
+      }
+      
+      // Handle text-only messages
       if (message && message.trim()) {
         await sock.sendMessage(recipient, { text: message });
         console.log(`✅ Message sent from user ${userId} to ${recipient}`);
         return true;
       }
+      
       return false;
     } catch (error) {
       console.error('❌ Error sending message for user', userId, error);
       return false;
     }
   }
+
 
   async sendBulkMessages(userId, users) {
     const enabled = await databaseService.isUserEnabled(userId);
@@ -928,7 +993,7 @@ class WhatsAppService {
     return results;
   }
 
-  async sendCustomBulkMessages(userId, users, message) {
+  async sendCustomBulkMessages(userId, users, message, media = null) {
     const enabled = await databaseService.isUserEnabled(userId);
     if (!enabled) {
       console.log(`⚠️ User ${userId} is disabled, cannot send custom bulk messages`);
@@ -953,6 +1018,7 @@ class WhatsAppService {
     this.customSendingStatus.set(userId, status);
 
     const results = [];
+    const hasMedia = media && media.data && media.mimetype;
 
     for (const user of users) {
       if (status.isSendingCustomMessages) {
@@ -974,21 +1040,30 @@ class WhatsAppService {
             continue;
           }
 
-          await this.sendMessage(userId, jid, message);
+          // Send message with or without media
+          const sent = await this.sendMessage(userId, jid, message, media);
+          
+          if (sent) {
+            results.push({ phone: user.phone, status: 'sent' });
+            status.customProgress.sent++;
 
-          results.push({ phone: user.phone, status: 'sent' });
-          status.customProgress.sent++;
-
-          if (this.io) {
-            this.io.to(`user-${userId}`).emit('custom-bulk-message-progress', {
-              phone: user.phone,
-              name: user.name,
-              progress: status.customProgress,
-              userId
-            });
+            if (this.io) {
+              this.io.to(`user-${userId}`).emit('custom-bulk-message-progress', {
+                phone: user.phone,
+                name: user.name,
+                progress: status.customProgress,
+                userId
+              });
+            }
+          } else {
+            results.push({ phone: user.phone, status: 'failed', reason: 'Send failed' });
+            status.customProgress.failed++;
           }
 
-          const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
+          // Delay between messages (slightly longer for media)
+          const delay = hasMedia 
+            ? (25 + Math.floor(Math.random() * 15)) * 1000  // 25-40 seconds for media
+            : (18 + Math.floor(Math.random() * 12)) * 1000; // 18-30 seconds for text
           await new Promise(resolve => setTimeout(resolve, delay));
 
         } catch (error) {

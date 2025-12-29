@@ -76,7 +76,7 @@ router.post('/send-bulk', async (req, res) => {
 // Send custom bulk messages (NO session logic, just raw messages)
 router.post('/send-custom-bulk', async (req, res) => {
   try {
-    const { users, message } = req.body;
+    const { users, message, media } = req.body;
 
     if (!users || !Array.isArray(users)) {
       return res.status(400).json({
@@ -85,15 +85,42 @@ router.post('/send-custom-bulk', async (req, res) => {
       });
     }
 
-    if (!message || message.trim() === '') {
+    // Validate: either message or media must be provided
+    if ((!message || message.trim() === '') && !media) {
       return res.status(400).json({
         success: false,
-        message: 'Message text required'
+        message: 'Message text or media file required'
       });
     }
 
-    // Start custom bulk sending (async) - NO session initialization
-    whatsappService.sendCustomBulkMessages(req.userId, users, message.trim())
+    // Validate media if provided
+    if (media) {
+      if (!media.data || !media.mimetype) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid media data'
+        });
+      }
+      
+      // Optional: Add file size limit (e.g., 50MB)
+      const MAX_SIZE = 50 * 1024 * 1024; // 50MB in bytes
+      const estimatedSize = (media.data.length * 3) / 4; // Base64 to bytes approximation
+      
+      if (estimatedSize > MAX_SIZE) {
+        return res.status(400).json({
+          success: false,
+          message: 'File size exceeds 50MB limit'
+        });
+      }
+    }
+
+    // Start custom bulk sending (async) with media support
+    whatsappService.sendCustomBulkMessages(
+      req.userId, 
+      users, 
+      message?.trim() || '', 
+      media || null
+    )
       .then(results => {
         console.log('Custom bulk messages completed for user', req.userId, ':', results);
       })

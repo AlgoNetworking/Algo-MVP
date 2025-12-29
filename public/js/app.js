@@ -1511,6 +1511,26 @@ function showRequestMessageFolderSelection() {
   };
 }
 
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function clearCustomMessageFile() {
+  const fileInput = document.getElementById('customMessageFile');
+  const preview = document.getElementById('customMessageFilePreview');
+  
+  fileInput.value = '';
+  preview.style.display = 'none';
+}
+
 // Window 2-custom - Custom message input with folder selection
 function showCustomMessageInput() {
   const overlay = document.getElementById('modalOverlay');
@@ -1522,14 +1542,40 @@ function showCustomMessageInput() {
   const modalBody = document.querySelector('.modal-body');
   modalBody.innerHTML = `
     <p style="margin-bottom: 15px; color: #2c3e50;">
-      Digite a mensagem que deseja enviar:
+      Digite a mensagem e/ou anexe um arquivo:
     </p>
+    
+    <!-- File Upload Section -->
+    <div style="margin-bottom: 15px; padding: 15px; background: #f8f9fa; border: 2px dashed #9DB044; border-radius: 8px;">
+      <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">
+        📎 Anexar Arquivo (Opcional)
+      </label>
+      <input type="file" id="customMessageFile" 
+             accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" 
+             style="width: 100%; padding: 8px; border: 1px solid #e9ecef; border-radius: 5px; cursor: pointer;">
+      <small style="display: block; margin-top: 5px; color: #7f8c8d;">
+        Imagens, PDFs, documentos do Office são aceitos
+      </small>
+      
+      <!-- File Preview -->
+      <div id="customMessageFilePreview" style="display: none; margin-top: 10px; padding: 10px; background: white; border: 1px solid #e9ecef; border-radius: 5px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span id="customMessageFileName" style="flex: 1; color: #2c3e50; font-weight: 600;"></span>
+          <button type="button" class="btn btn-sm btn-danger" onclick="clearCustomMessageFile()" style="padding: 4px 8px;">
+            ❌ Remover
+          </button>
+        </div>
+        <img id="customMessageImagePreview" style="display: none; max-width: 100%; max-height: 200px; margin-top: 10px; border-radius: 5px;">
+      </div>
+    </div>
+    
+    <!-- Message Text -->
     <textarea id="customMessageInput" 
               style="width: 100%; min-height: 150px; padding: 10px; border: 2px solid #e9ecef; 
                      border-radius: 8px; font-size: 14px; font-family: inherit; resize: vertical;"
-              placeholder="Digite sua mensagem aqui..."></textarea>
+              placeholder="Digite sua mensagem aqui... (opcional se anexou arquivo)"></textarea>
     <small style="display: block; margin-top: 10px; color: #7f8c8d;">
-      ⚠️ Esta mensagem será enviada para TODOS os clientes nas pastas selecionadas, independente se já responderam ou não.
+      ⚠️ Esta mensagem será enviada para TODOS os clientes nas pastas selecionadas.
     </small>
     
     <div style="margin-top: 20px;">
@@ -1557,7 +1603,7 @@ function showCustomMessageInput() {
   const modalFooter = document.querySelector('.modal-footer');
   modalFooter.innerHTML = `
     <button id="modalBackCustomBtn" class="btn btn-sm btn-danger">← Voltar</button>
-    <button id="modalSendCustomBtn" class="btn btn-sm btn-success">📤 Enviar Mensagem Customizada</button>
+    <button id="modalSendCustomBtn" class="btn btn-sm btn-success">📤 Enviar Mensagem</button>
   `;
   
   // Select/Deselect all buttons
@@ -1568,6 +1614,31 @@ function showCustomMessageInput() {
     
     document.getElementById('deselectAllCustomBtn').onclick = () => {
       document.querySelectorAll('.custom-folder-checkbox').forEach(cb => cb.checked = false);
+    };
+    
+    // File input change handler
+    document.getElementById('customMessageFile').onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const preview = document.getElementById('customMessageFilePreview');
+        const fileName = document.getElementById('customMessageFileName');
+        const imagePreview = document.getElementById('customMessageImagePreview');
+        
+        fileName.textContent = file.name;
+        preview.style.display = 'block';
+        
+        // Show image preview if it's an image
+        if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            imagePreview.src = e.target.result;
+            imagePreview.style.display = 'block';
+          };
+          reader.readAsDataURL(file);
+        } else {
+          imagePreview.style.display = 'none';
+        }
+      }
     };
   }, 100);
   
@@ -1580,10 +1651,13 @@ function showCustomMessageInput() {
   // Send button
   document.getElementById('modalSendCustomBtn').onclick = async () => {
     const message = document.getElementById('customMessageInput').value.trim();
+    const fileInput = document.getElementById('customMessageFile');
+    const file = fileInput.files[0];
     const checkedBoxes = document.querySelectorAll('.custom-folder-checkbox:checked');
     
-    if (!message) {
-      customAlert('Erro', 'Por favor, digite uma mensagem!');
+    // Validate: either message or file must be provided
+    if (!message && !file) {
+      customAlert('Erro', 'Por favor, digite uma mensagem ou anexe um arquivo!');
       return;
     }
     
@@ -1592,12 +1666,29 @@ function showCustomMessageInput() {
       return;
     }
     
+    // Prepare media data
+    let mediaData = null;
+    if (file) {
+      try {
+        const base64 = await readFileAsBase64(file);
+        mediaData = {
+          filename: file.name,
+          mimetype: file.type,
+          data: base64
+        };
+      } catch (error) {
+        console.error('Error reading file:', error);
+        customAlert('Erro', 'Não foi possível processar o arquivo. Tente novamente.');
+        return;
+      }
+    }
+    
     const folderIds = Array.from(checkedBoxes).map(cb => cb.value);
     overlay.style.display = 'none';
     resetModalFooter();
     overlay.onclick = null;
     
-    await sendCustomBulkMessages(folderIds, message);
+    await sendCustomBulkMessages(folderIds, message, mediaData);
   };
   
   // Focus on textarea
@@ -1800,7 +1891,7 @@ async function sendTraditionalBulkMessages(clients) {
 */
 
 // Send custom bulk messages
-async function sendCustomBulkMessages(folderIds, message) {
+async function sendCustomBulkMessages(folderIds, message, mediaData = null) {
   if (isSendingCustomMessages) {
     customAlert('Aviso', 'Já está enviando mensagens customizadas!');
     return;
@@ -1809,13 +1900,12 @@ async function sendCustomBulkMessages(folderIds, message) {
   try {
     isSendingCustomMessages = true;
     
-    // Load ALL clients from selected folders (regardless of answered status)
+    // Load ALL clients from selected folders
     const allClients = [];
     for (const folderId of folderIds) {
       const response = await fetch(`/api/clients?folderId=${folderId}`);
       const data = await response.json();
       if (data.success && data.clients) {
-        // Include ALL clients, not filtering by answered status
         allClients.push(...data.clients);
       }
     }
@@ -1826,21 +1916,28 @@ async function sendCustomBulkMessages(folderIds, message) {
       return;
     }
     
-    addLog(`📤 Enviando mensagens customizadas para ${allClients.length} cliente(s)...`);
+    const hasMedia = mediaData !== null;
+    const mediaType = hasMedia ? (mediaData.mimetype.startsWith('image/') ? 'imagem' : 'arquivo') : null;
+    
+    addLog(`📤 Enviando mensagens customizadas ${hasMedia ? `com ${mediaType}` : ''} para ${allClients.length} cliente(s)...`);
     
     const response = await fetch('/api/whatsapp/send-custom-bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         users: allClients,
-        message: message
+        message: message || '',
+        media: mediaData
       })
     });
     
     const data = await response.json();
     if (data.success) {
-      addLog('✅ Mensagens customizadas enviadas com sucesso!');
-      customAlert('Sucesso', `Mensagens enviadas para ${allClients.length} cliente(s)!`);
+      addLog('✅ Envio de mensagens customizadas iniciado!');
+      const successMsg = hasMedia 
+        ? `Mensagens com ${mediaType} enviadas para ${allClients.length} cliente(s)!`
+        : `Mensagens enviadas para ${allClients.length} cliente(s)!`;
+      customAlert('Sucesso', successMsg);
     } else {
       addLog('❌ Erro ao enviar mensagens: ' + data.message, 'error');
       customAlert('Erro', data.message);
@@ -1852,6 +1949,7 @@ async function sendCustomBulkMessages(folderIds, message) {
     isSendingCustomMessages = false;
   }
 }
+
 async function downloadExcel() {
     try {
         addLog('📥 Baixando planilha...');
@@ -3437,6 +3535,7 @@ function initializeSocket() {
   socket.on('bulk-messages-complete', (data) => {
     addLog('✅ Envio de mensagens de requisição concluído!');
     const modalSendRequestBtn = document.getElementById('modalSendRequestBtn');
+    isSendingRequestMessages = false;
     if (modalSendRequestBtn) {
       modalSendRequestBtn.textContent = '📤 Enviar Mensagens Requisitando o Pedido';
       modalSendRequestBtn.disabled = false;
@@ -3460,6 +3559,7 @@ function initializeSocket() {
   socket.on('custom-bulk-messages-complete', (data) => {
     addLog('✅ Envio de mensagens customizadas concluído!');
     document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
+    isSendingCustomMessages = false;
     
     const successful = data.results.filter(r => r.status === 'sent').length;
     if(successful == 1) {
