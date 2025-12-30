@@ -1603,7 +1603,7 @@ function showCustomMessageInput() {
   const modalFooter = document.querySelector('.modal-footer');
   modalFooter.innerHTML = `
     <button id="modalBackCustomBtn" class="btn btn-sm btn-danger">← Voltar</button>
-    <button id="modalSendCustomBtn" class="btn btn-sm btn-success">📤 Enviar Mensagem</button>
+    <button id="modalSendCustomBtn" class="btn btn-sm btn-success">📤 Enviar Mensagem Customizada</button>
   `;
   
   // Select/Deselect all buttons
@@ -1899,6 +1899,12 @@ async function sendCustomBulkMessages(folderIds, message, mediaData = null) {
   
   try {
     isSendingCustomMessages = true;
+    const modalSendCustomBtn = document.getElementById('modalSendCustomBtn')
+    if(modalSendCustomBtn) {
+      modalSendCustomBtn.textContent = '📤 Enviando...';
+      modalSendCustomBtn.disabled = true;
+    }
+    addLog(document.getElementById('modalSendCustomBtn'));
     
     // Load ALL clients from selected folders
     const allClients = [];
@@ -3528,7 +3534,7 @@ function initializeSocket() {
       loadNotifications();
   });
 
-  socket.on('bulk-message-progress', (data) => {
+  socket.on('request-bulk-message-progress', (data) => {
     addLog(`📤 Enviado para ${data.name} (${data.phone})`);
   });
 
@@ -3582,6 +3588,7 @@ function initializeSocket() {
       data.isSendingCustomMessages || false,
       data.customProgress || null
     );
+    addLog(`is sending custom messages bot-status: ${data.isSendingCustomMessages}`);
   });
 
 }
@@ -3593,8 +3600,8 @@ function updateConnectionStatus(
   requestProgress = null, customProgress = null
 ) {
     const statusBadge = document.getElementById('connectionStatus');
-    const modalSendRequestBtn = document.getElementById('modalSendRequestBtn');
-    const modalSendCustomBtn = document.getElementById('modalSendCustomBtn');
+    const modalSendRequestBtn = document.getElementById('requestMessageBtn');
+    const modalSendCustomBtn = document.getElementById('customMessageBtn');
     const connectBtn = document.getElementById('connectBtn');
     
     if (isConnecting) {
@@ -3658,6 +3665,7 @@ function updateConnectionStatus(
         
         if (modalSendCustomBtn) {
             if (isSendingCustomMessages) {
+                addLog('testCustom');
                 modalSendCustomBtn.textContent = '📤 Enviando...';
                 modalSendCustomBtn.disabled = true;
                 if (customProgress) {
@@ -3926,6 +3934,7 @@ setInterval(() => {
                                 sendingData.customProgress,
                             );
                             document.getElementById('sessionCount').textContent = data.sessions.length;
+                            addLog(`is sending custom messages sending-status: ${sendingData.isSendingCustomMessages}`);
                         }
                     })
                     .catch(() => {});

@@ -962,7 +962,7 @@ class WhatsAppService {
             this.io.to(`user-${userId}`).emit('request-bulk-message-progress', {
               phone: user.phone,
               name: user.name,
-              progress: status.requestProgress,
+              requestProgress: status.requestProgress,
               userId
             });
           }
@@ -981,7 +981,7 @@ class WhatsAppService {
     }
 
     status.isSendingRequestMessages = false;
-    status.progress = null;
+    status.requestProgress = null;
 
     if (this.io) {
       this.io.to(`user-${userId}`).emit('bulk-messages-complete', { 
@@ -1006,16 +1006,14 @@ class WhatsAppService {
       throw new Error('Bot not running for user ' + userId);
     }
 
-    const status = {
-      isSendingCustomMessages: true,
-      customProgress: {
-        total: users.length,
-        sent: 0,
-        failed: 0,
-        skipped: 0
-      }
+    const status = this.customSendingStatus.get(userId);
+    status.isSendingCustomMessages = true;
+    status.customProgress = {
+      total: users.length,
+      sent: 0,
+      failed: 0,
+      skipped: 0
     };
-    this.customSendingStatus.set(userId, status);
 
     const results = [];
     const hasMedia = media && media.data && media.mimetype;
@@ -1051,7 +1049,7 @@ class WhatsAppService {
               this.io.to(`user-${userId}`).emit('custom-bulk-message-progress', {
                 phone: user.phone,
                 name: user.name,
-                progress: status.customProgress,
+                customProgress: status.customProgress,
                 userId
               });
             }
@@ -1060,10 +1058,8 @@ class WhatsAppService {
             status.customProgress.failed++;
           }
 
-          // Delay between messages (slightly longer for media)
-          const delay = hasMedia 
-            ? (25 + Math.floor(Math.random() * 15)) * 1000  // 25-40 seconds for media
-            : (18 + Math.floor(Math.random() * 12)) * 1000; // 18-30 seconds for text
+          // Delay between messages
+          const delay = (18 + Math.floor(Math.random() * 12)) * 1000; // 18-30 seconds
           await new Promise(resolve => setTimeout(resolve, delay));
 
         } catch (error) {
@@ -1077,7 +1073,7 @@ class WhatsAppService {
     }
 
     status.isSendingCustomMessages = false;
-    this.customSendingStatus.set(userId, status);
+    status.customProgress = null;
 
     if (this.io) {
       this.io.to(`user-${userId}`).emit('custom-bulk-messages-complete', { 
