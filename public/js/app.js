@@ -3684,7 +3684,8 @@ function updateConnectionStatus(
 
 // ---------------------- Configuration UI / persistence ----------------------
 let userConfig = {
-  callByName: true // default
+  callByName: true,  // existing default
+  reminderInterval: 30 // default in minutes (1..90)
 };
 
 async function loadUserConfig() {
@@ -3704,15 +3705,22 @@ async function loadUserConfig() {
 function renderConfigUI() {
   const toggle = document.getElementById('toggleCallByName');
   const label = document.getElementById('toggleCallByNameLabel');
-  if (!toggle || !label) return;
-
-  if (userConfig.callByName) {
-    toggle.classList.add('active');
-    label.textContent = 'Ativado';
-  } else {
-    toggle.classList.remove('active');
-    label.textContent = 'Desativado';
+  if (toggle && label) {
+    if (userConfig.callByName) {
+      toggle.classList.add('active');
+      label.textContent = 'Ativado';
+    } else {
+      toggle.classList.remove('active');
+      label.textContent = 'Desativado';
+    }
   }
+
+  // Reminder interval UI
+  const reminderInput = document.getElementById('reminderIntervalInput');
+  const reminderLabel = document.getElementById('reminderIntervalLabel');
+  const val = Number.isInteger(userConfig.reminderInterval) ? userConfig.reminderInterval : 30;
+  if (reminderInput) reminderInput.value = String(val);
+  if (reminderLabel) reminderLabel.textContent = `${val} min`;
 }
 
 // ---------------------- Anti double-click guard ----------------------
@@ -3779,6 +3787,38 @@ document.addEventListener('click', async (e) => {
     }
   }
 });
+
+// helper to sanitize & clamp reminder interval
+function sanitizeReminderValue(raw) {
+  // remove non-digits
+  const onlyDigits = ('' + raw).replace(/\D/g, '');
+  let n = parseInt(onlyDigits, 10);
+  if (Number.isNaN(n)) n = 30;
+  n = Math.max(1, Math.min(90, n)); // clamp to [1,90]
+  return n;
+}
+
+// accept only digits while typing (keeps textarea behaving like integer input)
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'reminderIntervalInput') {
+    // keep only digits in the field while the user types
+    const cleaned = ('' + e.target.value).replace(/\D/g, '');
+    e.target.value = cleaned;
+  }
+});
+
+// when the input loses focus (or on Enter via change), validate and update userConfig
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'reminderIntervalInput') {
+    const n = sanitizeReminderValue(e.target.value);
+    userConfig.reminderInterval = n;
+    // update UI
+    const label = document.getElementById('reminderIntervalLabel');
+    if (label) label.textContent = `${n} min`;
+    e.target.value = String(n);
+  }
+});
+
 
 // Ensure we load config after auth check
 const _orig_checkAuthentication = checkAuthentication;

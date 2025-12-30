@@ -133,8 +133,23 @@ class OrderSession {
   startReminderCycle() {
     this.reminderCount = 1;
     this.cancelTimer();
-    this.activeTimer = setTimeout(() => this.sendReminder(), 900000); // 15 minutes
+
+    // async IIFE so we can await fetching config without changing callers
+    (async () => {
+      try {
+        const cfg = await databaseService.getUserConfig(this.userId);
+        let minutes = (cfg && cfg.reminderInterval) ? parseInt(cfg.reminderInterval, 10) : 30;
+        if (Number.isNaN(minutes)) minutes = 30;
+        minutes = Math.max(1, Math.min(90, minutes)); // clamp 1..90
+        const ms = minutes * 60 * 1000;
+        this.activeTimer = setTimeout(() => this.sendReminder(), ms);
+      } catch (err) {
+        console.error('startReminderCycle: failed to load user config, using default 30 min', err);
+        this.activeTimer = setTimeout(() => this.sendReminder(), 30 * 60 * 1000);
+      }
+    })();
   }
+
 
   sendReminder() {
     if (this.state === 'confirming' && this.reminderCount <= 3) {
@@ -146,7 +161,21 @@ class OrderSession {
         this.messageQueue.push([`🔔 **LEMBRETE (${this.reminderCount}/2):**\n${summary}`, '']);
         this.reminderCount++;
         this.cancelTimer();
-        this.activeTimer = setTimeout(() => this.sendReminder(), 900000); //15 minutes
+
+        // schedule next reminder using same user-configured interval
+        (async () => {
+          try {
+            const cfg = await databaseService.getUserConfig(this.userId);
+            let minutes = (cfg && cfg.reminderInterval) ? parseInt(cfg.reminderInterval, 10) : 30;
+            if (Number.isNaN(minutes)) minutes = 30;
+            minutes = Math.max(1, Math.min(90, minutes));
+            const ms = minutes * 60 * 1000;
+            this.activeTimer = setTimeout(() => this.sendReminder(), ms);
+          } catch (err) {
+            console.error('sendReminder: failed to load user config, using default 30 min', err);
+            this.activeTimer = setTimeout(() => this.sendReminder(), 30 * 60 * 1000);
+          }
+        })();
       }
     }
   }

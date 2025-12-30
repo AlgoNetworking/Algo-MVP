@@ -242,6 +242,18 @@
                         Quando desativado, o bot não usará o nome dos usuários nas mensagens.
                     </small>
                 </div>
+                <div class="form-group" style="margin-top: 15px;">
+                    <label style="font-weight:700; margin-bottom:8px;">⏱️ Intervalo entre lembretes (minutos)</label>
+                    <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+                        <!-- you asked for a textarea — we use a single-line textarea but treat it like an integer-only input via JS -->
+                        <textarea id="reminderIntervalInput" rows="1" style="min-height: 20px; width:50px; padding:6px; font-family:inherit; resize:none;"
+                        placeholder="30"></textarea>
+                        <span id="reminderIntervalLabel" class="toggle-status"></span>
+                    </div>
+                    <small style="display:block; margin-top:8px; color:#7f8c8d;">
+                        Digite um número entre 1 e 90.
+                    </small>
+                </div>
             </div>
         </div>
     </div>
