@@ -1401,12 +1401,10 @@ function showBulkMessageOptions() {
   };
 
   if(isSendingRequestMessages) {
-    addLog('requestbtnbox');
     document.getElementById('requestMessageBtn').textContent = 'Enviando...';
     document.getElementById('requestMessageBtn').disabled = true;
   }
   else {
-    addLog('requestbtnbox: disabled = false');
     document.getElementById('requestMessageBtn').textContent = '📋 Enviar Mensagem Requisitando o Pedido';
     document.getElementById('requestMessageBtn').disabled = false;
   }
@@ -1711,7 +1709,6 @@ async function sendRequestBulkMessages(folderIds) {
       modalSendRequestBtn.textContent = '📤 Enviando...';
       modalSendRequestBtn.disabled = true;
     }
-    addLog(document.getElementById('modalSendRequestBtn'));
 
 
     // Load clients from selected folders
@@ -1904,7 +1901,6 @@ async function sendCustomBulkMessages(folderIds, message, mediaData = null) {
       modalSendCustomBtn.textContent = '📤 Enviando...';
       modalSendCustomBtn.disabled = true;
     }
-    addLog(document.getElementById('modalSendCustomBtn'));
     
     // Load ALL clients from selected folders
     const allClients = [];
@@ -3588,7 +3584,6 @@ function initializeSocket() {
       data.isSendingCustomMessages || false,
       data.customProgress || null
     );
-    addLog(`is sending custom messages bot-status: ${data.isSendingCustomMessages}`);
   });
 
 }
@@ -3596,8 +3591,8 @@ function initializeSocket() {
 // alterei umas coisas aqui pra quando o usuario reiniciar a pagina
 function updateConnectionStatus(
   isConnected, isConnecting = false, 
-  isSendingRequestMessages = false, isSendingCustomMessages = false,
-  requestProgress = null, customProgress = null
+  isSendingRequestMessages = false, requestProgress = null, 
+  isSendingCustomMessages = false, customProgress = null
 ) {
     const statusBadge = document.getElementById('connectionStatus');
     const modalSendRequestBtn = document.getElementById('requestMessageBtn');
@@ -3651,7 +3646,6 @@ function updateConnectionStatus(
         
         if (modalSendRequestBtn) {
             if (isSendingRequestMessages) {
-                addLog('enviando request');
                 modalSendRequestBtn.textContent = '📤 Enviando...';
                 modalSendRequestBtn.disabled = true;
                 if (requestProgress) {
@@ -3665,7 +3659,6 @@ function updateConnectionStatus(
         
         if (modalSendCustomBtn) {
             if (isSendingCustomMessages) {
-                addLog('testCustom');
                 modalSendCustomBtn.textContent = '📤 Enviando...';
                 modalSendCustomBtn.disabled = true;
                 if (customProgress) {
@@ -3934,7 +3927,6 @@ setInterval(() => {
                                 sendingData.customProgress,
                             );
                             document.getElementById('sessionCount').textContent = data.sessions.length;
-                            addLog(`is sending custom messages sending-status: ${sendingData.isSendingCustomMessages}`);
                         }
                     })
                     .catch(() => {});
