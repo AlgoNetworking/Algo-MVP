@@ -1410,10 +1410,12 @@ function showBulkMessageOptions() {
   }
 
   if(isSendingCustomMessages) {
+    addLog('true');
     document.getElementById('customMessageBtn').textContent = 'Enviando...';
     document.getElementById('customMessageBtn').disabled = true;
   }
   else {
+    addLog('false');
     document.getElementById('customMessageBtn').textContent = '📝 Enviar Mensagem Customizada';
     document.getElementById('customMessageBtn').disabled = false;
   }
@@ -1780,7 +1782,7 @@ async function sendBulkMessages() {
   // Window 1 - Show custom modal with yellow button
   showBulkMessageOptions(clients);
 }
-
+/*
 // Window 3 - Custom message confirmation with preview
 function showCustomMessageConfirmation(clients, message) {
   const overlay = document.getElementById('modalOverlay');
@@ -1839,6 +1841,7 @@ function showCustomMessageConfirmation(clients, message) {
     await sendCustomBulkMessages(clients, message);
   };
 }
+*/
 
 // Helper function to escape HTML
 function escapeHtml(text) {
@@ -1937,8 +1940,8 @@ async function sendCustomBulkMessages(folderIds, message, mediaData = null) {
     if (data.success) {
       addLog('✅ Envio de mensagens customizadas iniciado!');
       const successMsg = hasMedia 
-        ? `Mensagens com ${mediaType} enviadas para ${allClients.length} cliente(s)!`
-        : `Mensagens enviadas para ${allClients.length} cliente(s)!`;
+        ? `Mensagens com ${mediaType} estão sendo enviadas para ${allClients.length} cliente(s)!`
+        : `Mensagens estão sendo enviadas para ${allClients.length} cliente(s)!`;
       customAlert('Sucesso', successMsg);
     } else {
       addLog('❌ Erro ao enviar mensagens: ' + data.message, 'error');
@@ -3536,13 +3539,12 @@ function initializeSocket() {
 
   socket.on('bulk-messages-complete', (data) => {
     addLog('✅ Envio de mensagens de requisição concluído!');
-    const modalSendRequestBtn = document.getElementById('modalSendRequestBtn');
+    const modalSendRequestBtn = document.getElementById('requestMessageBtn');
     isSendingRequestMessages = false;
     if (modalSendRequestBtn) {
       modalSendRequestBtn.textContent = '📤 Enviar Mensagens Requisitando o Pedido';
       modalSendRequestBtn.disabled = false;
     }
-    addLog(`request btn: ${modalSendRequestBtn}`);
     
     const successful = data.results.filter(r => r.status === 'sent').length;
     if (successful == 1) {
@@ -3560,8 +3562,12 @@ function initializeSocket() {
 
   socket.on('custom-bulk-messages-complete', (data) => {
     addLog('✅ Envio de mensagens customizadas concluído!');
-    document.getElementById('sendBulkBtn').textContent = '📤 Enviar Mensagens para seus Clientes';
+    const modalSendCustomBtn = document.getElementById('customMessageBtn');
     isSendingCustomMessages = false;
+    if (modalSendCustomBtn) {
+      modalSendCustomBtn.textContent = '📤 Enviar Mensagem Customizada';
+      modalSendCustomBtn.disabled = false;
+    }
     
     const successful = data.results.filter(r => r.status === 'sent').length;
     if(successful == 1) {
