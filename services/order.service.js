@@ -21,6 +21,7 @@ class OrderSession {
     this.loadingPromise = null; // To handle concurrent loading
     this.parseOrderAttempts = 0;
     this.chooseOptionAttempts = 0;
+    this.optionsMenu = 'Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`';
   }
 
   // Async method to load products
@@ -418,7 +419,7 @@ class OrderService {
       const greeting = callName !== 'Cliente sem nome' ? `Olá ${callName}!` : 'Olá!';
       return {
         success: true,
-        message: `${greeting} Isso é uma mensagem automática. 😁\n\nVocê deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`,
+        message: `${greeting} Isso é uma mensagem automática. 😁\n\n${session.optionsMenu}`,
         isChatBot: true,
         clientStatus: '',
       };
@@ -498,7 +499,7 @@ class OrderService {
           productList += 'Nenhum produto disponível no momento.\n';
         }
         
-        productList += '\nE agora? Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver novamente a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?';
+        productList += `\nE agora? ${session.optionsMenu}`; 
         
         return {
           success: true,
@@ -530,8 +531,8 @@ class OrderService {
         let info = 'Ok, aqui temos instruções de como utilizar o programa e mais sobre ele!\n\n';
         info += 'O programa oferece quatro opções quando está no menu inicial: "*1*" para realizar um pedido, "*2*" para falar com um funcionário, "*3*" para ver a lista de produtos e "*4*" para ler a mensagem que você está lendo agora.\n\n';
         info += `Para realizar um pedido, basta digitar mensagens de texto de forma natural, como: ${example}. Pois o programa consegue entender mensagens em linguagem natural.\n\n`;
-        info += 'O programa foi feito por Guilherme Moura Mororó, Nicolas Pinheiro e Marcos Bastos para originalmente ajudar a empresa dos avós de Guilherme. No entanto, ainda está em fase de testes e pode ser adicionado ao seu negócio gratuitamente. Basta contatar o número (+55 85 7400-2430) e recebrá mais informações sobre o produto.\n\n';
-        info += 'E agora? Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nler a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo novamente(digite "*4*")?';
+        info += 'O programa foi feito por Guilherme Moura Mororó, Nicolas Pinheiro e Marcos Bastos para originalmente ajudar a empresa dos avós de Guilherme. Nesse sentido, ele ainda está em desenvolvimento e pode ser adicionado ao seu negócio com um teste grátis de 1 mês. Basta contatar o número (+55 85 7400-2430) e recebrá mais informações sobre o produto.\n\n';
+        info += `E agora? ${session.optionsMenu}`;
         
         return {
           success: true,

@@ -1376,10 +1376,10 @@ function showBulkMessageOptions() {
     </p>
     <div style="display: flex; flex-direction: column; gap: 10px;">
       <button id="requestMessageBtn" class="btn btn-primary" style="width: 100%; padding: 15px;">
-        📋 Enviar Mensagem Requisitando o Pedido
+        📤 Enviar Mensagens Requisitando o Pedido
       </button>
       <button id="customMessageBtn" class="btn" style="background: #F0B513; color: white; width: 100%; padding: 15px;">
-        📝 Enviar Mensagem Customizada
+        📤 Enviar Mensagens Customizadas
       </button>
     </div>
   `;
@@ -1405,7 +1405,7 @@ function showBulkMessageOptions() {
     document.getElementById('requestMessageBtn').disabled = true;
   }
   else {
-    document.getElementById('requestMessageBtn').textContent = '📋 Enviar Mensagem Requisitando o Pedido';
+    document.getElementById('requestMessageBtn').textContent = '📤 Enviar Mensagens Requisitando o Pedido';
     document.getElementById('requestMessageBtn').disabled = false;
   }
 
@@ -1416,7 +1416,7 @@ function showBulkMessageOptions() {
   }
   else {
     addLog('false');
-    document.getElementById('customMessageBtn').textContent = '📝 Enviar Mensagem Customizada';
+    document.getElementById('customMessageBtn').textContent = '📤 Enviar Mensagens Customizadas';
     document.getElementById('customMessageBtn').disabled = false;
   }
   
@@ -1603,7 +1603,7 @@ function showCustomMessageInput() {
   const modalFooter = document.querySelector('.modal-footer');
   modalFooter.innerHTML = `
     <button id="modalBackCustomBtn" class="btn btn-sm btn-danger">← Voltar</button>
-    <button id="modalSendCustomBtn" class="btn btn-sm btn-success">📤 Enviar Mensagem Customizada</button>
+    <button id="modalSendCustomBtn" class="btn btn-sm btn-success">📤 Enviar Mensagens Customizadas</button>
   `;
   
   // Select/Deselect all buttons
@@ -1950,8 +1950,6 @@ async function sendCustomBulkMessages(folderIds, message, mediaData = null) {
   } catch (error) {
     addLog('❌ Erro: ' + error.message, 'error');
     customAlert('Erro', 'Não foi possível enviar as mensagens.');
-  } finally {
-    isSendingCustomMessages = false;
   }
 }
 
@@ -3565,7 +3563,7 @@ function initializeSocket() {
     const modalSendCustomBtn = document.getElementById('customMessageBtn');
     isSendingCustomMessages = false;
     if (modalSendCustomBtn) {
-      modalSendCustomBtn.textContent = '📤 Enviar Mensagem Customizada';
+      modalSendCustomBtn.textContent = '📤 Enviar Mensagens Customizadas';
       modalSendCustomBtn.disabled = false;
     }
     
@@ -3636,7 +3634,7 @@ function updateConnectionStatus(
                     modalSendCustomBtn.textContent = `📤 Enviando... (${customProgress.sent}/${customProgress.total})`;
                 }
             } else {
-                modalSendCustomBtn.textContent = '📤 Enviar Mensagem Customizada';
+                modalSendCustomBtn.textContent = '📤 Enviar Mensagens Customizadas';
                 modalSendCustomBtn.disabled = true;
             }
         }
@@ -3671,7 +3669,7 @@ function updateConnectionStatus(
                     modalSendCustomBtn.textContent = `📤 Enviando... (${customProgress.sent}/${customProgress.total})`;
                 }
             } else {
-                modalSendCustomBtn.textContent = '📤 Enviar Mensagem Customizada';
+                modalSendCustomBtn.textContent = '📤 Enviar Mensagens Customizadas';
                 modalSendCustomBtn.disabled = false;
             }
         }

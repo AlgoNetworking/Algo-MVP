@@ -1,4 +1,33 @@
 // services/whatsapp.service.js - BAILEYS IMPLEMENTATION
+const originalLog = console.log;
+const originalInfo = console.info;
+
+const filterLogs = (args) => {
+    // Convert all arguments to a string to check for the noisy keywords
+    const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+    ).join(' ');
+
+    const noisyKeywords = [
+        'SessionEntry',
+        'Closing session',
+        'Removing old closed session',
+        'Closing stale open session'
+    ];
+
+    return noisyKeywords.some(keyword => message.includes(keyword));
+};
+
+console.log = (...args) => {
+    if (filterLogs(args)) return;
+    originalLog(...args);
+};
+
+console.info = (...args) => {
+    if (filterLogs(args)) return;
+    originalInfo(...args);
+};
+
 const { 
   default: makeWASocket,
   DisconnectReason,
