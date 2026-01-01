@@ -1410,12 +1410,10 @@ function showBulkMessageOptions() {
   }
 
   if(isSendingCustomMessages) {
-    addLog('true');
     document.getElementById('customMessageBtn').textContent = 'Enviando...';
     document.getElementById('customMessageBtn').disabled = true;
   }
   else {
-    addLog('false');
     document.getElementById('customMessageBtn').textContent = '📤 Enviar Mensagens Customizadas';
     document.getElementById('customMessageBtn').disabled = false;
   }
@@ -2302,7 +2300,7 @@ function renderUserOrders(orders) {
                         `<span class="order-item-badge">${item.productName}</span>`
                     ).join('')}
                 </div>
-                <span class="order-type-badge">${order.order_type}</span>
+                <span class="order-type-badge">${order.status !== 'canceled' ? order.order_type : `Pedido cancelado. Tipo: ${order.order_type}`}</span>
                 <div class="order-actions">
                     ${order.status === 'pending' ? `
                         <button class="btn btn-sm btn-success" onclick="confirmOrder(${order.id})">✅ Confirmar</button>
@@ -3216,7 +3214,6 @@ function previewTxtFile(event) {
 }
 
 // Parse a single line from TXT file
-// Parse a single line from TXT file
 function parseTxtLine(line) {
   line = line.trim();
   if (!line) return null;
@@ -3689,7 +3686,8 @@ function updateConnectionStatus(
 
 // ---------------------- Configuration UI / persistence ----------------------
 let userConfig = {
-  callByName: true,  // existing default
+  callByName: true,
+  interpret: true,
   reminderInterval: 30 // default in minutes (1..90)
 };
 
@@ -3708,15 +3706,29 @@ async function loadUserConfig() {
 }
 
 function renderConfigUI() {
-  const toggle = document.getElementById('toggleCallByName');
-  const label = document.getElementById('toggleCallByNameLabel');
-  if (toggle && label) {
+  // Call users by name UI
+  const toggleCallByName = document.getElementById('toggleCallByName');
+  const callByNameLabel = document.getElementById('toggleCallByNameLabel');
+  if (toggleCallByName && callByNameLabel) {
     if (userConfig.callByName) {
-      toggle.classList.add('active');
-      label.textContent = 'Ativado';
+      toggleCallByName.classList.add('active');
+      callByNameLabel.textContent = 'Ativado';
     } else {
-      toggle.classList.remove('active');
-      label.textContent = 'Desativado';
+      toggleCallByName.classList.remove('active');
+      callByNameLabel.textContent = 'Desativado';
+    }
+  }
+
+  // Interpret messages UI
+  const toggleInterpretation = document.getElementById('toggleInterpretation');
+  const interpretationLabel = document.getElementById('toggleInterpretationLabel');
+  if (toggleInterpretation && interpretationLabel) {
+    if (userConfig.interpret) {
+      toggleInterpretation.classList.add('active');
+      interpretationLabel.textContent = 'Ativado';
+    } else {
+      toggleInterpretation.classList.remove('active');
+      interpretationLabel.textContent = 'Desativado';
     }
   }
 
@@ -3767,6 +3779,14 @@ function renderConfigUI() {
 document.addEventListener('click', (e) => {
   if (e.target && e.target.id === 'toggleCallByName') {
     userConfig.callByName = !userConfig.callByName;
+    renderConfigUI();
+  }
+});
+
+// Toggle interpretation handler (does NOT save automatically)
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'toggleInterpretation') {
+    userConfig.interpret = !userConfig.interpret;
     renderConfigUI();
   }
 });
