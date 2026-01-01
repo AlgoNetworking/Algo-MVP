@@ -654,6 +654,14 @@ class WhatsAppService {
 
   async handleMessage(userId, message) {
     try {
+      const userConfig = await databaseService.getUserConfig(userId);
+      if (userConfig && userConfig.interpret === false) {
+        console.log(`⏸️ Global interpretation disabled for user ${userId}; ignoring incoming messages.`);
+        // NOTE: per your requirement, when global interpret is off we DO NOT mark messages as answered.
+        // So simply return early and do not call orderService.processMessage.
+        return;
+      }
+
       const botStart = this.botStartTimes.get(userId);
       const rawTs =
         message.messageTimestamp ||

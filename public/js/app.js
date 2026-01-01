@@ -3740,6 +3740,67 @@ function renderConfigUI() {
   if (reminderLabel) reminderLabel.textContent = `${val} min`;
 }
 
+setIndividualInterpretControlsEnabled(Boolean(userConfig.interpret));
+
+function setIndividualInterpretControlsEnabled(enabled) {
+  // Buttons that toggle per-client interpretation
+  const buttonSelectors = [
+    '[id^="toggleEditClientInterpret-"]',
+    '[id^="toggleEditFolderClientInterpret-"]',
+    '#toggleNewFolderClientInterpret',
+    '#toggleNewClientInterpret', // if you add a non-folder add-client interpret toggle
+  ];
+
+  // Hidden inputs which hold per-client interpret values
+  const hiddenInputSelector = 'input[id$="Interpret"], input[id*="Interpret-"]';
+
+  // Enable/disable visible toggle buttons
+  buttonSelectors.forEach(sel => {
+    document.querySelectorAll(sel).forEach(btn => {
+      // If element exists, set disabled property (prevents click)
+      try { btn.disabled = !enabled; } catch (e) { /* ignore */ }
+      // Visual hint: if disabled, remove the active class so it looks disabled
+      if (!enabled) btn.classList.remove('active');
+    });
+  });
+
+  // Disable hidden inputs so saving UI won't accidentally change values while global is off
+  document.querySelectorAll(hiddenInputSelector).forEach(inp => {
+    try { inp.disabled = !enabled; } catch (e) { /* ignore */ }
+  });
+}
+
+function toggleInterpretButton(inputId) {
+  // If global interpret is off, prevent toggling individual controls.
+  if (!userConfig.interpret) {
+    // small user hint — reuse your customAlert function
+    customAlert('Atenção', 'A interpretação geral está desativada. Habilite-a nas Configurações para alterar o controle individual.');
+    return;
+  }
+
+  const toggleBtn = document.getElementById(`toggle${inputId.charAt(0).toUpperCase() + inputId.slice(1)}`);
+  const hiddenInput = document.getElementById(inputId);
+  const label = document.getElementById(`toggle${inputId.charAt(0).toUpperCase() + inputId.slice(1)}Label`);
+  
+  // Toggle the value
+  const currentValue = hiddenInput.value === 'true';
+  const newValue = !currentValue;
+  
+  // Update the hidden input
+  hiddenInput.value = newValue;
+  
+  // Update the toggle button
+  if (newValue) {
+    toggleBtn.classList.add('active');
+    label.textContent = 'Ativado';
+    label.style.color = '#27ae60';
+  } else {
+    toggleBtn.classList.remove('active');
+    label.textContent = 'Desativado';
+    label.style.color = '#e74c3c';
+  }
+}
+
 // ---------------------- Anti double-click guard ----------------------
 // Prevents rapid double-clicks on buttons/interactive elements from
 // reaching their handlers (capture phase). Minimal, element-scoped.
