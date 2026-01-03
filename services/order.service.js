@@ -21,7 +21,47 @@ class OrderSession {
     this.loadingPromise = null; // To handle concurrent loading
     this.parseOrderAttempts = 0;
     this.chooseOptionAttempts = 0;
-    this.optionsMenu = 'Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`';
+    this.loadingOptionsMenu = null;
+    this.optionsMenuLoaded = false;
+    this.optionsMenu = null;
+    this.chooseOption = null;
+  }
+
+  async loadOptionsMenu() {
+    if (this.optionsMenuLoaded) return this.optionsMenu;
+
+    if (this.loadingOptionsMenu) {
+      // If already loading, wait for that promise
+      return await this.loadingOptionsMenu;
+    }
+
+    this.loadingOptionsMenu = (async () => {
+      try {
+        console.log(`🔄 Loading options menu for user ${this.userId} in session ${this.sessionId}`);
+        const userConfig = await databaseService.getUserConfig(this.userId);
+        
+        this.optionsMenu = userConfig && userConfig.businessInfo ?
+          `Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*");\nsaber mais sobre o programa e como usá-lo (digite "*4*") ou\nver a ${userConfig.businessInfo.title} (digite "*5*")?` :
+          'Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`';
+        
+        this.chooseOption = userConfig && userConfig.businessInfo ?
+          `Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos;\n("*4*") para saber mais sobre o programa e como usá-lo ou\n("*5*") para ver a ${userConfig.businessInfo.title}` :
+          'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo';
+
+        this.optionsMenuLoaded = true;
+        console.log(`✅ Loaded options menu for user ${this.userId}`);
+        return this.optionsMenu, this.chooseOption;
+      } catch (error) {
+        console.error('❌ Error getting options menu:', error);
+        this.optionsMenu = null;
+        this.chooseOption = null;
+        return [];
+      } finally {
+        this.loadingOptionsMenu = null;
+      }
+    })();
+
+    return await this.loadingOptionsMenu;
   }
 
   // Async method to load products
@@ -283,6 +323,7 @@ class OrderService {
   async startSession(sessionId, userId) {
     const session = this.getSession(sessionId, userId);
     await session.loadProducts(); // Ensure products are loaded
+    await session.loadOptionsMenu();
     session.state = 'collecting';
     return { success: true };
   }
@@ -364,6 +405,11 @@ class OrderService {
     if (!session.productsLoaded) {
       await session.loadProducts();
     }
+
+    // Ensure options menu is loaded before processing
+    if (!session.optionsMenuLoaded) {
+      await session.loadOptionsMenu();
+    }
     
     if (phoneNumber) session.phoneNumber = phoneNumber;
     if (name) session.name = name;
@@ -413,7 +459,7 @@ class OrderService {
       session.state = 'option';
       session.waitingForOption = true;
       const config = await databaseService.getUserConfig(userId);
-        const callByName = config ? config.callByName : true;
+      const callByName = config ? config.callByName : true;
 
       const callName = callByName ? name : 'Cliente sem nome';
       const greeting = callName !== 'Cliente sem nome' ? `Olá ${callName}!` : 'Olá!';
@@ -540,6 +586,26 @@ class OrderService {
           isChatBot: true,
           clientStatus: '',
         };
+      } else if (messageLower === '5') {
+        const config = await databaseService.getUserConfig(userId);
+        const callByName = config ? config.callByName : true;
+
+        const callName = callByName ? name : 'Cliente sem nome';
+        const okay = callName !== 'Cliente sem nome' ? `Certo, ${callName}.` : 'Certo.';
+        session.waitingForOption = true;
+        session.state = 'option';
+        session.chooseOptionAttempts = 0;
+
+
+        const businessInformation = `${okay} ${config.businessInfo.title}:\n\n${config.businessInfo.text}`;
+
+        return {
+          success: true,
+          message: businessInformation,
+          media: config.businessInfo.media,
+          isChatBot: true,
+          clientStatus: '',
+        };
       } else {
         session.chooseOptionAttempts++;
         if(session.chooseOptionAttempts >= 2) {
@@ -554,7 +620,7 @@ class OrderService {
         }
         return {
           success: false,
-          message: 'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo',
+          message: session.chooseOption,
           isChatBot: true,
           clientStatus: '',
         };
@@ -997,6 +1063,10 @@ class OrderService {
     // Ensure products are loaded
     if (!session.productsLoaded) {
       await session.loadProducts();
+    }
+
+    if (!session.optionsMenuLoaded) {
+      await session.loadOptionsMenu();
     }
     
     const message = session.getPendingMessage();

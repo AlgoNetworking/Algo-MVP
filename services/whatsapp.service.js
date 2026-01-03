@@ -806,7 +806,7 @@ class WhatsAppService {
       });
 
       if (response && response.message) {
-        await this.sendMessage(userId, sender, response.message);
+        await this.sendMessage(userId, sender, response.message, response.media);
       }
 
       if (response && (

@@ -1780,66 +1780,6 @@ async function sendBulkMessages() {
   // Window 1 - Show custom modal with yellow button
   showBulkMessageOptions(clients);
 }
-/*
-// Window 3 - Custom message confirmation with preview
-function showCustomMessageConfirmation(clients, message) {
-  const overlay = document.getElementById('modalOverlay');
-  const modal = document.querySelector('.modal');
-  modal.style.maxWidth = '500px';
-  
-  document.getElementById('modalTitle').textContent = 'Confirmar Envio';
-  
-  const modalBody = document.querySelector('.modal-body');
-  modalBody.innerHTML = `
-    <p style="margin-bottom: 15px; color: #2c3e50; font-size: 1.1em;">
-      Enviar esta mensagem para ${clients.length} cliente(s)?
-    </p>
-    <div style="background: #f8f9fa; border: 2px solid #e9ecef; border-radius: 8px; 
-                padding: 15px; margin: 15px 0;">
-      <strong style="color: #2c3e50; display: block; margin-bottom: 10px;">
-        📄 Prévia da mensagem:
-      </strong>
-      <div style="background: white; border-left: 4px solid #9DB044; padding: 10px; 
-                  border-radius: 5px; color: #2c3e50; white-space: pre-wrap; 
-                  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-        ${escapeHtml(message)}
-      </div>
-    </div>
-  `;
-  
-  const modalFooter = document.querySelector('.modal-footer');
-  modalFooter.innerHTML = `
-    <button id="modalCancelConfirmBtn" class="btn btn-sm btn-danger">Cancelar</button>
-    <button id="modalConfirmSendBtn" class="btn btn-sm btn-success">✅ Sim, Enviar</button>
-  `;
-  
-  // Click outside to close - cancel action
-  overlay.onclick = (e) => {
-    if (e.target === overlay) {
-      overlay.style.display = 'none';
-      resetModalFooter();
-      overlay.onclick = null; // Remove handler
-    }
-  };
-  
-  // Cancel button - goes back to Window 2
-  document.getElementById('modalCancelConfirmBtn').onclick = () => {
-    showCustomMessageInput(clients);
-    // Restore the message in textarea
-    setTimeout(() => {
-      document.getElementById('customMessageInput').value = message;
-    }, 100);
-  };
-  
-  // Confirm send button - actually sends messages
-  document.getElementById('modalConfirmSendBtn').onclick = async () => {
-    overlay.style.display = 'none';
-    resetModalFooter();
-    overlay.onclick = null;
-    await sendCustomBulkMessages(clients, message);
-  };
-}
-*/
 
 // Helper function to escape HTML
 function escapeHtml(text) {
@@ -3688,7 +3628,12 @@ function updateConnectionStatus(
 let userConfig = {
   callByName: true,
   interpret: true,
-  reminderInterval: 30 // default in minutes (1..90)
+  reminderInterval: 30, // default in minutes (1..90)
+  businessInfo: {
+    title: "",
+    media: null,
+    text: ""
+  }
 };
 
 async function loadUserConfig() {
@@ -3738,6 +3683,12 @@ function renderConfigUI() {
   const val = Number.isInteger(userConfig.reminderInterval) ? userConfig.reminderInterval : 30;
   if (reminderInput) reminderInput.value = String(val);
   if (reminderLabel) reminderLabel.textContent = `${val} min`;
+
+  // Business info UI (EM CONSTRUÇÃO)
+  
+  const businessInfoText = document.getElementById('businessInfoText');
+  businessInfoText.value = (businessInfoText && userConfig.businessInfo?.text) ? userConfig.businessInfo.text : '';
+  
 }
 
 setIndividualInterpretControlsEnabled(Boolean(userConfig.interpret));
@@ -3884,6 +3835,38 @@ function sanitizeReminderValue(raw) {
   return n;
 }
 
+function clearBusinessInfoFile() {
+  const fileInput = document.getElementById('businessInfoFile');
+  const preview = document.getElementById('businessInfoFilePreview');
+  
+  fileInput.value = '';
+  preview.style.display = 'none';
+}
+
+document.getElementById('businessInfoFile').onchange = (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    const preview = document.getElementById('businessInfoFilePreview');
+    const fileName = document.getElementById('businessInfoFileName');
+    const imagePreview = document.getElementById('businessInfoImagePreview');
+    
+    fileName.textContent = file.name;
+    preview.style.display = 'block';
+    
+    // Show image preview if it's an image
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        imagePreview.src = e.target.result;
+        imagePreview.style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    } else {
+      imagePreview.style.display = 'none';
+    }
+  }
+};
+
 // accept only digits while typing (keeps textarea behaving like integer input)
 document.addEventListener('input', (e) => {
   if (e.target && e.target.id === 'reminderIntervalInput') {
@@ -3905,6 +3888,12 @@ document.addEventListener('change', (e) => {
   }
 });
 
+// take business info input
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'businessInfoText') {
+    userConfig.businessInfo.text = e.target.value;
+  }
+});
 
 // Ensure we load config after auth check
 const _orig_checkAuthentication = checkAuthentication;
