@@ -272,6 +272,66 @@ function assignNumbersToProducts(productsWithPositions, numbersWithPositions, to
   return assignments;
 }
 
+/**
+ * ADDED: Preprocess products DB to support number-placeholder products and AKAs with numbers.
+ * For products (main names) or their AKAs that contain a numeric token (ex: "garrafao 10 litros" or "garrafao de 10 litros"),
+ * create a placeholder normalized key "garrafao {number} litros" (normalized) and map the number value
+ * to the original product index. This allows matching "garrafao de 10 litros" in the input and knowing
+ * which exact product index (10) it refers to. Also collects info about which AKA matched.
+ */
+function buildProductPatternMaps(productsDb) {
+  // placeholderMap: placeholderNormalizedString -> Map<numberValue -> productIndex>
+  const placeholderMap = new Map();
+  // placeholderToProductInfo: placeholderNormalizedString -> info about a representative product (for metadata)
+  const placeholderToProductInfo = new Map();
+
+  productsDb.forEach(([product], index) => {
+    const [mainName, akas, enabled] = product;
+    // Process main name
+    const normMain = normalize(mainName);
+    const digitMatchMain = normMain.match(/(^|\s)(\d+)(\s|$)/);
+    if (digitMatchMain) {
+      const placeholder = normMain.replace(digitMatchMain[0].trim(), '{number}');
+      const placeholderNorm = placeholder.replace(/\s+/g, ' ').trim();
+      const numValue = parseInt(digitMatchMain[2], 10);
+      if (!placeholderMap.has(placeholderNorm)) placeholderMap.set(placeholderNorm, new Map());
+      placeholderMap.get(placeholderNorm).set(numValue, index);
+      if (!placeholderToProductInfo.has(placeholderNorm)) {
+        placeholderToProductInfo.set(placeholderNorm, {
+          placeholder: placeholderNorm,
+          exampleIndex: index,
+          enabled
+        });
+      }
+    }
+
+    // ADDED: Process AKAs for numeric placeholders (ex: "garrafao de 10 litros")
+    if (akas && akas.length > 0) {
+      akas.forEach(aka => {
+        const normAka = normalize(aka);
+        const digitMatchAka = normAka.match(/(^|\s)(\d+)(\s|$)/);
+        if (digitMatchAka) {
+          const placeholderAka = normAka.replace(digitMatchAka[0].trim(), '{number}');
+          const placeholderAkaNorm = placeholderAka.replace(/\s+/g, ' ').trim();
+          const numValueAka = parseInt(digitMatchAka[2], 10);
+          if (!placeholderMap.has(placeholderAkaNorm)) placeholderMap.set(placeholderAkaNorm, new Map());
+          // Map the numeric value to the same product index (AKA -> official product)
+          placeholderMap.get(placeholderAkaNorm).set(numValueAka, index);
+          if (!placeholderToProductInfo.has(placeholderAkaNorm)) {
+            placeholderToProductInfo.set(placeholderAkaNorm, {
+              placeholder: placeholderAkaNorm,
+              exampleIndex: index,
+              enabled
+            });
+          }
+        }
+      });
+    }
+  });
+
+  return { placeholderMap, placeholderToProductInfo };
+}
+
 function buildAkaLookup(productsDb) {
   const akaLookup = new Map();
 
@@ -290,6 +350,7 @@ function buildAkaLookup(productsDb) {
     if (akas && akas.length > 0) {
       akas.forEach(aka => {
         const normalizedAka = normalize(aka);
+        // Non-numeric AKAs are directly added so exact matches work as before
         akaLookup.set(normalizedAka, { 
           mainProduct: mainName, 
           index, 
@@ -308,7 +369,7 @@ function rangesOverlap(start1, end1, start2, end2) {
   return start1 <= end2 && start2 <= end1;
 }
 
-// Process a single line with improved number assignment
+// Process a single line with improved number assignment and numeric-product + AKA support
 function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
   let normalized = normalize(line);
   normalized = separateNumbersAndWords(normalized);
@@ -320,16 +381,31 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
   const parsedOrders = [];
   const disabledProductsFound = [];
 
-  const numbersWithPositions = extractNumbersAndPositions(tokens);
+  let numbersWithPositions = extractNumbersAndPositions(tokens);
 
   const akaLookup = buildAkaLookup(productsDb);
+
+  // ADDED: build placeholder maps for numeric-products (ex: "garrafao {number} litros")
+  // This also includes AKAs with numbers (e.g. "garrafao de {number} litros").
+  const { placeholderMap, placeholderToProductInfo } = buildProductPatternMaps(productsDb);
 
   // Include ALL products for matching (both enabled and disabled)
   const sortedProducts = productsDb.map(([product, qty], index) => [product[0], product[1], product[2], qty, index])
     .sort((a, b) => b[0].split(' ').length - a[0].split(' ').length);
 
   const normalizedProducts = sortedProducts.map(([product]) => normalize(product));
-  const maxProdWords = Math.max(...productsDb.map(([p]) => p[0].split(' ').length));
+  let maxProdWords = 0;
+  for (const [product] of productsDb) {
+    const [mainName, akas] = product;
+    maxProdWords = Math.max(maxProdWords, mainName.trim().split(/\s+/).length);
+    if (akas && akas.length) {
+      for (const aka of akas) {
+        maxProdWords = Math.max(maxProdWords, aka.trim().split(/\s+/).length);
+      }
+    }
+  }
+  // fallback safety
+  if (maxProdWords === 0) maxProdWords = 1;
 
   const productWords = new Set();
   productsDb.forEach(([product]) => {
@@ -353,18 +429,21 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
   // For each position, try to match products of all sizes
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
-    
     if (token.isWhitespace) continue;
-    
-    // Skip pure numbers and number words  
-    if (/^\d+$/.test(token.value) || allNumberWords[token.value]) continue;
 
-    // Try multi-word products first (from longest to shortest)
+    // ADDED: skip starting candidate windows on numeric tokens (digits or written-number words).
+    // This prevents leading quantities (e.g. "3 abacaaxi com hortela") from being treated as
+    // internal numeric tokens of a product candidate.
+    const tokenNorm = normalize(token.value);
+    if (/^\d+$/.test(token.value) || allNumberWords[tokenNorm]) {
+      continue;
+    }
+
     for (let size = Math.min(maxProdWords, 4); size > 0; size--) {
-      // Collect up to 'size' non-whitespace tokens, skipping connector/filler words
       const candidateTokens = [];
       const candidatePositions = [];
       const allPositions = []; // Track all positions including connectors/fillers
+      const numericTokenInfos = []; // ADDED: store numeric token info inside candidate (originalIndex, value, tokenIndex)
       let currentPos = i;
       let nonConnectorCount = 0;
       
@@ -373,12 +452,59 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
           const t = tokens[currentPos].value;
           const normalizedT = normalize(t);
           
-          // Skip numbers
-          if (/^\d+$/.test(t) || allNumberWords[t]) {
-            break; // Stop collecting if we hit a number
+          if (/^\d+$/.test(t)) {
+            // LOOKAHEAD: determine whether this numeric token *looks like product-internal*
+            // Rule: treat numeric as product-internal only if there exists at least one
+            // non-whitespace token AFTER this numeric token within a small lookahead window
+            // that is NOT a pure connector/filler and is not itself purely numeric.
+            // This allows "garrafao 10 litros" (10 followed by "litros") but prevents
+            // the trailing "3" in "abacaxi com hortela 3" from being grabbed into the product.
+            let looksInternal = false;
+            const lookaheadLimit = 3; // check up to 3 non-whitespace tokens after numeric
+            let laIndex = currentPos + 1;
+            let laNonWsSeen = 0;
+
+            while (laIndex < tokens.length && laNonWsSeen < lookaheadLimit) {
+              if (!tokens[laIndex].isWhitespace) {
+                laNonWsSeen++;
+                const laNorm = normalize(tokens[laIndex].value);
+                if (!(/^\d+$/.test(tokens[laIndex].value) || allNumberWords[laNorm] || connectorWords.has(laNorm) || fillerWords.has(laNorm))) {
+                  // next meaningful token is *not* numeric and not a connector/filler -> numeric likely internal
+                  looksInternal = true;
+                  break;
+                }
+              }
+              laIndex++;
+            }
+
+            if (looksInternal) {
+              candidateTokens.push(t);
+              candidatePositions.push(currentPos);
+              allPositions.push(currentPos);
+              numericTokenInfos.push({ originalIndex: currentPos, value: parseInt(t, 10), tokenIndex: tokens[currentPos].tokenIndex });
+              nonConnectorCount++;
+              currentPos++;
+              continue;
+            } else {
+              // skip adding this numeric token to this candidate — likely a trailing quantity
+              // Do NOT advance nonConnectorCount (we didn't add a real product token),
+              // but still advance currentPos so we can examine tokens after it when building candidate.
+              allPositions.push(currentPos);
+              currentPos++;
+              continue;
+            }
+          }
+
+          if (allNumberWords[normalizedT]) {
+            candidateTokens.push(normalizedT);
+            candidatePositions.push(currentPos);
+            allPositions.push(currentPos);
+            numericTokenInfos.push({ originalIndex: currentPos, value: null, tokenIndex: tokens[currentPos].tokenIndex, text: normalizedT });
+            nonConnectorCount++;
+            currentPos++;
+            continue;
           }
           
-          // Skip connector/filler words, but keep track of position
           if ((connectorWords.has(normalizedT) || fillerWords.has(normalizedT)) && 
               !productWords.has(normalizedT)) {
             allPositions.push(currentPos);
@@ -398,22 +524,19 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
         continue; // Not enough tokens to form this size
       }
 
-      // Check if any token is a number (skip phrase if it contains numbers)
-      let containsNumber = false;
-      for (const t of candidateTokens) {
-        if (/^\d+$/.test(t) || allNumberWords[t]) {
-          containsNumber = true;
-          break;
-        }
-      }
-      
-      if (containsNumber) continue;
-      
-      // Try the candidate as a phrase
       const phrase = candidateTokens.join(' ');
       const phraseNorm = normalize(phrase);
 
-      // First check aka lookup for exact matches
+      // ADDED: Build placeholder version where contiguous numeric tokens are replaced by {number}
+      const placeholderParts = candidateTokens.map(tok => {
+        if (/^\d+$/.test(tok)) return '{number}';
+        const n = normalize(tok);
+        if (allNumberWords[n]) return '{number}';
+        return normalize(tok);
+      });
+      const phrasePlaceholderNorm = placeholderParts.join(' ').replace(/\s+/g, ' ').trim();
+
+      // Try exact aka lookup first (non-placeholder)
       const akaMatch = akaLookup.get(phraseNorm);
       if (akaMatch) {
         let originalIndex = -1;
@@ -436,15 +559,70 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
             tokenIndex: tokens[startPos].tokenIndex,
             productIndex: originalIndex,
             productName: akaMatch.mainProduct,
+            matchedAka: phraseNorm, // ADDED: note which AKA matched
             enabled: productEnabled,
             size: size,
-            score: 100
+            score: 100,
+            numericTokenInfos // ADDED: attach numeric info if any
           });
-          
-          // Don't break - continue checking other sizes for this position
         }
       } else {
-        // Try similarity matching
+        // ADDED: If phrase contains numbers (placeholder form different from raw), try placeholder exact match
+        const containsNumberToken = numericTokenInfos.length > 0;
+        if (containsNumberToken && placeholderMap.has(phrasePlaceholderNorm)) {
+          // Detect numeric value present in the candidate (digit or textual)
+          let detectedNumber = null;
+
+          if (numericTokenInfos.length === 1) {
+            const ni = numericTokenInfos[0];
+            if (ni.value !== null) detectedNumber = ni.value;
+            else if (ni.text && allNumberWords[ni.text] !== undefined) detectedNumber = allNumberWords[ni.text];
+          } else {
+            // Try to parse a combined textual/numeric token group (best-effort)
+            const textualParts = [];
+            for (const ni of numericTokenInfos) {
+              if (ni.value !== null) textualParts.push(String(ni.value));
+              else if (ni.text && allNumberWords[ni.text] !== undefined) textualParts.push(String(allNumberWords[ni.text]));
+            }
+            // If joined digits make sense as a single integer, try parse them:
+            if (textualParts.length) {
+              const joined = textualParts.join('');
+              const maybe = parseInt(joined, 10);
+              if (!Number.isNaN(maybe)) detectedNumber = maybe;
+            }
+          }
+
+          const numToIndex = placeholderMap.get(phrasePlaceholderNorm) || new Map();
+
+          // If we found a valid number mapping, accept the product.
+          if (detectedNumber !== null && numToIndex.has(detectedNumber)) {
+            const originalIndex = numToIndex.get(detectedNumber);
+            const productEnabled = productsDb[originalIndex][0][2];
+            const startPos = candidatePositions[0];
+            const endPos = allPositions[allPositions.length - 1];
+            allPossibleMatches.push({
+              position: startPos,
+              endPosition: endPos,
+              tokenIndex: tokens[startPos].tokenIndex,
+              productIndex: originalIndex,
+              productName: productsDb[originalIndex][0][0],
+              matchedAka: phrasePlaceholderNorm,
+              enabled: productEnabled,
+              size: size,
+              score: 100,
+              numericTokenInfos,
+              numericValue: detectedNumber
+            });
+            continue; // candidate handled
+          }
+
+          // IMPORTANT: placeholder exists but the number is missing/invalid.
+          // DO NOT fall back to similarity matching — skip this candidate entirely.
+          // (This prevents "garrafao 30 litros" from matching "garrafao 10 litros".)
+          continue;
+        }
+
+        // Try similarity matching (non-placeholder only)
         let bestScore = 0;
         let bestProduct = null;
         let bestProductEnabled = true;
@@ -474,23 +652,23 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
             productName: bestProduct,
             enabled: bestProductEnabled,
             size: size,
-            score: bestScore
+            score: bestScore,
+            numericTokenInfos: numericTokenInfos.length ? numericTokenInfos : undefined
           });
-          
-          // Don't break - continue checking other sizes
         }
       }
     }
   }
   
-  // IMPROVED: Sort matches by score and size, then deduplicate overlaps
-  // Priority: exact matches (score 100) and longer products (larger size) are preferred
+  // CHANGED: Prefer longer (multi-word) matches by boosting score with size multiplier.
+  // This prevents a short single-word match from blocking a multi-word match that is
+  // slightly worse in raw Levenshtein score but covers more tokens.
   allPossibleMatches.sort((a, b) => {
-    // First by score (higher is better)
+    const aBoosted = (a.score || 0) + (a.size || 0) * 10;
+    const bBoosted = (b.score || 0) + (b.size || 0) * 10;
+    if (bBoosted !== aBoosted) return bBoosted - aBoosted;
     if (b.score !== a.score) return b.score - a.score;
-    // Then by size (longer is better)
     if (b.size !== a.size) return b.size - a.size;
-    // Then by position (leftmost is better)
     return a.position - b.position;
   });
   
@@ -512,7 +690,29 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
   
   // Sort by position for number assignment
   productsFound.sort((a, b) => a.position - b.position);
-  
+
+  // ADDED: Remove numbers that are *part of a matched product name* from numbersWithPositions
+  if (numbersWithPositions.length > 0) {
+    const filteredNumbers = [];
+    for (const numEntry of numbersWithPositions) {
+      const [numPos, numVal, numTokenIndex] = numEntry;
+      let isInternal = false;
+      for (const p of productsFound) {
+        if (p.numericTokenInfos && p.numericTokenInfos.length > 0) {
+          for (const ni of p.numericTokenInfos) {
+            if (ni.originalIndex === numPos) {
+              isInternal = true;
+              break;
+            }
+          }
+        }
+        if (isInternal) break;
+      }
+      if (!isInternal) filteredNumbers.push(numEntry);
+    }
+    numbersWithPositions = filteredNumbers;
+  }
+
   // Now assign numbers to products using the proper algorithm with space consideration
   const numberAssignments = assignNumbersToProducts(productsFound, numbersWithPositions, tokens);
   
@@ -520,7 +720,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
   for (let i = 0; i < productsFound.length; i++) {
     const product = productsFound[i];
     const [quantity, _] = numberAssignments[i];
-    
+
     if (!product.enabled) {
       disabledProductsFound.push({
         product: product.productName,
@@ -531,8 +731,9 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
       workingDb[product.productIndex][1] += quantity;
       parsedOrders.push({
         productName: product.productName,
+        matchedAka: product.matchedAka, // ADDED: if matched via AKA placeholder, this will be set
         qty: quantity,
-        score: 100.0
+        score: product.score || 100.0
       });
     }
   }
