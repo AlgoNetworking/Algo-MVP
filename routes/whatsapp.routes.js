@@ -1,13 +1,12 @@
+// routes/whatsapp.routes.js - UPDATED WITH PAUSE/RESUME/STOP ENDPOINTS
 const express = require('express');
 const router = express.Router();
 const whatsappService = require('../services/whatsapp.service');
 
-// Connect WhatsApp
+// Existing routes...
 router.post('/connect', async (req, res) => {
   try {
     const { users } = req.body;
-
-    // Users should already be filtered by folder from frontend
     const result = await whatsappService.connect(req.userId, users);
     res.json(result);
   } catch (error) {
@@ -19,7 +18,6 @@ router.post('/connect', async (req, res) => {
   }
 });
 
-// Disconnect WhatsApp
 router.post('/disconnect', async (req, res) => {
   try {
     await whatsappService.disconnect(req.userId);
@@ -36,7 +34,6 @@ router.post('/disconnect', async (req, res) => {
   }
 });
 
-// Send bulk messages
 router.post('/send-bulk', async (req, res) => {
   try {
     const { users } = req.body;
@@ -48,7 +45,6 @@ router.post('/send-bulk', async (req, res) => {
       });
     }
 
-    // Start bulk sending (async)
     whatsappService.sendBulkMessages(req.userId, users)
       .then(results => {
         console.log('Bulk messages completed for user', req.userId, ':', results);
@@ -71,9 +67,6 @@ router.post('/send-bulk', async (req, res) => {
   }
 });
 
-// Add this route to your routes/whatsapp.routes.js file
-
-// Send custom bulk messages (NO session logic, just raw messages)
 router.post('/send-custom-bulk', async (req, res) => {
   try {
     const { users, message, media } = req.body;
@@ -85,7 +78,6 @@ router.post('/send-custom-bulk', async (req, res) => {
       });
     }
 
-    // Validate: either message or media must be provided
     if ((!message || message.trim() === '') && !media) {
       return res.status(400).json({
         success: false,
@@ -93,7 +85,6 @@ router.post('/send-custom-bulk', async (req, res) => {
       });
     }
 
-    // Validate media if provided
     if (media) {
       if (!media.data || !media.mimetype) {
         return res.status(400).json({
@@ -102,9 +93,8 @@ router.post('/send-custom-bulk', async (req, res) => {
         });
       }
       
-      // Optional: Add file size limit (e.g., 50MB)
-      const MAX_SIZE = 50 * 1024 * 1024; // 50MB in bytes
-      const estimatedSize = (media.data.length * 3) / 4; // Base64 to bytes approximation
+      const MAX_SIZE = 50 * 1024 * 1024;
+      const estimatedSize = (media.data.length * 3) / 4;
       
       if (estimatedSize > MAX_SIZE) {
         return res.status(400).json({
@@ -114,7 +104,6 @@ router.post('/send-custom-bulk', async (req, res) => {
       }
     }
 
-    // Start custom bulk sending (async) with media support
     whatsappService.sendCustomBulkMessages(
       req.userId, 
       users, 
@@ -142,23 +131,108 @@ router.post('/send-custom-bulk', async (req, res) => {
   }
 });
 
-router.post('/send-warning', async (req, res) => {
+// NEW: Pause request messages
+router.post('/pause-request-messages', (req, res) => {
   try {
-    const { users, warning, ignoreInterpretation } = req.body;
-    if (!Array.isArray(users) || !warning) {
-      return res.status(400).json({ success: false, message: 'users and warning required' });
-    }
-    whatsappService.sendWarningMessages(req.userId, users, warning, true /*always ignore*/ )
-      .then(()=>{})
-      .catch(err => console.error('send-warning error', err));
-    res.json({ success: true, message: 'Send-warning started' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: err.message });
+    whatsappService.pauseRequestMessages(req.userId);
+    res.json({
+      success: true,
+      message: 'Request messages paused'
+    });
+  } catch (error) {
+    console.error('Error pausing request messages:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 });
 
-// Get sending status
+// NEW: Resume request messages
+router.post('/resume-request-messages', (req, res) => {
+  try {
+    whatsappService.resumeRequestMessages(req.userId);
+    res.json({
+      success: true,
+      message: 'Request messages resumed'
+    });
+  } catch (error) {
+    console.error('Error resuming request messages:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// NEW: Stop request messages
+router.post('/stop-request-messages', (req, res) => {
+  try {
+    whatsappService.stopRequestMessages(req.userId);
+    res.json({
+      success: true,
+      message: 'Request messages stopped'
+    });
+  } catch (error) {
+    console.error('Error stopping request messages:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// NEW: Pause custom messages
+router.post('/pause-custom-messages', (req, res) => {
+  try {
+    whatsappService.pauseCustomMessages(req.userId);
+    res.json({
+      success: true,
+      message: 'Custom messages paused'
+    });
+  } catch (error) {
+    console.error('Error pausing custom messages:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// NEW: Resume custom messages
+router.post('/resume-custom-messages', (req, res) => {
+  try {
+    whatsappService.resumeCustomMessages(req.userId);
+    res.json({
+      success: true,
+      message: 'Custom messages resumed'
+    });
+  } catch (error) {
+    console.error('Error resuming custom messages:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// NEW: Stop custom messages
+router.post('/stop-custom-messages', (req, res) => {
+  try {
+    whatsappService.stopCustomMessages(req.userId);
+    res.json({
+      success: true,
+      message: 'Custom messages stopped'
+    });
+  } catch (error) {
+    console.error('Error stopping custom messages:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
 router.get('/sending-status', (req, res) => {
   try {
     const requestStatus = whatsappService.getRequestSendingStatus(req.userId);
@@ -177,7 +251,6 @@ router.get('/sending-status', (req, res) => {
   }
 });
 
-// Get connection status
 router.get('/status', (req, res) => {
   try {
     res.json({
@@ -191,6 +264,74 @@ router.get('/status', (req, res) => {
       success: false,
       message: error.message
     });
+  }
+});
+
+
+
+
+
+router.get('/sessions-count/:userId', (req, res) => {
+  const userId = req.params.userId;
+  const svc = whatsappService;
+  const sessions = svc.userSessions.get(userId);
+  res.json({
+    userId,
+    sessionsCount: sessions ? sessions.size : 0,
+    sessionsKeys: sessions ? Array.from(sessions.keys()) : []
+  });
+});
+
+// POST create mock sessions quickly (no real WhatsApp calls) - helpful for quick tests
+// body: { userId: "test-user-1", count: 5 }
+router.post('/create-mock-sessions', (req, res) => {
+  const { userId, count = 3 } = req.body || {};
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  const svc = whatsappService;
+  if (!svc.userSessions.has(userId)) svc.userSessions.set(userId, new Map());
+  const map = svc.userSessions.get(userId);
+  for (let i = 1; i <= count; i++) {
+    map.set(`mock-client-${i}`, { mock: true, createdAt: Date.now() });
+  }
+  res.json({ ok: true, sessionsCount: map.size, sessionsKeys: Array.from(map.keys()) });
+});
+
+// POST simulate a Baileys disconnect event
+// body: { userId: "test-user-1", kind: "auto-error"|"manual", statusCode: 428 }
+router.post('/simulate-disconnect', async (req, res) => {
+  try {
+    const { userId, kind = 'auto-error', statusCode = 428 } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    const svc = whatsappService;
+    const sock = svc.sockets.get(userId);
+    if (!sock) return res.status(404).json({ error: 'socket-not-found' });
+
+    const eventPayload = {
+      connection: 'close',
+      lastDisconnect: {
+        error: { output: { statusCode } },
+        status: 'disconnect',
+      },
+      isReconnecting: kind === 'auto-error',
+    };
+
+    if (sock.ev && typeof sock.ev.emit === 'function') {
+      sock.ev.emit('connection.update', eventPayload);
+    } else if (typeof sock.emit === 'function') {
+      sock.emit('connection.update', eventPayload);
+    } else {
+      return res.status(500).json({ error: 'socket-has-no-emit' });
+    }
+
+    // If you have a manual-cleanup method, call it for kind === 'manual'
+    if (kind === 'manual' && typeof svc.handleManualDisconnect === 'function') {
+      try { svc.handleManualDisconnect(userId); } catch(e) { /* ignore */ }
+    }
+
+    res.json({ ok: true, injected: eventPayload });
+  } catch (err) {
+    console.error('simulate-disconnect error', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

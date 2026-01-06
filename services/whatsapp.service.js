@@ -129,25 +129,29 @@ class BaileysAuthStore {
   }
 }
 
+// services/whatsapp.service.js - UPDATED WITH PAUSE/RESUME/STOP + ERROR HANDLING
+
 class WhatsAppService {
   constructor() {
-    this.sockets = new Map(); // userId -> socket
-    this.userSessions = new Map(); // userId -> Map(jid -> sessionId)
+    this.sockets = new Map();
+    this.userSessions = new Map();
     this.io = null;
     this.userQRCodes = new Map();
     this.disabledUsers = new Map();
-    this.requestSendingStatus = new Map();
-    this.customSendingStatus = new Map();
+    
+    // UPDATED: Enhanced status tracking with pause and index
+    this.requestSendingStatus = new Map(); // userId -> { isSending, isPaused, currentIndex, users, progress }
+    this.customSendingStatus = new Map();  // userId -> { isSending, isPaused, currentIndex, users, progress, message, media }
+    
     this.pollingIntervals = new Map();
     this.botStartTimes = new Map();
     this.authStore = null;
     this.usersInSelectedFolder = new Map();
     this.connectingUsers = new Set();
     this.manualDisconnects = new Set(); // Track manual disconnects
-
-    // LID mapping caches (in-memory per running process)
-    // lidMaps: userId -> Map(pnJid -> lidJid)
-    // lidReverseMaps: userId -> Map(lidJid -> pnJid)
+    this.errorDisconnects = new Set(); // NEW: Track error disconnects
+    
+    // LID mapping caches
     this.lidMaps = new Map();
     this.lidReverseMaps = new Map();
   }
@@ -164,6 +168,35 @@ class WhatsAppService {
 
   isConnecting(userId) {
     return this.connectingUsers.has(userId);
+  }
+
+  // NEW: Initialize or get sending status
+  getOrInitRequestStatus(userId) {
+    if (!this.requestSendingStatus.has(userId)) {
+      this.requestSendingStatus.set(userId, {
+        isSending: false,
+        isPaused: false,
+        currentIndex: -1,
+        users: [],
+        progress: null
+      });
+    }
+    return this.requestSendingStatus.get(userId);
+  }
+
+  getOrInitCustomStatus(userId) {
+    if (!this.customSendingStatus.has(userId)) {
+      this.customSendingStatus.set(userId, {
+        isSending: false,
+        isPaused: false,
+        currentIndex: -1,
+        users: [],
+        message: '',
+        media: null,
+        progress: null
+      });
+    }
+    return this.customSendingStatus.get(userId);
   }
 
   async connect(userId, users = null) {
@@ -312,20 +345,29 @@ class WhatsAppService {
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         
-        // Check if this was a manual disconnect
+        // UPDATED: Distinguish between manual and error disconnects
         const wasManualDisconnect = this.manualDisconnects.has(userId);
+        const isErrorDisconnect = !wasManualDisconnect && statusCode !== DisconnectReason.loggedOut;
+        
+        // NEW: Stop sending messages on ANY disconnect to prevent console errors
+        this.pauseRequestMessages(userId, true); // true = from disconnect
+        this.pauseCustomMessages(userId, true);  // true = from disconnect
+        
         if (wasManualDisconnect) {
           console.log('🛑 Manual disconnect detected for user:', userId);
           this.manualDisconnects.delete(userId);
           this.connectingUsers.delete(userId);
           
-          // Clean up completely
+          // FULL cleanup on manual disconnect
           this.sockets.delete(userId);
-          this.userSessions.delete(userId);
+          this.userSessions.delete(userId); // CLEAR SESSIONS
           this.userQRCodes.delete(userId);
           this.disabledUsers.delete(userId);
-          this.requestSendingStatus.delete(userId);
-          this.customSendingStatus.delete(userId);
+          
+          // Reset sending status (clear stored indices)
+          this.stopRequestMessages(userId);
+          this.stopCustomMessages(userId);
+          
           this.botStartTimes.delete(userId);
           this.usersInSelectedFolder.delete(userId);
           this.stopPolling(userId);
@@ -340,64 +382,93 @@ class WhatsAppService {
               isConnected: false,
               isConnecting: false,
               sessions: [],
-              isSendingRequestMessages: false,
-              requestProgress: null,
-              isSendingCustomMessages: false,
-              customProgress: null
+              ...this.getRequestSendingStatus(userId),
+              ...this.getCustomSendingStatus(userId)
             });
           }
           
-          return; // Don't try to reconnect
+          return; // Don't reconnect
         }
         
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-        
-        console.log('🔌 Connection closed for user:', userId, 'Status:', statusCode, 'Reconnect:', shouldReconnect);
-        
-        this.connectingUsers.delete(userId);
-        
-        // Clean up resources first
-        this.sockets.delete(userId);
-        this.userQRCodes.delete(userId);
-        this.stopPolling(userId);
-        
-        if (shouldReconnect) {
-          // Auto reconnect (keep sessions and other data)
-          setTimeout(() => {
-            console.log('🔄 Attempting to reconnect for user:', userId);
-            const selectedUsers = this.usersInSelectedFolder.get(userId);
-            this.connect(userId, selectedUsers ? Array.from(selectedUsers) : null);
-          }, 3000);
-        } else {
-          // Logged out - full cleanup
-          this.userSessions.delete(userId);
-          this.disabledUsers.delete(userId);
-          this.requestSendingStatus.delete(userId);
-          this.customSendingStatus.delete(userId);
-          this.botStartTimes.delete(userId);
-          this.usersInSelectedFolder.delete(userId);
+        if (isErrorDisconnect) {
+          // UPDATED: Error disconnect - DON'T clear sessions, keep sending state
+          console.log('⚠️ Error disconnect for user:', userId, 'Status:', statusCode);
+          this.errorDisconnects.add(userId);
+          this.connectingUsers.delete(userId);
+          
+          // Minimal cleanup - keep sessions and sending state
+          this.sockets.delete(userId);
+          this.userQRCodes.delete(userId);
+          this.stopPolling(userId);
           
           if (this.io) {
             this.io.to(`user-${userId}`).emit('bot-disconnected', { 
-              reason: 'Logged out',
+              reason: 'Error - reconnecting...',
               userId 
             });
-
-            this.io.to(`user-${userId}`).emit('bot-status', {
-              isConnected: false,
-              isConnecting: false,
-              sessions: [],
-              isSendingRequestMessages: false,
-              requestProgress: null,
-              isSendingCustomMessages: false,
-              customProgress: null
-            });
           }
+          
+          // Auto reconnect after 3 seconds
+          setTimeout(() => {
+            console.log('🔄 Auto-reconnecting after error for user:', userId);
+            const selectedUsers = this.usersInSelectedFolder.get(userId);
+            this.connect(userId, selectedUsers ? Array.from(selectedUsers) : null);
+          }, 3000);
+          
+          return;
         }
+        
+        // Logged out - full cleanup
+        console.log('🔌 Logged out for user:', userId);
+        this.connectingUsers.delete(userId);
+        this.sockets.delete(userId);
+        this.userSessions.delete(userId);
+        this.userQRCodes.delete(userId);
+        this.disabledUsers.delete(userId);
+        this.stopRequestMessages(userId);
+        this.stopCustomMessages(userId);
+        this.botStartTimes.delete(userId);
+        this.usersInSelectedFolder.delete(userId);
+        this.stopPolling(userId);
+        
+        if (this.io) {
+          this.io.to(`user-${userId}`).emit('bot-disconnected', { 
+            reason: 'Logged out',
+            userId 
+          });
+
+          this.io.to(`user-${userId}`).emit('bot-status', {
+            isConnected: false,
+            isConnecting: false,
+            sessions: [],
+            ...this.getRequestSendingStatus(userId),
+            ...this.getCustomSendingStatus(userId)
+          });
+        }
+        
       } else if (connection === 'open') {
         console.log('✅ WhatsApp connected for user:', userId);
         this.userQRCodes.delete(userId);
         this.connectingUsers.delete(userId);
+        
+        // UPDATED: Check if this was an error reconnect
+        const wasErrorReconnect = this.errorDisconnects.has(userId);
+        if (wasErrorReconnect) {
+          this.errorDisconnects.delete(userId);
+          console.log('🔄 Auto-resuming message sending after error reconnect for user:', userId);
+          
+          // Auto-resume request messages if they were active
+          const reqStatus = this.requestSendingStatus.get(userId);
+          if (reqStatus && reqStatus.isSending && reqStatus.isPaused) {
+            this.resumeRequestMessages(userId);
+          }
+          
+          // Auto-resume custom messages if they were active
+          const customStatus = this.customSendingStatus.get(userId);
+          if (customStatus && customStatus.isSending && customStatus.isPaused) {
+            this.resumeCustomMessages(userId);
+          }
+        }
 
         if (this.io) {
           this.io.to(`user-${userId}`).emit('bot-ready', {
@@ -405,23 +476,18 @@ class WhatsAppService {
             clientInfo: { user: sock.user }
           });
 
-          const requestStatus = this.getRequestSendingStatus(userId);
-          const customStatus = this.getCustomSendingStatus(userId);
-          
           this.io.to(`user-${userId}`).emit('bot-status', {
             isConnected: true,
             isConnecting: false,
             sessions: this.getActiveSessions(userId),
-            isSendingRequestMessages: requestStatus.isSendingRequestMessages,
-            requestProgress: requestStatus.requestProgress,
-            isSendingCustomMessages: customStatus.isSendingCustomMessages,
-            customProgress: customStatus.customProgress
+            ...this.getRequestSendingStatus(userId),
+            ...this.getCustomSendingStatus(userId)
           });
         }
 
         this.startPolling(userId);
 
-        // Build initial LID mappings for this user (non-blocking)
+        // Build initial LID mappings
         (async () => {
           try {
             const res = await this.buildLidMappingsForUser(userId);
@@ -943,91 +1009,128 @@ class WhatsAppService {
       throw new Error('Bot not running for user ' + userId);
     }
 
-    const status = this.requestSendingStatus.get(userId);
-    status.isSendingRequestMessages = true;
-    status.requestProgress = {
+    const status = this.getOrInitRequestStatus(userId);
+    
+    // Initialize sending state
+    status.isSending = true;
+    status.isPaused = false;
+    status.users = users;
+    status.currentIndex = -1;
+    status.progress = {
       total: users.length,
       sent: 0,
       failed: 0,
       skipped: 0
     };
 
-    const results = [];
-
-    for (const user of users) {
-      if (status.isSendingRequestMessages) {
-        try {
-          const enabled = await databaseService.isUserEnabled(userId);
-          if (!enabled) {
-            console.log(`⚠️ User ${userId} was disabled during bulk sending`);
-            status.isSendingRequestMessages = false;
-            await this.disconnect(userId);
-            break;
-          }
-
-          if (user.answered) {
-            results.push({ phone: user.phone, status: 'skipped', reason: 'Already answered' });
-            status.requestProgress.skipped++;
-            continue;
-          }
-
-          // Convert phone to JID format
-          const jid = this.phoneToJid(user.phone);
-          
-          // Check if number exists
-          const [exists] = await sock.onWhatsApp(jid);
-          if (!exists) {
-            results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
-            status.requestProgress.failed++;
-            continue;
-          }
-
-          const userSessions = this.userSessions.get(userId);
-          if (!userSessions.has(jid)) {
-            const sessionId = uuidv4();
-            userSessions.set(jid, sessionId);
-            await orderService.startSession(sessionId, userId);
-          }
-
-          const message = await this.generateInitialMessage(userId, user.name);
-          await this.sendMessage(userId, jid, message);
-
-          results.push({ phone: user.phone, status: 'sent' });
-          status.requestProgress.sent++;
-
-          if (this.io) {
-            this.io.to(`user-${userId}`).emit('request-bulk-message-progress', {
-              phone: user.phone,
-              name: user.name,
-              requestProgress: status.requestProgress,
-              userId
-            });
-          }
-
-          const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
-          await new Promise(resolve => setTimeout(resolve, delay));
-
-        } catch (error) {
-          console.error(`❌ Error sending to ${user.phone}:`, error);
-          results.push({ phone: user.phone, status: 'failed', reason: error.message });
-          status.requestProgress.failed++;
-        }
-      } else {
-        break;
-      }
-    }
-
-    status.isSendingRequestMessages = false;
-    status.requestProgress = null;
-
+    // Emit initial status
     if (this.io) {
-      this.io.to(`user-${userId}`).emit('bulk-messages-complete', { 
-        results,
-        userId 
+      this.io.to(`user-${userId}`).emit('bot-status', {
+        isConnected: true,
+        isConnecting: false,
+        sessions: this.getActiveSessions(userId),
+        ...this.getRequestSendingStatus(userId),
+        ...this.getCustomSendingStatus(userId)
       });
     }
 
-    return results;
+    // Start sending
+    await this.continueRequestMessages(userId);
+  }
+
+  // NEW: Continue sending request messages from current index
+  async continueRequestMessages(userId) {
+    const status = this.getOrInitRequestStatus(userId);
+    const sock = this.sockets.get(userId);
+    
+    if (!sock || !status.isSending) return;
+
+    const results = [];
+    const startIndex = status.currentIndex + 1;
+
+    for (let i = startIndex; i < status.users.length; i++) {
+      // Check if paused or stopped
+      if (!status.isSending) {
+        console.log(`⏹️ Request messages stopped at index ${i} for user ${userId}`);
+        break;
+      }
+      
+      if (status.isPaused) {
+        console.log(`⏸️ Request messages paused at index ${i} for user ${userId}`);
+        status.currentIndex = i - 1; // Store current position
+        break;
+      }
+
+      const user = status.users[i];
+      status.currentIndex = i;
+
+      try {
+        const enabled = await databaseService.isUserEnabled(userId);
+        if (!enabled) {
+          console.log(`⚠️ User ${userId} was disabled during bulk sending`);
+          this.stopRequestMessages(userId);
+          await this.disconnect(userId);
+          break;
+        }
+
+        if (user.answered) {
+          results.push({ phone: user.phone, status: 'skipped', reason: 'Already answered' });
+          status.progress.skipped++;
+          continue;
+        }
+
+        const jid = this.phoneToJid(user.phone);
+        const [exists] = await sock.onWhatsApp(jid);
+        
+        if (!exists) {
+          results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
+          status.progress.failed++;
+          continue;
+        }
+
+        const userSessions = this.userSessions.get(userId);
+        if (!userSessions.has(jid)) {
+          const sessionId = uuidv4();
+          userSessions.set(jid, sessionId);
+          await orderService.startSession(sessionId, userId);
+        }
+
+        const message = await this.generateInitialMessage(userId, user.name);
+        await this.sendMessage(userId, jid, message);
+
+        results.push({ phone: user.phone, status: 'sent' });
+        status.progress.sent++;
+
+        if (this.io) {
+          this.io.to(`user-${userId}`).emit('request-bulk-message-progress', {
+            phone: user.phone,
+            name: user.name,
+            requestProgress: status.progress,
+            userId
+          });
+        }
+
+        const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+
+      } catch (error) {
+        console.error(`❌ Error sending to ${user.phone}:`, error);
+        results.push({ phone: user.phone, status: 'failed', reason: error.message });
+        status.progress.failed++;
+      }
+    }
+
+    // Check if completed
+    if (status.currentIndex >= status.users.length - 1 && status.isSending) {
+      this.stopRequestMessages(userId);
+      
+      if (this.io) {
+        this.io.to(`user-${userId}`).emit('bulk-messages-complete', { 
+          results,
+          userId 
+        });
+      }
+    }
   }
 
   async sendCustomBulkMessages(userId, users, message, media = null) {
@@ -1043,85 +1146,269 @@ class WhatsAppService {
       throw new Error('Bot not running for user ' + userId);
     }
 
-    const status = this.customSendingStatus.get(userId);
-    status.isSendingCustomMessages = true;
-    status.customProgress = {
+    const status = this.getOrInitCustomStatus(userId);
+    
+    // Initialize sending state
+    status.isSending = true;
+    status.isPaused = false;
+    status.users = users;
+    status.message = message;
+    status.media = media;
+    status.currentIndex = -1;
+    status.progress = {
       total: users.length,
       sent: 0,
       failed: 0,
       skipped: 0
     };
 
-    const results = [];
-    const hasMedia = media && media.data && media.mimetype;
-
-    for (const user of users) {
-      if (status.isSendingCustomMessages) {
-        try {
-          const enabled = await databaseService.isUserEnabled(userId);
-          if (!enabled) {
-            console.log(`⚠️ User ${userId} was disabled during custom bulk sending`);
-            status.isSendingCustomMessages = false;
-            await this.disconnect(userId);
-            break;
-          }
-
-          const jid = this.phoneToJid(user.phone);
-          
-          const [exists] = await sock.onWhatsApp(jid);
-          if (!exists) {
-            results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
-            status.customProgress.failed++;
-            continue;
-          }
-
-          // Send message with or without media
-          const sent = await this.sendMessage(userId, jid, message, media);
-          
-          if (sent) {
-            results.push({ phone: user.phone, status: 'sent' });
-            status.customProgress.sent++;
-
-            if (this.io) {
-              this.io.to(`user-${userId}`).emit('custom-bulk-message-progress', {
-                phone: user.phone,
-                name: user.name,
-                customProgress: status.customProgress,
-                userId
-              });
-            }
-          } else {
-            results.push({ phone: user.phone, status: 'failed', reason: 'Send failed' });
-            status.customProgress.failed++;
-          }
-
-          // Delay between messages
-          const delay = (18 + Math.floor(Math.random() * 12)) * 1000; // 18-30 seconds
-          await new Promise(resolve => setTimeout(resolve, delay));
-
-        } catch (error) {
-          console.error(`❌ Error sending custom message to ${user.phone}:`, error);
-          results.push({ phone: user.phone, status: 'failed', reason: error.message });
-          status.customProgress.failed++;
-        }
-      } else {
-        break;
-      }
-    }
-
-    status.isSendingCustomMessages = false;
-    status.customProgress = null;
-
+    // Emit initial status
     if (this.io) {
-      this.io.to(`user-${userId}`).emit('custom-bulk-messages-complete', { 
-        results,
-        userId
+      this.io.to(`user-${userId}`).emit('bot-status', {
+        isConnected: true,
+        isConnecting: false,
+        sessions: this.getActiveSessions(userId),
+        ...this.getRequestSendingStatus(userId),
+        ...this.getCustomSendingStatus(userId)
       });
     }
 
-    return results;
+    // Start sending
+    await this.continueCustomMessages(userId);
   }
 
+  // NEW: Continue sending custom messages from current index
+  async continueCustomMessages(userId) {
+    const status = this.getOrInitCustomStatus(userId);
+    const sock = this.sockets.get(userId);
+    
+    if (!sock || !status.isSending) return;
+
+    const results = [];
+    const startIndex = status.currentIndex + 1;
+
+    for (let i = startIndex; i < status.users.length; i++) {
+      // Check if paused or stopped
+      if (!status.isSending) {
+        console.log(`⏹️ Custom messages stopped at index ${i} for user ${userId}`);
+        break;
+      }
+      
+      if (status.isPaused) {
+        console.log(`⏸️ Custom messages paused at index ${i} for user ${userId}`);
+        status.currentIndex = i - 1; // Store current position
+        break;
+      }
+
+      const user = status.users[i];
+      status.currentIndex = i;
+
+      try {
+        const enabled = await databaseService.isUserEnabled(userId);
+        if (!enabled) {
+          console.log(`⚠️ User ${userId} was disabled during custom bulk sending`);
+          this.stopCustomMessages(userId);
+          await this.disconnect(userId);
+          break;
+        }
+
+        const jid = this.phoneToJid(user.phone);
+        const [exists] = await sock.onWhatsApp(jid);
+        
+        if (!exists) {
+          results.push({ phone: user.phone, status: 'failed', reason: 'Invalid number' });
+          status.progress.failed++;
+          continue;
+        }
+
+        const sent = await this.sendMessage(userId, jid, status.message, status.media);
+        
+        if (sent) {
+          results.push({ phone: user.phone, status: 'sent' });
+          status.progress.sent++;
+
+          if (this.io) {
+            this.io.to(`user-${userId}`).emit('custom-bulk-message-progress', {
+              phone: user.phone,
+              name: user.name,
+              customProgress: status.progress,
+              userId
+            });
+          }
+        } else {
+          results.push({ phone: user.phone, status: 'failed', reason: 'Send failed' });
+          status.progress.failed++;
+        }
+
+        const delay = (18 + Math.floor(Math.random() * 12)) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+
+      } catch (error) {
+        console.error(`❌ Error sending custom message to ${user.phone}:`, error);
+        results.push({ phone: user.phone, status: 'failed', reason: error.message });
+        status.progress.failed++;
+      }
+    }
+
+    // Check if completed
+    if (status.currentIndex >= status.users.length - 1 && status.isSending) {
+      this.stopCustomMessages(userId);
+      
+      if (this.io) {
+        this.io.to(`user-${userId}`).emit('custom-bulk-messages-complete', { 
+          results,
+          userId
+        });
+      }
+    }
+  }
+
+  // NEW: Pause request messages
+  pauseRequestMessages(userId, fromDisconnect = false) {
+    const status = this.getOrInitRequestStatus(userId);
+    if (status.isSending && !status.isPaused) {
+      status.isPaused = true;
+      console.log(`⏸️ Request messages paused for user ${userId}${fromDisconnect ? ' (from disconnect)' : ''}`);
+      
+      if (this.io && !fromDisconnect) {
+        this.io.to(`user-${userId}`).emit('bot-status', {
+          isConnected: this.isConnected(userId),
+          isConnecting: false,
+          sessions: this.getActiveSessions(userId),
+          ...this.getRequestSendingStatus(userId),
+          ...this.getCustomSendingStatus(userId)
+        });
+      }
+    }
+  }
+
+  // NEW: Resume request messages
+  resumeRequestMessages(userId) {
+    const status = this.getOrInitRequestStatus(userId);
+    if (status.isSending && status.isPaused) {
+      status.isPaused = false;
+      console.log(`▶️ Request messages resumed for user ${userId} from index ${status.currentIndex + 1}`);
+      
+      if (this.io) {
+        this.io.to(`user-${userId}`).emit('bot-status', {
+          isConnected: this.isConnected(userId),
+          isConnecting: false,
+          sessions: this.getActiveSessions(userId),
+          ...this.getRequestSendingStatus(userId),
+          ...this.getCustomSendingStatus(userId)
+        });
+      }
+      
+      // Continue sending from where we left off
+      this.continueRequestMessages(userId);
+    }
+  }
+
+  // NEW: Stop request messages (clear everything)
+  stopRequestMessages(userId) {
+    const status = this.getOrInitRequestStatus(userId);
+    status.isSending = false;
+    status.isPaused = false;
+    status.currentIndex = -1;
+    status.users = [];
+    status.progress = null;
+    console.log(`⏹️ Request messages stopped for user ${userId}`);
+    
+    if (this.io) {
+      this.io.to(`user-${userId}`).emit('bot-status', {
+        isConnected: this.isConnected(userId),
+        isConnecting: false,
+        sessions: this.getActiveSessions(userId),
+        ...this.getRequestSendingStatus(userId),
+        ...this.getCustomSendingStatus(userId)
+      });
+    }
+  }
+
+  // NEW: Pause custom messages
+  pauseCustomMessages(userId, fromDisconnect = false) {
+    const status = this.getOrInitCustomStatus(userId);
+    if (status.isSending && !status.isPaused) {
+      status.isPaused = true;
+      console.log(`⏸️ Custom messages paused for user ${userId}${fromDisconnect ? ' (from disconnect)' : ''}`);
+      
+      if (this.io && !fromDisconnect) {
+        this.io.to(`user-${userId}`).emit('bot-status', {
+          isConnected: this.isConnected(userId),
+          isConnecting: false,
+          sessions: this.getActiveSessions(userId),
+          ...this.getRequestSendingStatus(userId),
+          ...this.getCustomSendingStatus(userId)
+        });
+      }
+    }
+  }
+
+  // NEW: Resume custom messages
+  resumeCustomMessages(userId) {
+    const status = this.getOrInitCustomStatus(userId);
+    if (status.isSending && status.isPaused) {
+      status.isPaused = false;
+      console.log(`▶️ Custom messages resumed for user ${userId} from index ${status.currentIndex + 1}`);
+      
+      if (this.io) {
+        this.io.to(`user-${userId}`).emit('bot-status', {
+          isConnected: this.isConnected(userId),
+          isConnecting: false,
+          sessions: this.getActiveSessions(userId),
+          ...this.getRequestSendingStatus(userId),
+          ...this.getCustomSendingStatus(userId)
+        });
+      }
+      
+      // Continue sending from where we left off
+      this.continueCustomMessages(userId);
+    }
+  }
+
+  // NEW: Stop custom messages (clear everything)
+  stopCustomMessages(userId) {
+    const status = this.getOrInitCustomStatus(userId);
+    status.isSending = false;
+    status.isPaused = false;
+    status.currentIndex = -1;
+    status.users = [];
+    status.message = '';
+    status.media = null;
+    status.progress = null;
+    console.log(`⏹️ Custom messages stopped for user ${userId}`);
+    
+    if (this.io) {
+      this.io.to(`user-${userId}`).emit('bot-status', {
+        isConnected: this.isConnected(userId),
+        isConnecting: false,
+        sessions: this.getActiveSessions(userId),
+        ...this.getRequestSendingStatus(userId),
+        ...this.getCustomSendingStatus(userId)
+      });
+    }
+  }
+
+  // NEW: Get request sending status (for frontend)
+  getRequestSendingStatus(userId) {
+    const status = this.getOrInitRequestStatus(userId);
+    return {
+      isSendingRequestMessages: status.isSending,
+      isRequestMessagesPaused: status.isPaused,
+      requestProgress: status.progress
+    };
+  }
+
+  // NEW: Get custom sending status (for frontend)
+  getCustomSendingStatus(userId) {
+    const status = this.getOrInitCustomStatus(userId);
+    return {
+      isSendingCustomMessages: status.isSending,
+      isCustomMessagesPaused: status.isPaused,
+      customProgress: status.progress
+    };
+  }
+/*
   getRequestSendingStatus(userId) {
     return this.requestSendingStatus.get(userId) || {
       isSendingRequestMessages: false,
@@ -1135,7 +1422,7 @@ class WhatsAppService {
       customProgress: null
     };
   }
-
+*/
   startPolling(userId) {
     this.stopPolling(userId);
 

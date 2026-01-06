@@ -42,10 +42,11 @@
         <!-- Bot Controls Tab -->
         <div id="bot" class="tab-content active">
             <div class="grid-2">
+                <!-- UPDATED: Bot Controls Panel - Clean UI with single button -->
                 <div class="panel">
                     <h2>🎛️ Controles do Bot</h2>
                     <div class="controls">
-                        <!-- Updated folder selection for MULTIPLE folders -->
+                        <!-- Folder selection -->
                         <div class="form-group">
                             <label for="folderSelect">📁 Selecionar Pastas para Mensagens:</label>
                             <select id="folderSelect" class="form-control" multiple size="5" style="height: auto;">
@@ -63,12 +64,15 @@
                             </div>
                         </div>
                         
+                        <!-- Connection buttons -->
                         <button id="connectBtn" class="btn btn-primary">
                             📱 Conectar WhatsApp
                         </button>
                         <button id="disconnectBtn" class="btn btn-danger" disabled>
                             🔌 Desconectar
                         </button>
+                        
+                        <!-- UPDATED: Single button to open bulk message controls -->
                         <button id="sendBulkBtn" class="btn btn-success" disabled onclick="showBulkMessageOptions()">
                             📤 Enviar Mensagens para seus Clientes
                         </button>

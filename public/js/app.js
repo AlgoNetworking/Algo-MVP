@@ -66,6 +66,10 @@ let selectedFolderNames = []; // Array of selected folder names
 let isConnecting = false;
 let isSendingRequestMessages = false;
 let isSendingCustomMessages = false;
+let isRequestMessagesPlaying = false;
+let isRequestMessagesPaused = false;
+let isCustomMessagesPlaying = false;
+let isCustomMessagesPaused = false;
 
 // Modal system variables
 let modalResolve = null;
@@ -1365,75 +1369,208 @@ function showBulkMessageOptions() {
   const overlay = document.getElementById('modalOverlay');
   const modal = document.querySelector('.modal');
   
-  modal.style.maxWidth = '500px';
+  modal.style.maxWidth = '700px';
   
-  document.getElementById('modalTitle').textContent = 'Enviar Mensagens';
+  document.getElementById('modalTitle').textContent = '📤 Controles de Envio de Mensagens';
   
   const modalBody = document.querySelector('.modal-body');
   modalBody.innerHTML = `
-    <p style="margin-bottom: 15px; color: #2c3e50; font-size: 1.1em;">
-      Escolha o tipo de mensagem que deseja enviar:
-    </p>
-    <div style="display: flex; flex-direction: column; gap: 10px;">
-      <button id="requestMessageBtn" class="btn btn-primary" style="width: 100%; padding: 15px;">
-        📤 Enviar Mensagens Requisitando o Pedido
-      </button>
-      <button id="customMessageBtn" class="btn" style="background: #F0B513; color: white; width: 100%; padding: 15px;">
-        📤 Enviar Mensagens Customizadas
-      </button>
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+      
+      <!-- Request Messages Section -->
+      <div style="padding: 20px; background: #f8f9fa; border-radius: 10px; border: 2px solid #e9ecef;">
+        <h3 style="margin-top: 0; margin-bottom: 15px; color: #2c3e50; font-size: 1.2em;">
+          📋 Mensagens Requisitando Pedido
+        </h3>
+        <p style="margin-bottom: 15px; color: #7f8c8d; font-size: 0.9em;">
+          Envia mensagens automáticas solicitando pedidos aos clientes
+        </p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button id="playRequestBtn" class="btn btn-success" style="flex: 1; min-width: 180px;" onclick="playRequestMessages()">
+            ▶️ Iniciar Envio
+          </button>
+          <button id="pauseRequestBtn" class="btn btn-warning" style="flex: 1; min-width: 180px;" disabled onclick="togglePauseRequestMessages()">
+            ⏸️ Pausar
+          </button>
+          <button id="stopRequestBtn" class="btn btn-danger" style="flex: 1; min-width: 180px;" disabled onclick="stopRequestMessages()">
+            ⏹️ Parar
+          </button>
+        </div>
+        <div id="requestProgressInfo" style="margin-top: 10px; display: none; padding: 10px; background: white; border-radius: 5px; font-size: 0.9em;">
+          <strong>Progresso:</strong> <span id="requestProgressText">0/0</span>
+        </div>
+      </div>
+      
+      <!-- Custom Messages Section -->
+      <div style="padding: 20px; background: #f8f9fa; border-radius: 10px; border: 2px solid #e9ecef;">
+        <h3 style="margin-top: 0; margin-bottom: 15px; color: #2c3e50; font-size: 1.2em;">
+          ✉️ Mensagens Customizadas
+        </h3>
+        <p style="margin-bottom: 15px; color: #7f8c8d; font-size: 0.9em;">
+          Envia mensagens personalizadas (texto e/ou arquivos) aos clientes
+        </p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button id="playCustomBtn" class="btn" style="flex: 1; min-width: 180px; background: #F0B513; color: white;" onclick="playCustomMessages()">
+            ▶️ Iniciar Envio
+          </button>
+          <button id="pauseCustomBtn" class="btn btn-warning" style="flex: 1; min-width: 180px;" disabled onclick="togglePauseCustomMessages()">
+            ⏸️ Pausar
+          </button>
+          <button id="stopCustomBtn" class="btn btn-danger" style="flex: 1; min-width: 180px;" disabled onclick="stopCustomMessages()">
+            ⏹️ Parar
+          </button>
+        </div>
+        <div id="customProgressInfo" style="margin-top: 10px; display: none; padding: 10px; background: white; border-radius: 5px; font-size: 0.9em;">
+          <strong>Progresso:</strong> <span id="customProgressText">0/0</span>
+        </div>
+      </div>
+      
+      <div style="padding: 10px; background: #fff3cd; border-radius: 5px; border-left: 4px solid #f39c12;">
+        <small style="color: #856404;">
+          <strong>💡 Dica:</strong> Você pode pausar e retomar o envio a qualquer momento. 
+          Use "Parar" apenas se quiser cancelar completamente o envio.
+        </small>
+      </div>
     </div>
   `;
   
   const modalFooter = document.querySelector('.modal-footer');
   modalFooter.innerHTML = `
-    <button id="modalCancelMainBtn" class="btn btn-sm btn-danger">Cancelar</button>
+    <button id="modalCloseBulkBtn" class="btn btn-sm" style="background: #95a5a6; color: white;">Fechar</button>
   `;
   
   overlay.style.display = 'flex';
   
-  // Click outside to close
+  // Update button states immediately
+  updateBulkModalButtons();
+  
+  // Click outside to close (with warning if sending)
   overlay.onclick = (e) => {
     if (e.target === overlay) {
-      overlay.style.display = 'none';
-      resetModalFooter();
-      overlay.onclick = null;
+      closeBulkModal();
     }
   };
 
-  if(isSendingRequestMessages) {
-    document.getElementById('requestMessageBtn').textContent = 'Enviando...';
-    document.getElementById('requestMessageBtn').disabled = true;
-  }
-  else {
-    document.getElementById('requestMessageBtn').textContent = '📤 Enviar Mensagens Requisitando o Pedido';
-    document.getElementById('requestMessageBtn').disabled = false;
-  }
+  // Close button handler
+  document.getElementById('modalCloseBulkBtn').onclick = () => {
+    closeBulkModal();
+  };
+}
 
-  if(isSendingCustomMessages) {
-    document.getElementById('customMessageBtn').textContent = 'Enviando...';
-    document.getElementById('customMessageBtn').disabled = true;
+// NEW: Close bulk modal with warning if sending
+async function closeBulkModal() {
+  const isSendingAnything = isRequestMessagesPlaying || isCustomMessagesPlaying;
+  
+  if (isSendingAnything) {
+    const confirmed = await confirmAction(
+      'Fechar Janela',
+      'O envio de mensagens está em andamento. Tem certeza que deseja fechar? (O envio continuará em segundo plano)'
+    );
+    if (!confirmed) return;
   }
-  else {
-    document.getElementById('customMessageBtn').textContent = '📤 Enviar Mensagens Customizadas';
-    document.getElementById('customMessageBtn').disabled = false;
+  
+  const overlay = document.getElementById('modalOverlay');
+  overlay.style.display = 'none';
+  overlay.onclick = null;
+  
+  // Reset modal footer to default
+  const modalFooter = document.querySelector('.modal-footer');
+  modalFooter.innerHTML = `
+    <button id="modalCancelBtn" class="btn btn-sm btn-danger">Não</button>
+    <button id="modalConfirmBtn" class="btn btn-sm btn-success">Sim</button>
+  `;
+  
+  const modal = document.querySelector('.modal');
+  modal.style.maxWidth = '500px';
+}
+
+// NEW: Update button states inside the bulk modal
+function updateBulkModalButtons() {
+  // Request buttons
+  const playRequestBtn = document.getElementById('playRequestBtn');
+  const pauseRequestBtn = document.getElementById('pauseRequestBtn');
+  const stopRequestBtn = document.getElementById('stopRequestBtn');
+  const requestProgressInfo = document.getElementById('requestProgressInfo');
+  const requestProgressText = document.getElementById('requestProgressText');
+  
+  // Custom buttons
+  const playCustomBtn = document.getElementById('playCustomBtn');
+  const pauseCustomBtn = document.getElementById('pauseCustomBtn');
+  const stopCustomBtn = document.getElementById('stopCustomBtn');
+  const customProgressInfo = document.getElementById('customProgressInfo');
+  const customProgressText = document.getElementById('customProgressText');
+  
+  // Update REQUEST buttons
+  if (playRequestBtn && pauseRequestBtn && stopRequestBtn) {
+    if (isRequestMessagesPlaying) {
+      playRequestBtn.disabled = true;
+      pauseRequestBtn.disabled = false;
+      stopRequestBtn.disabled = false;
+      
+      if (isRequestMessagesPaused) {
+        pauseRequestBtn.textContent = '▶️ Retomar';
+        pauseRequestBtn.classList.remove('btn-warning');
+        pauseRequestBtn.classList.add('btn-success');
+      } else {
+        pauseRequestBtn.textContent = '⏸️ Pausar';
+        pauseRequestBtn.classList.remove('btn-success');
+        pauseRequestBtn.classList.add('btn-warning');
+      }
+      
+      // Show progress if available
+      if (requestProgressInfo && window.lastRequestProgress) {
+        requestProgressInfo.style.display = 'block';
+        requestProgressText.textContent = `${window.lastRequestProgress.sent}/${window.lastRequestProgress.total} enviadas`;
+      }
+    } else {
+      playRequestBtn.disabled = false;
+      pauseRequestBtn.disabled = true;
+      stopRequestBtn.disabled = true;
+      pauseRequestBtn.textContent = '⏸️ Pausar';
+      pauseRequestBtn.classList.remove('btn-success');
+      pauseRequestBtn.classList.add('btn-warning');
+      
+      if (requestProgressInfo) {
+        requestProgressInfo.style.display = 'none';
+      }
+    }
   }
   
-  // Cancel button
-  document.getElementById('modalCancelMainBtn').onclick = () => {
-    overlay.style.display = 'none';
-    resetModalFooter();
-    overlay.onclick = null;
-  };
-  
-  // Request message button - goes to Window 2-request
-  document.getElementById('requestMessageBtn').onclick = () => {
-    showRequestMessageFolderSelection();
-  };
-  
-  // Custom message button - goes to Window 2-custom
-  document.getElementById('customMessageBtn').onclick = () => {
-    showCustomMessageInput();
-  };
+  // Update CUSTOM buttons
+  if (playCustomBtn && pauseCustomBtn && stopCustomBtn) {
+    if (isCustomMessagesPlaying) {
+      playCustomBtn.disabled = true;
+      pauseCustomBtn.disabled = false;
+      stopCustomBtn.disabled = false;
+      
+      if (isCustomMessagesPaused) {
+        pauseCustomBtn.textContent = '▶️ Retomar';
+        pauseCustomBtn.classList.remove('btn-warning');
+        pauseCustomBtn.classList.add('btn-success');
+      } else {
+        pauseCustomBtn.textContent = '⏸️ Pausar';
+        pauseCustomBtn.classList.remove('btn-success');
+        pauseCustomBtn.classList.add('btn-warning');
+      }
+      
+      // Show progress if available
+      if (customProgressInfo && window.lastCustomProgress) {
+        customProgressInfo.style.display = 'block';
+        customProgressText.textContent = `${window.lastCustomProgress.sent}/${window.lastCustomProgress.total} enviadas`;
+      }
+    } else {
+      playCustomBtn.disabled = false;
+      pauseCustomBtn.disabled = true;
+      stopCustomBtn.disabled = true;
+      pauseCustomBtn.textContent = '⏸️ Pausar';
+      pauseCustomBtn.classList.remove('btn-success');
+      pauseCustomBtn.classList.add('btn-warning');
+      
+      if (customProgressInfo) {
+        customProgressInfo.style.display = 'none';
+      }
+    }
+  }
 }
 
 // Window 2-request - Select folders for request messages
@@ -1695,6 +1832,75 @@ function showCustomMessageInput() {
   }, 100);
 }
 
+// NEW: Handler for play request messages button
+async function playRequestMessages() {
+  if (selectedFolderIds.length === 0) {
+    customAlert('Aviso', 'Por favor, selecione pelo menos uma pasta primeiro.');
+    return;
+  }
+  
+  // Show the folder selection window
+  showRequestMessageFolderSelection();
+}
+
+
+// NEW: Handler for pause/resume request messages button
+async function togglePauseRequestMessages() {
+  updateBulkModalButtons();
+  addLog(isRequestMessagesPaused);
+  if (isRequestMessagesPaused) {
+    // Resume
+    try {
+      const response = await fetch('/api/whatsapp/resume-request-messages', {
+        method: 'POST'
+      });
+      const data = await response.json();
+      if (data.success) {
+        addLog('▶️ Envio de mensagens de requisição retomado');
+      }
+    } catch (error) {
+      console.error('Error resuming request messages:', error);
+      customAlert('Erro', 'Não foi possível retomar o envio de mensagens.');
+    }
+  } else {
+    // Pause
+    try {
+      const response = await fetch('/api/whatsapp/pause-request-messages', {
+        method: 'POST'
+      });
+      const data = await response.json();
+      if (data.success) {
+        addLog('⏸️ Envio de mensagens de requisição pausado');
+      }
+    } catch (error) {
+      console.error('Error pausing request messages:', error);
+      customAlert('Erro', 'Não foi possível pausar o envio de mensagens.');
+    }
+  }
+}
+
+// NEW: Handler for stop request messages button
+async function stopRequestMessages() {
+  const confirmed = await confirmAction(
+    'Parar Envio', 
+    'Tem certeza que deseja parar o envio de mensagens de requisição? O progresso será perdido.'
+  );
+  if (!confirmed) return;
+  
+  try {
+    const response = await fetch('/api/whatsapp/stop-request-messages', {
+      method: 'POST'
+    });
+    const data = await response.json();
+    if (data.success) {
+      addLog('⏹️ Envio de mensagens de requisição parado');
+    }
+  } catch (error) {
+    console.error('Error stopping request messages:', error);
+    customAlert('Erro', 'Não foi possível parar o envio de mensagens.');
+  }
+}
+
 // Send request messages (traditional bulk messages)
 async function sendRequestBulkMessages(folderIds) {
   if (isSendingRequestMessages) {
@@ -1827,6 +2033,72 @@ async function sendTraditionalBulkMessages(clients) {
   }
 }
 */
+
+// NEW: Handler for play custom messages button
+async function playCustomMessages() {
+  if (selectedFolderIds.length === 0) {
+    customAlert('Aviso', 'Por favor, selecione pelo menos uma pasta primeiro.');
+    return;
+  }
+  
+  // Show the custom message input window
+  showCustomMessageInput();
+}
+
+// NEW: Handler for pause/resume custom messages button
+async function togglePauseCustomMessages() {
+  if (isCustomMessagesPaused) {
+    // Resume
+    try {
+      const response = await fetch('/api/whatsapp/resume-custom-messages', {
+        method: 'POST'
+      });
+      const data = await response.json();
+      if (data.success) {
+        addLog('▶️ Envio de mensagens customizadas retomado');
+      }
+    } catch (error) {
+      console.error('Error resuming custom messages:', error);
+      customAlert('Erro', 'Não foi possível retomar o envio de mensagens.');
+    }
+  } else {
+    // Pause
+    try {
+      const response = await fetch('/api/whatsapp/pause-custom-messages', {
+        method: 'POST'
+      });
+      const data = await response.json();
+      if (data.success) {
+        addLog('⏸️ Envio de mensagens customizadas pausado');
+      }
+    } catch (error) {
+      console.error('Error pausing custom messages:', error);
+      customAlert('Erro', 'Não foi possível pausar o envio de mensagens.');
+    }
+  }
+}
+
+// NEW: Handler for stop custom messages button
+async function stopCustomMessages() {
+  const confirmed = await confirmAction(
+    'Parar Envio', 
+    'Tem certeza que deseja parar o envio de mensagens customizadas? O progresso será perdido.'
+  );
+  if (!confirmed) return;
+  
+  try {
+    const response = await fetch('/api/whatsapp/stop-custom-messages', {
+      method: 'POST'
+    });
+    const data = await response.json();
+    if (data.success) {
+      addLog('⏹️ Envio de mensagens customizadas parado');
+    }
+  } catch (error) {
+    console.error('Error stopping custom messages:', error);
+    customAlert('Erro', 'Não foi possível parar o envio de mensagens.');
+  }
+}
 
 // Send custom bulk messages
 async function sendCustomBulkMessages(folderIds, message, mediaData = null) {
@@ -3470,60 +3742,93 @@ function initializeSocket() {
 
   socket.on('request-bulk-message-progress', (data) => {
     addLog(`📤 Enviado para ${data.name} (${data.phone})`);
+    
+    // Store progress globally
+    window.lastRequestProgress = data.requestProgress;
+    
+    // Update modal if open
+    const modalOverlay = document.getElementById('modalOverlay');
+    if (modalOverlay && modalOverlay.style.display === 'flex') {
+      if (document.getElementById('playRequestBtn')) {
+        updateBulkModalButtons();
+      }
+    }
   });
 
   socket.on('bulk-messages-complete', (data) => {
     addLog('✅ Envio de mensagens de requisição concluído!');
-    const modalSendRequestBtn = document.getElementById('requestMessageBtn');
+
     isSendingRequestMessages = false;
-    if (modalSendRequestBtn) {
-      modalSendRequestBtn.textContent = '📤 Enviar Mensagens Requisitando o Pedido';
-      modalSendRequestBtn.disabled = false;
-    }
     
     const successful = data.results.filter(r => r.status === 'sent').length;
-    if (successful == 1) {
+    if (successful === 1) {
       addLog(`Envio concluído!\n${successful} mensagem enviada com sucesso!`);
-    }
-    else if (successful > 1) {
+    } else if (successful > 1) {
       addLog(`Envio concluído!\n${successful} mensagens enviadas com sucesso!`);
     }
+    
+    // Update modal if open
+    setTimeout(() => {
+      const modalOverlay = document.getElementById('modalOverlay');
+      if (modalOverlay && modalOverlay.style.display === 'flex') {
+        if (document.getElementById('playRequestBtn')) {
+          updateBulkModalButtons();
+        }
+      }
+    }, 500);
+    
     renderClients();
   });
 
   socket.on('custom-bulk-message-progress', (data) => {
     addLog(`📤 Enviado para ${data.name} (${data.phone})`);
+    
+    // Store progress globally
+    window.lastCustomProgress = data.customProgress;
+    
+    // Update modal if open
+    const modalOverlay = document.getElementById('modalOverlay');
+    if (modalOverlay && modalOverlay.style.display === 'flex') {
+      if (document.getElementById('playCustomBtn')) {
+        updateBulkModalButtons();
+      }
+    }
   });
 
   socket.on('custom-bulk-messages-complete', (data) => {
     addLog('✅ Envio de mensagens customizadas concluído!');
-    const modalSendCustomBtn = document.getElementById('customMessageBtn');
-    isSendingCustomMessages = false;
-    if (modalSendCustomBtn) {
-      modalSendCustomBtn.textContent = '📤 Enviar Mensagens Customizadas';
-      modalSendCustomBtn.disabled = false;
-    }
     
     const successful = data.results.filter(r => r.status === 'sent').length;
-    if(successful == 1) {
+    if (successful === 1) {
       addLog(`Envio concluído!\n${successful} mensagem enviada com sucesso!`);
-    }
-    else if(successful > 1) {
+    } else if (successful > 1) {
       addLog(`Envio concluído!\n${successful} mensagens enviadas com sucesso!`);
     }
+    
+    // Update modal if open
+    setTimeout(() => {
+      const modalOverlay = document.getElementById('modalOverlay');
+      if (modalOverlay && modalOverlay.style.display === 'flex') {
+        if (document.getElementById('playCustomBtn')) {
+          updateBulkModalButtons();
+        }
+      }
+    }, 500);
+    
     renderClients();
   });
 
   socket.on('bot-status', (data) => {
     document.getElementById('sessionCount').textContent = (data.sessions || []).length;
-    // pass: isConnected, isConnecting, isSendingRequestMessages, requestProgress, isSendingCustomMessages, customProgress
     updateConnectionStatus(
       data.isConnected,
       data.isConnecting || false,
       data.isSendingRequestMessages || false,
       data.requestProgress || null,
       data.isSendingCustomMessages || false,
-      data.customProgress || null
+      data.customProgress || null,
+      data.isRequestMessagesPaused || false,
+      data.isCustomMessagesPaused || false
     );
   });
 
@@ -3533,12 +3838,23 @@ function initializeSocket() {
 function updateConnectionStatus(
   isConnected, isConnecting = false, 
   isSendingRequestMessages = false, requestProgress = null, 
-  isSendingCustomMessages = false, customProgress = null
+  isSendingCustomMessages = false, customProgress = null,
+  isRequestMessagesPausedParam = false,
+  isCustomMessagesPausedParam = false
 ) {
     const statusBadge = document.getElementById('connectionStatus');
-    const modalSendRequestBtn = document.getElementById('requestMessageBtn');
-    const modalSendCustomBtn = document.getElementById('customMessageBtn');
     const connectBtn = document.getElementById('connectBtn');
+    const sendBulkBtn = document.getElementById('sendBulkBtn');
+    
+    // Update global state
+    isRequestMessagesPlaying = isSendingRequestMessages;
+    isRequestMessagesPaused = isRequestMessagesPausedParam;
+    isCustomMessagesPlaying = isSendingCustomMessages;
+    isCustomMessagesPaused = isCustomMessagesPausedParam;
+    
+    // Store progress globally for modal access
+    window.lastRequestProgress = requestProgress;
+    window.lastCustomProgress = customProgress;
     
     if (isConnecting) {
         statusBadge.textContent = 'Conectando...';
@@ -3547,34 +3863,12 @@ function updateConnectionStatus(
         connectBtn.disabled = true;
         connectBtn.innerHTML = '⏳ Conectando...';
         document.getElementById('disconnectBtn').disabled = true;
-        document.getElementById('sendBulkBtn').disabled = true;
         document.getElementById('folderSelect').disabled = true;
         
-        if (modalSendRequestBtn) {
-            if (isSendingRequestMessages) {
-                modalSendRequestBtn.textContent = '📤 Enviando...';
-                modalSendRequestBtn.disabled = true;
-                if (requestProgress) {
-                    modalSendRequestBtn.textContent = `📤 Enviando... (${requestProgress.sent}/${requestProgress.total})`;
-                }
-            } else {
-                modalSendRequestBtn.textContent = '📤 Enviar Mensagens Requisitando o Pedido';
-                modalSendRequestBtn.disabled = true;
-            }
+        if (sendBulkBtn) {
+            sendBulkBtn.disabled = true;
         }
         
-        if (modalSendCustomBtn) {
-            if (isSendingCustomMessages) {
-                modalSendCustomBtn.textContent = '📤 Enviando...';
-                modalSendCustomBtn.disabled = true;
-                if (customProgress) {
-                    modalSendCustomBtn.textContent = `📤 Enviando... (${customProgress.sent}/${customProgress.total})`;
-                }
-            } else {
-                modalSendCustomBtn.textContent = '📤 Enviar Mensagens Customizadas';
-                modalSendCustomBtn.disabled = true;
-            }
-        }
     } else if (isConnected) {
         statusBadge.textContent = 'Conectado';
         statusBadge.classList.remove('offline');
@@ -3582,45 +3876,35 @@ function updateConnectionStatus(
         connectBtn.disabled = true;
         connectBtn.innerHTML = '📱 Conectado';
         document.getElementById('disconnectBtn').disabled = false;
-        document.getElementById('sendBulkBtn').disabled = false;
         document.getElementById('folderSelect').disabled = true;
         
-        if (modalSendRequestBtn) {
-            if (isSendingRequestMessages) {
-                modalSendRequestBtn.textContent = '📤 Enviando...';
-                modalSendRequestBtn.disabled = true;
-                if (requestProgress) {
-                    modalSendRequestBtn.textContent = `📤 Enviando... (${requestProgress.sent}/${requestProgress.total})`;
-                }
-            } else {
-                modalSendRequestBtn.textContent = '📤 Enviar Mensagens Requisitando o Pedido';
-                modalSendRequestBtn.disabled = false;
-            }
+        // Enable bulk button when connected
+        if (sendBulkBtn) {
+            sendBulkBtn.disabled = false;
         }
         
-        if (modalSendCustomBtn) {
-            if (isSendingCustomMessages) {
-                modalSendCustomBtn.textContent = '📤 Enviando...';
-                modalSendCustomBtn.disabled = true;
-                if (customProgress) {
-                    modalSendCustomBtn.textContent = `📤 Enviando... (${customProgress.sent}/${customProgress.total})`;
-                }
-            } else {
-                modalSendCustomBtn.textContent = '📤 Enviar Mensagens Customizadas';
-                modalSendCustomBtn.disabled = false;
-            }
-        }
     } else {
+        // Disconnected
         statusBadge.textContent = 'Desconectado';
         statusBadge.classList.remove('online');
         statusBadge.classList.add('offline');
         connectBtn.disabled = false;
         connectBtn.innerHTML = '📱 Conectar WhatsApp';
         document.getElementById('disconnectBtn').disabled = true;
-        document.getElementById('sendBulkBtn').disabled = true;
         document.getElementById('folderSelect').disabled = false;
-        sendBulkBtn.textContent = '📤 Enviar Mensagens para seus Clientes';
-        sendBulkBtn.disabled = true;
+        
+        if (sendBulkBtn) {
+            sendBulkBtn.disabled = true;
+        }
+    }
+    
+    // Update buttons inside bulk modal if it's open
+    const modalOverlay = document.getElementById('modalOverlay');
+    if (modalOverlay && modalOverlay.style.display === 'flex') {
+        // Check if the bulk modal is currently shown (has the control buttons)
+        if (document.getElementById('playRequestBtn')) {
+            updateBulkModalButtons();
+        }
     }
 }
 
@@ -3999,6 +4283,8 @@ setInterval(() => {
                                 sendingData.requestProgress,
                                 sendingData.isSendingCustomMessages,
                                 sendingData.customProgress,
+                                sendingData.isRequestMessagesPaused,
+                                sendingData.isCustomMessagesPaused,
                             );
                             document.getElementById('sessionCount').textContent = data.sessions.length;
                         }
