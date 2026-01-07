@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS product_totals (
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     product VARCHAR(255) NOT NULL,
+    price VARCHAR(255) NOT NULL,
     total_quantity INTEGER DEFAULT 0,
     PRIMARY KEY (user_id, product)
 );

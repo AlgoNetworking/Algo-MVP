@@ -3102,6 +3102,10 @@ function addProduct() {
             <input type="text" id="newProductName" placeholder="Nome do produto" required>
         </div>
         <div class="form-group">
+            <label for="newProductPrice">Preço do Produto*:</label>
+            <input type="text" id="newProductPrice" placeholder="Preço do produto" required>
+        </div>
+        <div class="form-group">
             <label for="newProductAkas">AKAs (separados por vírgula, opcional):</label>
             <input type="text" id="newProductAkas" placeholder="sinônimos, variações">
         </div>

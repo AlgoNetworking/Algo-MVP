@@ -24,9 +24,25 @@ const hundreds = {
 const allNumberWords = { ...units, ...teens, ...tens, ...hundreds };
 
 function normalize(text) {
+  if (!text) return '';
+
+  // 1) Normalize common NBSP / no-break-like spaces to plain space
+  text = text.replace(/[\u00A0\u202F\u205F]/g, ' ');
+
+  // 2) Remove invisible / directional / joiner characters (zero-width, bidi marks, BOM, word-joiner, etc.)
+  text = text.replace(/[\u200B\u200C\u200D\u200E\u200F\uFEFF\u2060\u2066-\u2069\u202A-\u202E]/g, '');
+
+  // 3) Replace bullet-like / list glyphs with a single space so list bullets don't attach to words.
+  // includes bullet, middle dot, triangular bullets and other common list characters.
+  text = text.replace(/[\u2022\u2023\u2043\u2219\u25E6\u00B7·•‣]/g, ' ');
+
+  // 4) Remove control chars that sometimes sneak in
+  text = text.replace(/[\x00-\x1F\x7F]/g, '');
+
+  // 5) Usual diacritic removal
   return text.toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')  // remove diacritics
     .trim();
 }
 
@@ -420,7 +436,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
 
   // Define connector/filler words that should be skipped but don't break matching
   const connectorWords = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'com', 'em', 'por', 'para', 'no', 'na', 'nos', 'nas']);
-  const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada', 'momento', 'amiga', 'amigo', 'cadas', 'segue', 'kg', 'kgs', 'kilo', 'kilos', 'quilos', 'quilo']);
+  const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada', 'momento', 'amiga', 'amigo', 'cadas', 'segue', 'kg', 'kgs', 'kilo', 'kilos', 'quilos', 'quilo', '*', '•', '-']);
 
   // IMPROVED: Collect all possible matches, then deduplicate
   // This ensures we find "abacaxi com hortelã" even if "abacaxi" could also match
