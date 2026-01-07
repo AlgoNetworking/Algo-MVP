@@ -278,7 +278,7 @@ class OrderSession {
   checkCancelCommand(message) {
     const cancelCommands = 
     [
-      'nao', 'não', 'n', 'cancelar', 'cancela', 'cancelra', 'cancelrar', '\"cancelar\"', 'não obrigada',
+      'nao', 'não', 'n', 'cancelar', 'cancela', 'cancelra', 'cancelrar', 'cancelado', '\"cancelar\"', 'não obrigada',
       'não obrigado', 'nao obrigada', 'nao obrigado', 'nao brigada', 'nao brigado', 'n obrigada', 'n obrigado', 
       'n brigada', 'n brigado', 'não, obrigada', 'não, obrigado', 'nao, obrigada', 'nao, obrigado', 'nao, brigada',
       'nao, brigado', 'n, obrigada', 'n, obrigado', 'n, brigada', 'n, brigado',
@@ -375,7 +375,7 @@ class OrderService {
       `${Math.floor(Math.random() * 10) + 1} ${productNames[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${productNames[differentIdx]}`
       : null;
       const hint = example
-        ? `(digite seu pedido naturalmente como: ${example})\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n*Caso não queira pedir, digite \"cancelar\".*`
+        ? `(digite seu pedido naturalmente como: ${example})\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n*Caso não queira pedir, basta digitar \"cancelar\".*`
         : '(não há produtos disponíveis no momento)';
       session.waitingForOption = false;
       return {

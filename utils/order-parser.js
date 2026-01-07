@@ -453,12 +453,22 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
           const normalizedT = normalize(t);
           
           if (/^\d+$/.test(t)) {
+            // Determine the previous non-whitespace token index before currentPos
+            let prevNonWs = null;
+            for (let p = currentPos - 1; p >= 0; p--) {
+              if (!tokens[p].isWhitespace) { prevNonWs = p; break; }
+            }
+
+            // If the previous meaningful token is NOT part of the candidate tokens,
+            // don't treat it as internal.
+            const prevIsPartOfCandidate = prevNonWs !== null && candidatePositions.includes(prevNonWs);
+            if (!prevIsPartOfCandidate) {
+              allPositions.push(currentPos);
+              currentPos++;
+              continue;
+            }
+
             // LOOKAHEAD: determine whether this numeric token *looks like product-internal*
-            // Rule: treat numeric as product-internal only if there exists at least one
-            // non-whitespace token AFTER this numeric token within a small lookahead window
-            // that is NOT a pure connector/filler and is not itself purely numeric.
-            // This allows "garrafao 10 litros" (10 followed by "litros") but prevents
-            // the trailing "3" in "abacaxi com hortela 3" from being grabbed into the product.
             let looksInternal = false;
             const lookaheadLimit = 3; // check up to 3 non-whitespace tokens after numeric
             let laIndex = currentPos + 1;
@@ -469,7 +479,6 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
                 laNonWsSeen++;
                 const laNorm = normalize(tokens[laIndex].value);
                 if (!(/^\d+$/.test(tokens[laIndex].value) || allNumberWords[laNorm] || connectorWords.has(laNorm) || fillerWords.has(laNorm))) {
-                  // next meaningful token is *not* numeric and not a connector/filler -> numeric likely internal
                   looksInternal = true;
                   break;
                 }
@@ -477,22 +486,73 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
               laIndex++;
             }
 
-            if (looksInternal) {
-              candidateTokens.push(t);
-              candidatePositions.push(currentPos);
-              allPositions.push(currentPos);
-              numericTokenInfos.push({ originalIndex: currentPos, value: parseInt(t, 10), tokenIndex: tokens[currentPos].tokenIndex });
-              nonConnectorCount++;
-              currentPos++;
-              continue;
-            } else {
-              // skip adding this numeric token to this candidate — likely a trailing quantity
-              // Do NOT advance nonConnectorCount (we didn't add a real product token),
-              // but still advance currentPos so we can examine tokens after it when building candidate.
+            if (!looksInternal) {
+              // Not followed by a meaningful product-token -> not internal
               allPositions.push(currentPos);
               currentPos++;
               continue;
             }
+
+            // NEW: if the token AFTER this numeric *looks like it starts a product*, then
+            // we should NOT treat the numeric as internal (it likely belongs to the next product).
+            // Find the next non-whitespace token index after the numeric
+            let nextNonWs = null;
+            for (let n = currentPos + 1; n < tokens.length; n++) {
+              if (!tokens[n].isWhitespace) { nextNonWs = n; break; }
+            }
+
+            let nextIsProductStart = false;
+            if (nextNonWs !== null) {
+              // Build a small phrase from nextNonWs up to maxProdWords tokens (skipping whitespace)
+              const parts = [];
+              let taken = 0;
+              for (let p = nextNonWs; p < tokens.length && taken < maxProdWords; p++) {
+                if (!tokens[p].isWhitespace) {
+                  parts.push(normalize(tokens[p].value));
+                  taken++;
+                }
+              }
+              const candidateStartPhrase = parts.join(' ').trim();
+
+              // 1) exact aka/product name quick check
+              if (akaLookup.has(candidateStartPhrase)) {
+                nextIsProductStart = true;
+              } else {
+                // 2) placeholder map check — replace numeric-like tokens with {number} (best-effort)
+                const placeholderParts = parts.map(x => allNumberWords[x] !== undefined ? '{number}' : x);
+                const placeholderPhrase = placeholderParts.join(' ').trim();
+                if (placeholderMap.has(placeholderPhrase)) {
+                  nextIsProductStart = true;
+                } else {
+                  // 3) similarity check against product names: if very similar -> treat as product start
+                  for (let s = 0; s < normalizedProducts.length; s++) {
+                    const prodNorm = normalizedProducts[s];
+                    const score = similarityPercentage(candidateStartPhrase, prodNorm);
+                    if (score >= similarityThreshold) {
+                      nextIsProductStart = true;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+
+            if (nextIsProductStart) {
+              // The token after the number looks like the start of a product -> don't treat number as internal
+              allPositions.push(currentPos);
+              currentPos++;
+              continue;
+            }
+
+            // If we reach here, numeric is adjacent, looks internal by lookahead, and the following token
+            // is NOT likely a product start -> treat numeric as internal.
+            candidateTokens.push(t);
+            candidatePositions.push(currentPos);
+            allPositions.push(currentPos);
+            numericTokenInfos.push({ originalIndex: currentPos, value: parseInt(t, 10), tokenIndex: tokens[currentPos].tokenIndex });
+            nonConnectorCount++;
+            currentPos++;
+            continue;
           }
 
           if (allNumberWords[normalizedT]) {

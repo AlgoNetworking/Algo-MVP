@@ -297,7 +297,13 @@ class WhatsAppService {
       });
 
       this.sockets.set(userId, sock);
-      this.userSessions.set(userId, new Map());
+
+      // Preserve existing sessions on reconnect — only initialize if missing
+      if (!this.userSessions.has(userId)) {
+        this.userSessions.set(userId, new Map());
+      } else {
+        console.log(`ℹ️ Preserving existing sessions for user ${userId} (reconnect)`);
+      }
 
       // Save credentials when they change
       sock.ev.on('creds.update', saveCreds);
