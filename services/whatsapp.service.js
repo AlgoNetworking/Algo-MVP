@@ -150,6 +150,7 @@ class WhatsAppService {
     this.connectingUsers = new Set();
     this.manualDisconnects = new Set(); // Track manual disconnects
     this.errorDisconnects = new Set(); // NEW: Track error disconnects
+    this.loggedOutUsers = new Set();    // <-- ADD THIS (track users that were logged out)
     
     // LID mapping caches
     this.lidMaps = new Map();
@@ -197,6 +198,47 @@ class WhatsAppService {
       });
     }
     return this.customSendingStatus.get(userId);
+  }
+
+  async _deleteAuthForUser(userId, authPath) {
+    try {
+      // Delete files in the auth folder (if present)
+      if (fs.existsSync(authPath)) {
+        const entries = fs.readdirSync(authPath);
+        for (const entry of entries) {
+          const full = path.join(authPath, entry);
+          try {
+            const stat = fs.lstatSync(full);
+            if (stat.isDirectory()) {
+              fs.rmSync(full, { recursive: true, force: true });
+            } else {
+              fs.unlinkSync(full);
+            }
+          } catch (err) {
+            console.log(`⚠️ Could not remove file ${full}:`, err && err.message ? err.message : err);
+          }
+        }
+
+        // if folder now empty, remove it
+        try {
+          if (fs.existsSync(authPath) && fs.readdirSync(authPath).length === 0) {
+            fs.rmdirSync(authPath);
+          }
+        } catch (err) {
+          // ignore
+        }
+      }
+
+      // Remove DB-stored state (if used)
+      if (this.authStore && typeof this.authStore.deleteState === 'function') {
+        await this.authStore.deleteState(userId);
+      }
+
+      console.log(`🧹 Auth files purged for user ${userId}`);
+    } catch (err) {
+      console.error('❌ _deleteAuthForUser failed for', userId, err);
+      throw err;
+    }
   }
 
   async connect(userId, users = null) {
@@ -275,6 +317,18 @@ class WhatsAppService {
       const authPath = path.join(AUTH_DIR, `baileys-${userId}`);
       if (!fs.existsSync(authPath)) {
         fs.mkdirSync(authPath, { recursive: true });
+      }
+
+      if (this.loggedOutUsers.has(userId)) {
+        try {
+          console.log(`🧹 Detected previous logout for user ${userId} - purging auth files to force new QR`);
+          await this._deleteAuthForUser(userId, authPath);
+        } catch (err) {
+          console.log(`⚠️ Could not purge auth files for user ${userId}:`, err && err.message ? err.message : err);
+        } finally {
+          // remove the flag so a subsequent connect doesn't try to delete again
+          this.loggedOutUsers.delete(userId);
+        }
       }
 
       // Get Baileys version
@@ -436,6 +490,7 @@ class WhatsAppService {
         this.botStartTimes.delete(userId);
         this.usersInSelectedFolder.delete(userId);
         this.stopPolling(userId);
+        this.loggedOutUsers.add(userId);
         
         if (this.io) {
           this.io.to(`user-${userId}`).emit('bot-disconnected', { 
@@ -501,7 +556,7 @@ class WhatsAppService {
               this.io.to(`user-${userId}`).emit('lid-mapping-built', { userId, ...res });
             }
           } catch (err) {
-            console.warn('⚠️ buildLidMappingsForUser failed at startup', err && err.message ? err.message : err);
+            console.log('⚠️ buildLidMappingsForUser failed at startup', err && err.message ? err.message : err);
           }
         })();
       }
@@ -597,7 +652,7 @@ class WhatsAppService {
       try {
         await this.buildLidMappingsForUser(userId);
       } catch (err) {
-        console.warn('⚠️ buildLidMappingsForUser failed after setSelectedFolderForUser', err && err.message ? err.message : err);
+        console.log('⚠️ buildLidMappingsForUser failed after setSelectedFolderForUser', err && err.message ? err.message : err);
       }
     })();
   }
@@ -656,7 +711,7 @@ class WhatsAppService {
             results = Object.entries(batch).map(([pn, lid]) => ({ pn, lid }));
           }
         } catch (err) {
-          console.warn('⚠️ lidMapping.getLIDsForPNs failed, falling back to per-PN lookup', err && err.message ? err.message : err);
+          console.log('⚠️ lidMapping.getLIDsForPNs failed, falling back to per-PN lookup', err && err.message ? err.message : err);
         }
       }
 
@@ -795,12 +850,12 @@ class WhatsAppService {
       // Find client (try using resolved digits)
       let clientInfo = this.findUserInfoByDigits(clientUsers, phoneNumberDigits);
 
-      if (!clientInfo) {
+      if (!clientInfo && !userConfig.answerUnknownUsers) {
         console.log(`🚫 Ignoring message from unregistered number for user ${userId}: ${sender}`);
         return;
       }
 
-      if (clientInfo.interpret === false) {
+      if (clientInfo && clientInfo.interpret === false) {
         try {
           await databaseService.updateClientAnsweredStatus(userId, phoneNumber, true);
 

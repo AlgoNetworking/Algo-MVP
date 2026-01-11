@@ -3916,6 +3916,7 @@ function updateConnectionStatus(
 let userConfig = {
   callByName: true,
   interpret: true,
+  answerUnknownUsers: true,
   reminderInterval: 30, // default in minutes (1..90)
   businessInfo: {
     title: "",
@@ -3962,6 +3963,19 @@ function renderConfigUI() {
     } else {
       toggleInterpretation.classList.remove('active');
       interpretationLabel.textContent = 'Desativado';
+    }
+  }
+
+  // Answer Unknown Users UI
+  const toggleUnknownUsers = document.getElementById('toggleUnknownUsers');
+  const unknownUsersLabel = document.getElementById('toggleUnknownUsersLabel');
+  if (toggleUnknownUsers && unknownUsersLabel) {
+    if (userConfig.answerUnknownUsers) {
+      toggleUnknownUsers.classList.add('active');
+      unknownUsersLabel.textContent = 'Ativado';
+    } else {
+      toggleUnknownUsers.classList.remove('active');
+      unknownUsersLabel.textContent = 'Desativado';
     }
   }
 
@@ -4087,6 +4101,14 @@ document.addEventListener('click', (e) => {
 document.addEventListener('click', (e) => {
   if (e.target && e.target.id === 'toggleInterpretation') {
     userConfig.interpret = !userConfig.interpret;
+    renderConfigUI();
+  }
+});
+
+// Toggle response unknown users handler (does NOT save automatically)
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'toggleUnknownUsers') {
+    userConfig.answerUnknownUsers = !userConfig.answerUnknownUsers;
     renderConfigUI();
   }
 });

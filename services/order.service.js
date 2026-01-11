@@ -569,7 +569,7 @@ class OrderService {
         } else if (productNames.length === 1) {
           example = `${Math.floor(Math.random() * 10) + 1} ${productNames[0]}`;
         } else {
-          example = '2 mangas e 3 queijos';
+          example = '2 [produto1] e 3 [produto2]';
         }
 
         session.waitingForOption = true;
@@ -975,7 +975,7 @@ class OrderService {
             }
             return {
               success: false,
-              message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. *Se desejar cancelar o pedido, digite "cancelar".*',
+              message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \"2 [produto1]\", \"cinco [produto2]\". *Se desejar cancelar o pedido, digite "cancelar".*',
               isChatBot: true,
               clientStatus: '',
             };
@@ -1046,7 +1046,7 @@ class OrderService {
             }
             return {
               success: false,
-              message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como \'2 mangas\', \'cinco queijos\'. *Se desejar cancelar o pedido, digite "cancelar".*',
+              message: '☹️ Desculpa, não consegui reconhecer nenhum item... Tente usar termos como "2 [produto1]", "cinco [produto2]". *Se desejar cancelar o pedido, digite "cancelar".*',
               isChatBot: true,
               clientStatus: '',
             };
