@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS products (
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     akas JSONB DEFAULT '[]',
+    price DECIMAL(10,2) DEFAULT NULL
     enabled BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -67,7 +68,7 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS product_totals (
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     product VARCHAR(255) NOT NULL,
-    price VARCHAR(255) NOT NULL,
+    price DECIMAL(10,2) DEFAULT NULL,
     total_quantity INTEGER DEFAULT 0,
     PRIMARY KEY (user_id, product)
 );

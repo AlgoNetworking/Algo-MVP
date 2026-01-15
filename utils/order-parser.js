@@ -302,7 +302,7 @@ function buildProductPatternMaps(productsDb) {
   const placeholderToProductInfo = new Map();
 
   productsDb.forEach(([product], index) => {
-    const [mainName, akas, enabled] = product;
+    const [mainName, akas, price, enabled] = product;
     // Process main name
     const normMain = normalize(mainName);
     const digitMatchMain = normMain.match(/(^|\s)(\d+)(\s|$)/);
@@ -352,7 +352,7 @@ function buildAkaLookup(productsDb) {
   const akaLookup = new Map();
 
   productsDb.forEach(([product, _], index) => {
-    const [mainName, akas, enabled] = product;
+    const [mainName, akas, price, enabled] = product;
 
     // Always add to lookup, regardless of enabled status
     const normalizedMain = normalize(mainName);
@@ -406,8 +406,10 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
   const { placeholderMap, placeholderToProductInfo } = buildProductPatternMaps(productsDb);
 
   // Include ALL products for matching (both enabled and disabled)
-  const sortedProducts = productsDb.map(([product, qty], index) => [product[0], product[1], product[2], qty, index])
-    .sort((a, b) => b[0].split(' ').length - a[0].split(' ').length);
+  const sortedProducts = productsDb.map(([product, qty], index) => {
+    const [name, akas, price, enabled] = product;
+    return [name, akas, price, enabled, qty, index];
+  }).sort((a, b) => b[0].split(' ').length - a[0].split(' ').length);
 
   const normalizedProducts = sortedProducts.map(([product]) => normalize(product));
   let maxProdWords = 0;
@@ -436,7 +438,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
 
   // Define connector/filler words that should be skipped but don't break matching
   const connectorWords = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'com', 'em', 'por', 'para', 'no', 'na', 'nos', 'nas']);
-  const fillerWords = new Set(['quero', 'manda', 'amanha', 'cada', 'momento', 'amiga', 'amigo', 'cadas', 'segue', 'kg', 'kgs', 'kilo', 'kilos', 'quilos', 'quilo', '*', '•', '-']);
+  const fillerWords = new Set(['quero', 'manda', 'amanha', 'mandar', 'cada', 'momento', 'amiga', 'amigo', 'cadas', 'segue', 'kg', 'kgs', 'kilo', 'kilos', 'quilos', 'quilo', '*', '•', '-']);
 
   // IMPROVED: Collect all possible matches, then deduplicate
   // This ensures we find "abacaxi com hortelã" even if "abacaxi" could also match
@@ -620,7 +622,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
         for (let idx = 0; idx < productsDb.length; idx++) {
           if (productsDb[idx][0][0] === akaMatch.mainProduct) {
             originalIndex = idx;
-            productEnabled = productsDb[idx][0][2];
+            productEnabled = productsDb[idx][0][3];
             break;
           }
         }
@@ -673,7 +675,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
           // If we found a valid number mapping, accept the product.
           if (detectedNumber !== null && numToIndex.has(detectedNumber)) {
             const originalIndex = numToIndex.get(detectedNumber);
-            const productEnabled = productsDb[originalIndex][0][2];
+            const productEnabled = productsDb[originalIndex][0][3];
             const startPos = candidatePositions[0];
             const endPos = allPositions[allPositions.length - 1];
             allPossibleMatches.push({
@@ -705,14 +707,14 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
         let bestOriginalIdx = null;
 
         for (let idx = 0; idx < sortedProducts.length; idx++) {
-          const [productName, _, enabled] = sortedProducts[idx];
+          const [productName, akas, price, enabled, qty, originalIdx] = sortedProducts[idx];
           const prodNorm = normalize(productName);
           const score = similarityPercentage(phraseNorm, prodNorm);
           if (score > bestScore) {
             bestScore = score;
             bestProduct = productName;
-            bestProductEnabled = enabled;
-            bestOriginalIdx = sortedProducts[idx][4];
+            bestProductEnabled = enabled;  // Now correctly using enabled status
+            bestOriginalIdx = originalIdx; // Now using the correct index
           }
         }
 
@@ -818,7 +820,7 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
 }
 
 // UPDATED: Main parse function that processes each line separately and accumulates
-function parse(message, productsDb, similarityThreshold = 65, uncertainRange = [60, 80]) {
+function parse(message, productsDb, similarityThreshold = 76, uncertainRange = [60, 80]) {
   // Split message by lines and filter out empty lines
   const lines = message.split('\n').map(line => line.trim()).filter(line => line.length > 0);
   

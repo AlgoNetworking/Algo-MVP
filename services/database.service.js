@@ -171,6 +171,7 @@ class DatabaseService {
           id SERIAL PRIMARY KEY,
           name VARCHAR(100) UNIQUE NOT NULL,
           akas JSONB DEFAULT '[]',
+          price DECIMAL(10,2) DEFAULT NULL,
           enabled BOOLEAN DEFAULT TRUE
         )
       `);
@@ -215,6 +216,7 @@ class DatabaseService {
           user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
           name VARCHAR(100) NOT NULL,
           akas JSONB DEFAULT '[]',
+          price decimal(10,2) DEFAULT NULL,
           enabled BOOLEAN DEFAULT TRUE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -288,12 +290,12 @@ class DatabaseService {
           ['queijo', '[]', true]
         ];
 
-        for (const [name, akas, enabled] of defaultProducts) {
+        for (const [name, akas, price, enabled] of defaultProducts) {
           await db.query(
-            `INSERT INTO default_products (name, akas, enabled) 
-            VALUES ($1, $2::jsonb, $3)
+            `INSERT INTO default_products (name, akas, price, enabled) 
+            VALUES ($1, $2::jsonb, $3, $4)
             ON CONFLICT (name) DO NOTHING`,
-            [name, akas, enabled]
+            [name, akas, price, enabled]
           );
         }
         console.log('✅ Default products inserted (16 products)');
@@ -1350,6 +1352,7 @@ class DatabaseService {
           id: row.id,
           name: row.name,
           akas: row.akas || [],
+          price: row.price || null,
           enabled: row.enabled
         }));
       } else {
@@ -1359,6 +1362,7 @@ class DatabaseService {
           id: row.id,
           name: row.name,
           akas: JSON.parse(row.akas || '[]'),
+          price: row.price || null,
           enabled: row.enabled
         }));
       }
@@ -1372,16 +1376,17 @@ class DatabaseService {
     try {
       if (isProduction) {
         await db.query(
-          `INSERT INTO products (user_id, name, akas, enabled)
-          VALUES ($1, $2, $3, $4)`,
-          [userId, product.name, JSON.stringify(product.akas || []), product.enabled || true]
+          `INSERT INTO products (user_id, name, akas, price, enabled)
+          VALUES ($1, $2, $3, $4, $5)`,
+          [userId, product.name, JSON.stringify(product.akas || []), product.price || null, product.enabled || true]
         );
       } else {
         const stmt = db.prepare(
-          `INSERT INTO products (user_id, name, akas, enabled)
-          VALUES (?, ?, ?, ?)`
+          `INSERT INTO products (user_id, name, akas, price, enabled)
+          VALUES (?, ?, ?, ?, ?)`,
+          [userId, product.name, JSON.stringify(product.akas || []), product.price || null, product.enabled || true]
         );
-        stmt.run(userId, product.name, JSON.stringify(product.akas || []), product.enabled || true);
+        stmt.run(userId, product.name, JSON.stringify(product.akas || []), product.price || null, product.enabled || true);
       }
     } catch (error) {
       console.error('❌ Error adding product:', error);
@@ -1396,21 +1401,23 @@ class DatabaseService {
           `UPDATE products SET 
             name = $1,
             akas = $2,
-            enabled = $3,
+            price = $3,
+            enabled = $4,
             updated_at = CURRENT_TIMESTAMP
-          WHERE id = $4 AND user_id = $5`,
-          [product.name, JSON.stringify(product.akas || []), product.enabled, id, userId]
+          WHERE id = $5 AND user_id = $6`,
+          [product.name, JSON.stringify(product.akas || []), product.price || null, product.enabled, id, userId]
         );
       } else {
         const stmt = db.prepare(
           `UPDATE products SET 
             name = ?,
             akas = ?,
+            price = ?,
             enabled = ?,
             updated_at = CURRENT_TIMESTAMP
           WHERE id = ? AND user_id = ?`
         );
-        stmt.run(product.name, JSON.stringify(product.akas || []), product.enabled, id, userId);
+        stmt.run(product.name, JSON.stringify(product.akas || []), product.price || null, product.enabled, id, userId);
       }
     } catch (error) {
       console.error('❌ Error updating product:', error);

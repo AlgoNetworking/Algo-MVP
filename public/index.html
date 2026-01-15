@@ -266,6 +266,16 @@
                     </small>
                 </div>
                 <div class="form-group" style="margin-top: 15px;">
+                    <label style="font-weight:700; margin-bottom:8px;">Produtos com preço</label>
+                    <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+                        <button id="toggleProductsHavePrice" class="toggle-btn"></button>
+                        <span id="toggleProductsHavePriceLabel" class="toggle-status">Ativado</span>
+                    </div>
+                    <small style="display:block; margin-top:8px; color:#7f8c8d;">
+                        Quando desativado, os produtos poderão ser criados sem preço e o resumo do pedido não mostrará preços.
+                    </small>
+                </div>
+                <div class="form-group" style="margin-top: 15px;">
                     <label style="font-weight:700; margin-bottom:8px;">⏱️ Intervalo entre lembretes (minutos)</label>
                     <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
                         <!-- you asked for a textarea — we use a single-line textarea but treat it like an integer-only input via JS -->

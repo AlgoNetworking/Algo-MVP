@@ -44,6 +44,7 @@ const productsConfig = require('../utils/products-config');
 const fs = require('fs');
 const path = require('path');
 const P = require('pino');
+const session = require('express-session');
 
 const AUTH_DIR = process.env.WWEBJS_AUTH_PATH || path.join(process.cwd(), '.wwebjs_auth');
 
@@ -328,6 +329,26 @@ class WhatsAppService {
         } finally {
           // remove the flag so a subsequent connect doesn't try to delete again
           this.loggedOutUsers.delete(userId);
+        }
+      }
+
+      // Validate global pricing configuration: if enabled, ensure all products have prices (defaults to ON)
+      const cfg = await databaseService.getUserConfig(userId);
+      const productsHavePrice = cfg ? cfg.productsHavePrice : true;
+      if (productsHavePrice) {
+        try {
+          const allProducts = await databaseService.getAllProducts(userId);
+          const missing = allProducts.filter(p => p.price === null || p.price === undefined || String(p.price).trim() === '');
+          if (missing.length > 0) {
+            this.connectingUsers.delete(userId);
+            return {
+              success: false,
+              message: `Não é possível conectar: existem ${missing.length} produto(s) sem preço. Corrija os produtos ou desative \"Produtos têm preço\" nas configurações.`
+            };
+          }
+        } catch (err) {
+          console.error('Error validating product prices before connect:', err);
+          // continue — don't block conn if validation failed due to DB error
         }
       }
 
@@ -1150,13 +1171,13 @@ class WhatsAppService {
         }
 
         const userSessions = this.userSessions.get(userId);
+        const message = await this.generateInitialMessage(userId, user.name, userSessions.get(jid));
         if (!userSessions.has(jid)) {
           const sessionId = uuidv4();
           userSessions.set(jid, sessionId);
           await orderService.startSession(sessionId, userId);
         }
 
-        const message = await this.generateInitialMessage(userId, user.name);
         await this.sendMessage(userId, jid, message);
 
         results.push({ phone: user.phone, status: 'sent' });
@@ -1705,7 +1726,7 @@ class WhatsAppService {
     return digits ? `${digits}@s.whatsapp.net` : '';
   }
 
-  async generateInitialMessage(userId, userName) {
+  async generateInitialMessage(userId, userName, sessionId) {
     const config = await databaseService.getUserConfig(userId);
     const callByName = config ? config.callByName : true;
 
@@ -1753,19 +1774,21 @@ class WhatsAppService {
         filteredProducts.push([product[0]]);
       }
     }
+    let hint = '';
+    if (!sessionId) {
+      const idx1 = Math.floor(Math.random() * filteredProducts.length);
+      const idx2 = Math.floor(Math.random() * filteredProducts.length);
+      const differentIdx = idx1 === idx2 ? (idx1 + 1 < filteredProducts.length ? idx1 + 1 :  idx1 - 1) : idx2;
 
-    const idx1 = Math.floor(Math.random() * filteredProducts.length);
-    const idx2 = Math.floor(Math.random() * filteredProducts.length);
-    const differentIdx = idx1 === idx2 ? (idx1 + 1 < filteredProducts.length ? idx1 + 1 :  idx1 - 1) : idx2;
-
-    const example = filteredProducts[0] ?
-    `${Math.floor(Math.random() * 10) + 1} ${filteredProducts[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${filteredProducts[differentIdx]}`
-    : null;
-    
-    let hint = `\n\n(Isto é uma mensagem automática para a sua conveniência 😊`;
-    hint += example ? `, digite naturalmente como: ${example})` : `)`;
-    hint += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n';
-    hint += '*Caso não queira pedir, digite \"cancelar\".*';
+      const example = filteredProducts[0] ?
+      `${Math.floor(Math.random() * 10) + 1} ${filteredProducts[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${filteredProducts[differentIdx]}`
+      : null;
+      
+      hint += `\n\n(Isto é uma mensagem automática para a sua conveniência 😊`;
+      hint += example ? `, digite naturalmente como: ${example})` : `)`;
+      hint += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n';
+      hint += '*Caso não queira pedir, digite \"cancelar\".*';
+    }
     
     return messages[Math.floor(Math.random() * messages.length)] + hint;
   }

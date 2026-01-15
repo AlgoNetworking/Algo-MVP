@@ -979,9 +979,9 @@ function showBrowserNotification(title, message) {
 function updateBrowserTabTitle() {
     const unreadCount = notifications.filter(n => !n.isRead).length;
     if (unreadCount > 0) {
-        document.title = `(${unreadCount}) Algo de Pedidos`;
+        document.title = `(${unreadCount}) PediAlgo`;
     } else {
-        document.title = 'Algo de Pedidos';
+        document.title = 'PediAlgo';
     }
 }
 
@@ -1293,6 +1293,19 @@ async function connectWhatsApp() {
     document.getElementById('connectBtn').disabled = true;
     document.getElementById('connectBtn').innerHTML = '⏳ Conectando...';
     
+    // Client-side validation: if products must have prices but some don't, block connect
+    if (userConfig.productsHavePrice) {
+      const missing = findProductsMissingPrice();
+      if (missing.length > 0) {
+        customAlert('Erro', `Não é possível conectar: existem ${missing.length} produto(s) sem preço. Corrija os produtos ou desative "Produtos têm preço" nas Configurações.`);
+        isConnecting = false;
+        updateConnectionStatus(false, false);
+        document.getElementById('connectBtn').disabled = false;
+        document.getElementById('connectBtn').innerHTML = '📱 Conectar WhatsApp';
+        return;
+      }
+    }
+
     // Load all clients from all selected folders
     const allClients = await loadClientsFromSelectedFolders();
     
@@ -2416,7 +2429,7 @@ function renderOrdersTable(orders) {
     `;
     
     products.forEach(([product, quantity]) => {
-      const [productName, akas, enabled] = product.split(',');
+      const [productName, akas, price, enabled] = product.split(',');
         html += `
             <tr>
                 <td>${productName}</td>
@@ -2783,7 +2796,7 @@ function renderProducts() {
         html += `
             <div class="product-card ${isEditing ? 'editing' : ''}">
                 <div class="product-info">
-                    <div class="product-name">${product.name}</div>
+                    <div class="product-name-price">${product.name} ${userConfig.productsHavePrice && product.price ? `- (R$${product.price})` : ''}</div>
                     <div class="product-akas">AKAs: ${Array.isArray(product.akas) ? product.akas.join(', ') : product.akas}</div>
                     <div style="display: flex; align-items: center; margin-top: 5px;">
                         <button class="toggle-btn ${product.enabled ? 'active' : ''}" onclick="toggleProduct(${index}, ${!product.enabled})" 
@@ -2817,6 +2830,12 @@ function renderProducts() {
                         <input type="text" id="editProductAkas-${index}" 
                                value="${Array.isArray(product.akas) ? product.akas.join(', ') : product.akas}">
                     </div>
+                    ${userConfig.productsHavePrice ? `
+                    <div class="form-group">
+                        <label for="editProductPrice-${index}">Preço:</label>
+                        <input type="text" id="editProductPrice-${index}" value="${product.price || ''}" placeholder="0.00" oninput="validateNumber(this)">
+                    </div>
+                    ` : ''}
                     <div class="edit-form-actions">
                         <button class="btn btn-sm btn-danger" onclick="cancelEditProduct()">Cancelar</button>
                         <button class="btn btn-sm btn-success" onclick="saveProductEdit(${index})">Salvar Alterações</button>
@@ -3020,6 +3039,14 @@ async function updateClientChatBotStatus(phone, isChatBot) {
 // Product management functions
 async function saveProduct(product, isUpdate = false) {
     try {
+        // Frontend validation: if pricing is enabled, ensure product includes a price
+        if (userConfig.productsHavePrice) {
+            if (!product.price && product.price !== 0 && product.price !== '0' && product.price !== '0.00') {
+                customAlert('Erro', 'Preço obrigatório quando "Produtos têm preço" está ativado.');
+                return false;
+            }
+        }
+
         const url = isUpdate ? `/api/products/${product.id}` : '/api/products';
         const method = isUpdate ? 'PUT' : 'POST';
         
@@ -3034,6 +3061,9 @@ async function saveProduct(product, isUpdate = false) {
             await loadProducts();
             addLog(`✅ Produto ${isUpdate ? 'atualizado' : 'adicionado'}: ${product.name}`);
             return true;
+        } else {
+            // Show server error message if any
+            if (data.message) customAlert('Erro', data.message);
         }
         return false;
     } catch (error) {
@@ -3083,6 +3113,24 @@ async function toggleProductEnabled(id, enabled) {
     }
 }
 
+// Helper function to validate price input
+function validateNumber(inputElement) {
+    // 1. Replace commas with dots immediately
+    inputElement.value = inputElement.value.replace(/,/g, '.');
+
+    // 2. Filter out all characters except digits (0-9) and a single decimal point (.)
+    // The regex /[^\d.]/g removes any non-digit/non-dot characters [2].
+    inputElement.value = inputElement.value.replace(/[^\d.]/g, '');
+
+    // 3. Ensure there is only one decimal point
+    // This part prevents multiple dots from being entered by taking only the first one
+    // and rejoining it with the rest of the numbers.
+    const parts = inputElement.value.split('.');
+    if (parts.length > 2) {
+        inputElement.value = parts[0] + '.' + parts.slice(1).join('');
+    }
+}
+
 function addProduct() {
     const container = document.getElementById('productsList');
     
@@ -3102,13 +3150,15 @@ function addProduct() {
             <input type="text" id="newProductName" placeholder="Nome do produto" required>
         </div>
         <div class="form-group">
-            <label for="newProductPrice">Preço do Produto*:</label>
-            <input type="text" id="newProductPrice" placeholder="Preço do produto" required>
-        </div>
-        <div class="form-group">
             <label for="newProductAkas">AKAs (separados por vírgula, opcional):</label>
             <input type="text" id="newProductAkas" placeholder="sinônimos, variações">
         </div>
+        ${userConfig.productsHavePrice ? `
+        <div class="form-group">
+            <label for="newProductPrice">Preço do Produto:</label>
+            <input type="text" id="newProductPrice" placeholder="0.00" oninput="validateNumber(this)">
+        </div>
+        ` : ''}
         <div class="form-group">
             <label style="display: flex; align-items: center;">
                 <input type="checkbox" id="newProductEnabled" checked style="margin-right: 10px;">
@@ -3133,6 +3183,8 @@ function cancelAddProduct() {
 async function saveNewProduct() {
     const name = document.getElementById('newProductName').value.trim();
     const akasInput = document.getElementById('newProductAkas').value.trim();
+    const priceElement = document.getElementById('newProductPrice');
+    const price = priceElement ? priceElement.value.trim() : '';
     const akas = akasInput ? akasInput.split(',').map(a => a.trim()).filter(a => a) : [];
     const enabled = document.getElementById('newProductEnabled').checked;
     
@@ -3140,10 +3192,19 @@ async function saveNewProduct() {
         customAlert('Erro', 'O nome do produto é obrigatório!');
         return;
     }
+
+    // If pricing is enabled globally, price is required
+    if (userConfig.productsHavePrice) {
+        if (!price) {
+            customAlert('Erro', 'Preço obrigatório quando "Produtos têm preço" está ativado.');
+            return;
+        }
+    }
     
     await saveProduct({
         name: name,
         akas: akas,
+        price: price || null,
         enabled: enabled
     });
     
@@ -3168,10 +3229,17 @@ function cancelEditProduct() {
 async function saveProductEdit(index) {
     const name = document.getElementById(`editProductName-${index}`).value.trim();
     const akasInput = document.getElementById(`editProductAkas-${index}`).value.trim();
+    const priceElem = document.getElementById(`editProductPrice-${index}`);
+    const price = priceElem ? priceElem.value.trim() : '';
     const akas = akasInput ? akasInput.split(',').map(a => a.trim()).filter(a => a) : [];
     
     if (!name) {
         customAlert('Erro', 'O nome do produto é obrigatório!');
+        return;
+    }
+
+    if (userConfig.productsHavePrice && !price) {
+        customAlert('Erro', 'Preço obrigatório quando "Produtos têm preço" está ativado.');
         return;
     }
     
@@ -3179,6 +3247,7 @@ async function saveProductEdit(index) {
         id: products[index].id,
         name: name,
         akas: akas,
+        price: price || null,
         enabled: products[index].enabled
     }, true);
     
@@ -3917,6 +3986,7 @@ let userConfig = {
   callByName: true,
   interpret: true,
   answerUnknownUsers: true,
+  productsHavePrice: true,
   reminderInterval: 30, // default in minutes (1..90)
   businessInfo: {
     title: "",
@@ -3976,6 +4046,19 @@ function renderConfigUI() {
     } else {
       toggleUnknownUsers.classList.remove('active');
       unknownUsersLabel.textContent = 'Desativado';
+    }
+  }
+
+  // Products Have Price UI
+  const toggleProductsHavePrice = document.getElementById('toggleProductsHavePrice');
+  const productsHavePriceLabel = document.getElementById('toggleProductsHavePriceLabel');
+  if (toggleProductsHavePrice && productsHavePriceLabel) {
+    if (userConfig.productsHavePrice) {
+      toggleProductsHavePrice.classList.add('active');
+      productsHavePriceLabel.textContent = 'Ativado';
+    } else {
+      toggleProductsHavePrice.classList.remove('active');
+      productsHavePriceLabel.textContent = 'Desativado';
     }
   }
 
@@ -4113,10 +4196,46 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// Toggle products have price handler
+document.addEventListener('click', async (e) => {
+  if (e.target && e.target.id === 'toggleProductsHavePrice') {
+    // Toggle locally first
+    userConfig.productsHavePrice = !userConfig.productsHavePrice;
+    // If enabling, warn if products missing prices and confirm
+    if (userConfig.productsHavePrice) {
+      const missing = products.filter(p => (p.price === null || p.price === undefined || String(p.price).trim() === '')).map(p => p.name);
+      if (missing.length > 0) {
+        const confirmed = await confirmAction('Produtos sem preço', `Existem ${missing.length} produto(s) sem preço: ${missing.slice(0,8).join(', ')}${missing.length>8?', ...':''}\. O sistema não poderá ser conectado até que todos os produtos tenham preço. Deseja continuar e exigir preços?`);
+        if (!confirmed) {
+          // revert
+          userConfig.productsHavePrice = false;
+          renderConfigUI();
+          return;
+        }
+      }
+    }
+
+    renderConfigUI();
+  }
+});
+
 // Save button handler
+function findProductsMissingPrice() {
+  return products.filter(p => (p.price === null || p.price === undefined || String(p.price).trim() === '')).map(p => p.name);
+}
+
 document.addEventListener('click', async (e) => {
   if (e.target && e.target.id === 'saveConfigBtn') {
     try {
+      // If enabling productsHavePrice, warn if products missing prices
+      if (userConfig.productsHavePrice) {
+        const missing = findProductsMissingPrice();
+        if (missing.length > 0) {
+          const confirmed = await confirmAction('Produtos sem preço', `Existem ${missing.length} produto(s) sem preço: ${missing.slice(0,8).join(', ')}${missing.length>8?', ...':''}\. O bot não poderá ser conectado até que todos os produtos tenham preço. Deseja salvar mesmo assim?`);
+          if (!confirmed) return;
+        }
+      }
+
       const resp = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4125,6 +4244,9 @@ document.addEventListener('click', async (e) => {
       const data = await resp.json();
       if (data && data.success) {
         customAlert('Salvo', 'Configurações salvas com sucesso.');
+        // Re-render UI to reflect change (price fields may be shown/hidden)
+        renderConfigUI();
+        renderProducts();
       } else {
         customAlert('Erro', 'Falha ao salvar configurações.');
       }

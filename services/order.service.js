@@ -39,7 +39,7 @@ class OrderSession {
       try {
         console.log(`🔄 Loading options menu for user ${this.userId} in session ${this.sessionId}`);
         const userConfig = await databaseService.getUserConfig(this.userId);
-        
+        /*
         this.optionsMenu = userConfig && userConfig.businessInfo ?
           `Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*");\nsaber mais sobre o programa e como usá-lo (digite "*4*") ou\nver a ${userConfig.businessInfo.title} (digite "*5*")?` :
           'Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`';
@@ -47,6 +47,10 @@ class OrderSession {
         this.chooseOption = userConfig && userConfig.businessInfo ?
           `Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos;\n("*4*") para saber mais sobre o programa e como usá-lo ou\n("*5*") para ver a ${userConfig.businessInfo.title}` :
           'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo';
+        */
+        this.optionsMenu = 'Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`';
+        this.chooseOption = 'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo';
+
 
         this.optionsMenuLoaded = true;
         console.log(`✅ Loaded options menu for user ${this.userId}`);
@@ -79,10 +83,19 @@ class OrderSession {
         const userProducts = await databaseService.getAllProducts(this.userId);
         
         // Convert to format expected by order-parser
-        this.currentDb = userProducts.map(product => [
-          [product.name, product.akas || [], product.enabled],
-          0
-        ]);
+        this.currentDb = userProducts.map(product => {
+          const price = (product.price === undefined) ? null : product.price; // preserva 0
+          return [[product.name, product.akas || [], price, !!product.enabled], 0];
+        });
+
+        // Also read user's config to know whether prices are in use
+        try {
+          const cfg = await databaseService.getUserConfig(this.userId);
+          this.productsHavePrice = cfg && cfg.productsHavePrice ? true : false;
+        } catch (err) {
+          console.error('Error fetching user config while loading products:', err);
+          this.productsHavePrice = true; // default to true for backward compatibility
+        }
         
         this.productsLoaded = true;
         console.log(`✅ Loaded ${this.currentDb.length} products for user ${this.userId}`);
@@ -101,14 +114,14 @@ class OrderSession {
 
   hasEnabledItems() {
     return this.currentDb.some(([product, qty]) => {
-      const [_, __, enabled] = product;
+      const [_, __, ___, enabled] = product;
       return enabled && qty > 0;
     });
   }
 
   hasDisabledItems() {
     return this.currentDb.some(([product, qty]) => {
-      const [_, __, enabled] = product;
+      const [_, __, ___, enabled] = product;
       return !enabled && qty > 0;
     });
   }
@@ -153,7 +166,7 @@ class OrderSession {
       const disabledItems = [];
       
       this.currentDb.forEach(([product, qty]) => {
-        const [mainName, akas, enabled] = product;
+        const [mainName, akas, price, enabled] = product;
         if (enabled && qty > 0) {
           enabledItems.push([product, qty]);
         } else if (!enabled && qty > 0) {
@@ -163,7 +176,13 @@ class OrderSession {
       
       this.state = 'confirming';
       this.reminderCount = 0;
-      const summary = this.buildSummary(enabledItems);
+      let summary = this.buildSummary(enabledItems);
+      // If prices are globally disabled for this user, strip price total and price texts
+      if (this.productsHavePrice === false) {
+        summary = summary.replace(/\n\*\*[^\n]*Total:[^\n]*\n/g, '\n');
+        // Also remove any inline price occurrences like (R$... cada)
+        summary = summary.replace(/\s*\(R\$[0-9.,]+ cada\)/g, '');
+      }
       this.messageQueue.push([summary, '']);
       this.startReminderCycle();
     } else if (this.state === 'collecting') {
@@ -194,7 +213,12 @@ class OrderSession {
 
   sendReminder() {
     if (this.state === 'confirming' && this.reminderCount <= 3) {
-      const summary = this.buildSummary();
+      let summary = this.buildSummary();
+      // Strip price lines if prices are disabled
+      if (this.productsHavePrice === false) {
+        summary = summary.replace(/\n\*\*[^\n]*Total:[^\n]*\n/g, '\n');
+        summary = summary.replace(/\s*\(R\$[0-9.,]+ cada\)/g, '');
+      }
       
       if (this.reminderCount === 3) {
         this.markAsPending();
@@ -225,7 +249,7 @@ class OrderSession {
     if (this.hasEnabledItems() && this.phoneNumber) {
       const parsedOrders = [];
       for (const [product, qty] of this.currentDb) {
-        const [mainName, akas, enabled] = product;
+        const [mainName, akas, price, enabled] = product;
         if (enabled && qty > 0) {
           parsedOrders.push({ productName: mainName, qty, score: 100.0 });
         }
@@ -251,27 +275,37 @@ class OrderSession {
   buildSummary(items = null) {
     let summary = '📋 **RESUMO DO SEU PEDIDO:**\n';
     const itemsToShow = items || this.currentDb.filter(([_, qty]) => qty > 0);
-    
-    if (this.orderType !== 'outro')
+    let totalPrice = 0;
+
+    if (this.orderType !== 'outro') {
       for (const [product, qty] of itemsToShow) {
         if (qty > 0) {
-          const [mainName, akas, enabled] = product;
+          const [mainName, akas, price, enabled] = product;
+          const showPrices = this.productsHavePrice !== undefined ? this.productsHavePrice : true;
+          const priceText = showPrices && (price !== undefined && price !== null) ? `(R$${price} cada)` : '';
+          if (showPrices && (price !== undefined && price !== null)) totalPrice += qty * price;
           if (enabled) {
-            summary += `• ${mainName}: ${qty}\n`;
+            summary += `• ${mainName} ${priceText}: ${qty}\n`;
           }
         }
       }
-      else {
-        for (const [product, qty] of itemsToShow) {
-          if (qty > 0) {
-            const [mainName, akas, enabled] = product;
-            if (enabled) {
-              summary += `\n${mainName}\n`;
-            }
+    }
+    else {
+      for (const [product, qty] of itemsToShow) {
+        if (qty > 0) {
+          const [mainName, akas, price, enabled] = product;
+          if (enabled) {
+            summary += `\n${mainName}\n`;
           }
         }
       }
+    }
+    summary += `\n**Preço Total: R$${totalPrice.toFixed(2)}**\n`;
     summary += '\n⚠️ **Confirma o pedido?** (responda com \"sim\" ou \"não\")';
+    if (this.productsHavePrice === false) {
+      summary = summary.replace(/\n\*\*[^\n]*Total:[^\n]*\n/g, '');
+      summary = summary.replace(/\s*\(R\$[0-9.,]+ cada\)/g, '');
+    }
     return summary;
   }
 
@@ -301,7 +335,7 @@ class OrderSession {
   getProductNames() {
     return this.currentDb
       .map(([product, _]) => {
-        const [name, akas, enabled] = product;
+        const [name, akas, price, enabled] = product;
         return enabled ? name : null;
       })
       .filter(name => name !== null);
@@ -389,10 +423,6 @@ class OrderService {
     if(messageLower.endsWith('?')) {
       session.waitingForOption = false;
       session.state = 'waiting_for_next';
-      for(let i = 0; i < session.currentDb.length; i++) {
-        session.currentDb[i][1] = 0;
-      }
-      console.log(session.currentDb);
       return {
         success: true,
         message: 'O programa detectou que você quer tirar uma dúvida com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
@@ -440,7 +470,7 @@ class OrderService {
       } catch (err) {
         console.error('Error saving canceled user order:', err);
       }
-      return { success: true, message: 'Ok, até próxima semana! 😃', isChatBot: true, clientStatus: 'wontOrder',};
+      return { success: true, message: 'Ok, até a próxima! 😃', isChatBot: true, clientStatus: 'wontOrder',};
     }
 
     if(messageType !== 'chat') {
@@ -531,13 +561,17 @@ class OrderService {
         let hasProducts = false;
         
         for (const [product, qty] of session.currentDb) {
-          const [productName, akas, enabled] = product;
+          const [productName, akas, price, enabled] = product;
           if (enabled) {
-            productList += `• ${productName} - ✅\n`;
+            productList += `• ${productName}`;
+            productList += (price !== undefined && price !== null && config.productsHavePrice) ? ` -- *R$${price}* - ✅\n` : ' - ✅\n';
             hasProducts = true;
           }
           else {
-            productList += `• ${productName} - ❌ (Fora de estoque no momento)\n`;
+            productList += `• ${productName}`;
+            productList += (price !== undefined && price !== null && config.productsHavePrice) ? 
+            ` -- *R$${price}* - ❌ (Fora de estoque no momento)\n` : 
+            ' - ❌ (Fora de estoque no momento)\n';
           }
         }
         
@@ -586,7 +620,7 @@ class OrderService {
           isChatBot: true,
           clientStatus: '',
         };
-      } else if (messageLower === '5') {
+      } /*else if (messageLower === '5') {
         const config = await databaseService.getUserConfig(userId);
         const callByName = config ? config.callByName : true;
 
@@ -606,7 +640,8 @@ class OrderService {
           isChatBot: true,
           clientStatus: '',
         };
-      } else {
+        
+      } */else {
         session.chooseOptionAttempts++;
         if(session.chooseOptionAttempts >= 2) {
           session.waitingForOption = false;
@@ -644,7 +679,7 @@ class OrderService {
           const disabledRemoved = [];
           
           session.currentDb.forEach(([product, qty]) => {
-            const [mainName, akas, enabled] = product;
+            const [mainName, akas, price, enabled] = product;
             if (enabled && qty > 0) {
               filteredDb.push([product, qty]);
             } else if (!enabled && qty > 0) {
@@ -714,21 +749,36 @@ class OrderService {
         session.resetCurrent();
         session.state = 'waiting_for_next';
 
-        let response = '✅ **PEDIDO CONFIRMADO COM SUCESSO!**\n\n**Itens confirmados:**\n';
-        for (const [product, qty] of Object.entries(confirmedOrder)) {
-          const splittedProduct = product.split(',');
-          const productName = splittedProduct[0];
-          response += `• ${qty}x ${productName}\n`;
-        }
         const config = await databaseService.getUserConfig(userId);
+
+        let response = '✅ **PEDIDO CONFIRMADO COM SUCESSO!**\n\n**Itens confirmados:**\n';
+
+        let totalPrice = 0;
+        for (const [productKey, qty] of Object.entries(confirmedOrder)) {
+          const productName = productKey.split(',')[0];
+          // procura o produto na session.currentDb para obter o price real
+          const found = session.currentDb.find(([p]) => p[0] === productName);
+          const showPrices = config.productsHavePrice !== undefined ? config.productsHavePrice : true;
+          const price = found ? found[0][2] : null;
+          const priceText = showPrices && (price !== undefined && price !== null) ? `(R$${price} cada)` : '';
+          if (showPrices && (price !== undefined && price !== null)) totalPrice += qty * price;
+          response += `• ${qty}x ${productName}${priceText}\n`;
+        }
         const callByName = config ? config.callByName : true;
 
         const callName = callByName ? session.name : 'Cliente sem nome';
         
+        response += `\n**Preço Total: R$${totalPrice.toFixed(2)}**\n`;
+
         const thankYou = callName !== 'Cliente sem nome' 
-          ? `\nObrigado pelo pedido, ${callName}! 🎉\n\n`
-          : '\nObrigado pelo pedido! 🎉\n\n';
+          ? `\nObrigado pelo pedido, ${callName}! 🎉`
+          : '\nObrigado pelo pedido! 🎉';
         response += thankYou;
+
+        if (config.productsHavePrice === false) {
+          response = response.replace(/\n\*\*[^\n]*Total:[^\n]*\n/g, '');
+          response = response.replace(/\s*\(R\$[0-9.,]+ cada\)/g, '');
+        }
 
         return { success: true, message: response, isChatBot: true, clientStatus: 'confirmedOrder',};
 
@@ -848,8 +898,9 @@ class OrderService {
           
           if (parsedOrders.length > 0) {
             const akas = '';
+            const price = null;
             const enabled = true;
-            const product = [message, akas, enabled];
+            const product = [message, akas, price, enabled];
             session.currentDb.push([product, 1]);
             session.cancelTimer();
             session.state = 'collecting'; // Go back to collecting state
@@ -874,7 +925,7 @@ class OrderService {
         if (session.hasItems()) {
           // Check if there are any disabled products in current orders
           const hasDisabledProducts = session.currentDb.some(([product, qty]) => {
-            const [_, __, enabled] = product;
+            const [_, __, ___, enabled] = product;
             return !enabled && qty > 0;
           });
           
@@ -885,7 +936,7 @@ class OrderService {
             const disabledRemoved = [];
             
             session.currentDb.forEach(([product, qty]) => {
-              const [mainName, akas, enabled] = product;
+              const [mainName, akas, price, enabled] = product;
               if (enabled && qty > 0) {
                 filteredDb.push([product, qty]);
               } else if (!enabled && qty > 0) {
@@ -996,8 +1047,9 @@ class OrderService {
           if (disabledProductsFound.length > 0) {
             // Keep the updatedDb (which includes disabled products)
             const akas = '';
+            const price = null;
             const enabled = true;
-            const product = [message, akas, enabled];
+            const product = [message, akas, price, enabled];
             session.currentDb.push([product, 1]);
             
             // Don't start the timer
@@ -1026,8 +1078,9 @@ class OrderService {
           
           if (parsedOrders.length > 0) {
             const akas = '';
+            const price = null;
             const enabled = true;
-            const product = [message, akas, enabled];
+            const product = [message, akas, price, enabled];
             session.currentDb.push([product, 1]);
             session.startInactivityTimer(); // Only start timer if no disabled products
             return { success: true, isChatBot: true, clientStatus: '', };

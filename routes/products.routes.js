@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
 // Add new product
 router.post('/', async (req, res) => {
   try {
-    const { name, akas = [], enabled = true } = req.body;
+    const { name, akas = [], price = null, enabled = true } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -28,9 +28,19 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Enforce price presence if user enabled global pricing (defaults to ON)
+    const cfg = await databaseService.getUserConfig(req.userId);
+    const productsHavePrice = cfg ? cfg.productsHavePrice : true;
+    if (productsHavePrice) {
+      if (price === undefined || price === null || String(price).trim() === '') {
+        return res.status(400).json({ success: false, message: 'Price is required when "Products have price" is enabled.' });
+      }
+    }
+
     await databaseService.addProduct(req.userId, {
       name,
       akas: Array.isArray(akas) ? akas : [akas],
+      price: price === undefined ? null : price,
       enabled
     });
 
@@ -48,12 +58,29 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, akas, enabled } = req.body;
+    const { name, akas, price, enabled } = req.body;
+
+    // Enforce price presence if user enabled global pricing (defaults to ON)
+    const cfg = await databaseService.getUserConfig(req.userId);
+    const productsHavePrice = cfg ? cfg.productsHavePrice : true;
+    if (productsHavePrice) {
+      if (price === undefined || price === null || String(price).trim() === '') {
+        return res.status(400).json({ success: false, message: 'Price is required when "Products have price" is enabled.' });
+      }
+    }
+
+    // Fetch existing product to preserve fields not in request
+    const allProducts = await databaseService.getAllProducts(req.userId);
+    const existing = allProducts.find(p => p.id === parseInt(id));
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
 
     await databaseService.updateProduct(req.userId, id, {
-      name,
-      akas: Array.isArray(akas) ? akas : [akas],
-      enabled
+      name: name !== undefined ? name : existing.name,
+      akas: akas !== undefined ? (Array.isArray(akas) ? akas : [akas]) : existing.akas,
+      price: price !== undefined ? price : existing.price,
+      enabled: enabled !== undefined ? enabled : existing.enabled
     });
 
     res.json({
@@ -95,6 +122,19 @@ router.put('/:id/toggle', async (req, res) => {
       });
     }
 
+    // If enabling product while prices are globally required, validate product has a price
+    if (enabled === true) {
+      const cfg = await databaseService.getUserConfig(req.userId);
+      const productsHavePrice = cfg ? cfg.productsHavePrice : true;
+      if (productsHavePrice) {
+        const allProducts = await databaseService.getAllProducts(req.userId);
+        const found = allProducts.find(p => String(p.id) === String(id));
+        if (found && (found.price === null || found.price === undefined || String(found.price).trim() === '')) {
+          return res.status(400).json({ success: false, message: 'Cannot enable product without price while "Products have price" is enabled.' });
+        }
+      }
+    }
+
     await databaseService.toggleProductEnabled(req.userId, id, enabled);
 
     res.json({
@@ -107,4 +147,4 @@ router.put('/:id/toggle', async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = router;// Refresh

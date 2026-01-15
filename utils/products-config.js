@@ -26,7 +26,9 @@ class ProductsConfig {
       return products.map(product => [
         product.name,
         product.akas || [],
-        product.enabled
+        // ensure price is present (null when absent) and enabled is boolean
+        product.price === undefined ? null : product.price,
+        !!product.enabled
       ]);
     } catch (error) {
       console.error('❌ Error loading user products:', error);
