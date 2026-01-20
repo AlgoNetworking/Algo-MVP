@@ -3987,6 +3987,8 @@ let userConfig = {
   interpret: true,
   answerUnknownUsers: true,
   productsHavePrice: true,
+  showPIXKeyInOrderConfirmation: true,
+  PIXKey: "",
   reminderInterval: 30, // default in minutes (1..90)
   businessInfo: {
     title: "",
@@ -4000,7 +4002,15 @@ async function loadUserConfig() {
     const res = await fetch('/api/config', { method: 'GET' });
     const data = await res.json();
     if (data && data.success && data.config) {
-      userConfig = Object.assign(userConfig, data.config);
+      // Properly merge config, especially nested businessInfo object
+      userConfig = {
+        ...userConfig,
+        ...data.config,
+        businessInfo: {
+          ...userConfig.businessInfo,
+          ...(data.config.businessInfo || {})
+        }
+      };
     }
   } catch (err) {
     console.error('Failed to load user config:', err);
@@ -4062,6 +4072,25 @@ function renderConfigUI() {
     }
   }
 
+  // Show PIX Key in Order Confirmation Message
+  const toggleShowPIXKey = document.getElementById('toggleShowPIXKey');
+  const showPIXKeyLabel = document.getElementById('toggleShowPIXKeyLabel');
+  if (toggleShowPIXKey && showPIXKeyLabel) {
+    if (userConfig.showPIXKeyInOrderConfirmation) {
+      toggleShowPIXKey.classList.add('active');
+      showPIXKeyLabel.textContent = 'Ativado';
+    } else {
+      toggleShowPIXKey.classList.remove('active');
+      showPIXKeyLabel.textContent = 'Desativado';
+    }
+  }
+
+  // PIX Key UI
+  const pixKeyInput = document.getElementById('PIXKeyInput');
+  if (pixKeyInput) {
+    pixKeyInput.value = userConfig.PIXKey || '';
+  }
+
   // Reminder interval UI
   const reminderInput = document.getElementById('reminderIntervalInput');
   const reminderLabel = document.getElementById('reminderIntervalLabel');
@@ -4069,14 +4098,40 @@ function renderConfigUI() {
   if (reminderInput) reminderInput.value = String(val);
   if (reminderLabel) reminderLabel.textContent = `${val} min`;
 
-  // Business info UI (EM CONSTRUÇÃO)
+  // Business info UI
+  const businessInfoTitle = document.getElementById('businessInfoTitle');
+  if (businessInfoTitle) {
+    businessInfoTitle.value = (userConfig.businessInfo?.title) ? userConfig.businessInfo.title : '';
+  }
   
   const businessInfoText = document.getElementById('businessInfoText');
-  businessInfoText.value = (businessInfoText && userConfig.businessInfo?.text) ? userConfig.businessInfo.text : '';
+  if (businessInfoText) {
+    businessInfoText.value = (userConfig.businessInfo?.text) ? userConfig.businessInfo.text : '';
+  }
+
+  // Display saved media preview if it exists
+  if (userConfig.businessInfo?.media) {
+    const preview = document.getElementById('businessInfoFilePreview');
+    const fileName = document.getElementById('businessInfoFileName');
+    const imagePreview = document.getElementById('businessInfoImagePreview');
+    
+    if (preview && fileName) {
+      fileName.textContent = userConfig.businessInfo.media.filename || 'Arquivo anexado';
+      preview.style.display = 'block';
+      
+      if (userConfig.businessInfo.media.mimetype?.startsWith('image/') && imagePreview) {
+        const media = userConfig.businessInfo.media;
+        if (String(media.data || '').startsWith('data:')) {
+          imagePreview.src = media.data;
+        } else {
+          imagePreview.src = `data:${media.mimetype};base64,${media.data}`;
+        }
+        imagePreview.style.display = 'block';
+      }
+    }
+  }
   
 }
-
-setIndividualInterpretControlsEnabled(Boolean(userConfig.interpret));
 
 function setIndividualInterpretControlsEnabled(enabled) {
   // Buttons that toggle per-client interpretation
@@ -4219,6 +4274,20 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'toggleShowPIXKey') {
+    userConfig.showPIXKeyInOrderConfirmation = !userConfig.showPIXKeyInOrderConfirmation;
+    renderConfigUI();
+  }
+});
+
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'PIXKeyInput') {
+    userConfig.PIXKey = e.target.value;
+    renderConfigUI();
+  }
+});
+
 // Save button handler
 function findProductsMissingPrice() {
   return products.filter(p => (p.price === null || p.price === undefined || String(p.price).trim() === '')).map(p => p.name);
@@ -4227,6 +4296,13 @@ function findProductsMissingPrice() {
 document.addEventListener('click', async (e) => {
   if (e.target && e.target.id === 'saveConfigBtn') {
     try {
+      // Validate business info: if text or media exists, title is required
+      const hasBusinessContent = userConfig.businessInfo?.text || userConfig.businessInfo?.media;
+      if (hasBusinessContent && !userConfig.businessInfo?.title) {
+        customAlert('Erro', 'O título é obrigatório quando você adiciona conteúdo ao dados do seu negócio.');
+        return;
+      }
+
       // If enabling productsHavePrice, warn if products missing prices
       if (userConfig.productsHavePrice) {
         const missing = findProductsMissingPrice();
@@ -4270,12 +4346,15 @@ function sanitizeReminderValue(raw) {
 function clearBusinessInfoFile() {
   const fileInput = document.getElementById('businessInfoFile');
   const preview = document.getElementById('businessInfoFilePreview');
+  const imagePreview = document.getElementById('businessInfoImagePreview');
   
   fileInput.value = '';
   preview.style.display = 'none';
+  if (imagePreview) imagePreview.style.display = 'none';
+  userConfig.businessInfo.media = null;
 }
 
-document.getElementById('businessInfoFile').onchange = (e) => {
+document.getElementById('businessInfoFile').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (file) {
     const preview = document.getElementById('businessInfoFilePreview');
@@ -4285,19 +4364,37 @@ document.getElementById('businessInfoFile').onchange = (e) => {
     fileName.textContent = file.name;
     preview.style.display = 'block';
     
-    // Show image preview if it's an image
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        imagePreview.src = e.target.result;
-        imagePreview.style.display = 'block';
+    const reader = new FileReader();
+    reader.onload = (readerEvent) => {
+      const dataUrl = readerEvent.target.result;
+      // dataUrl looks like: data:<mimetype>;base64,<payload>
+      const match = String(dataUrl).match(/^data:(.+);base64,(.*)$/);
+      let payloadBase64 = null;
+      let detectedMime = file.type || null;
+      if (match) {
+        detectedMime = match[1] || detectedMime;
+        payloadBase64 = match[2] || null;
+      } else {
+        // Fallback: if reader didn't return a data URL, treat it as raw base64
+        payloadBase64 = dataUrl;
+      }
+
+      userConfig.businessInfo.media = {
+        data: payloadBase64,
+        mimetype: detectedMime,
+        filename: file.name
       };
-      reader.readAsDataURL(file);
-    } else {
-      imagePreview.style.display = 'none';
-    }
+
+      if ((detectedMime || '').startsWith('image/') && imagePreview) {
+        imagePreview.src = `data:${detectedMime};base64,${payloadBase64}`;
+        imagePreview.style.display = 'block';
+      } else if (imagePreview) {
+        imagePreview.style.display = 'none';
+      }
+    };
+    reader.readAsDataURL(file);
   }
-};
+}, false);
 
 // accept only digits while typing (keeps textarea behaving like integer input)
 document.addEventListener('input', (e) => {
@@ -4320,8 +4417,11 @@ document.addEventListener('change', (e) => {
   }
 });
 
-// take business info input
+// take business info input (title and text)
 document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'businessInfoTitle') {
+    userConfig.businessInfo.title = e.target.value;
+  }
   if (e.target && e.target.id === 'businessInfoText') {
     userConfig.businessInfo.text = e.target.value;
   }
@@ -4340,6 +4440,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check authentication first
   const isAuthenticated = await checkAuthentication();
   if (!isAuthenticated) return;
+  
+  // Enable/disable interpret controls based on global setting
+  setIndividualInterpretControlsEnabled(Boolean(userConfig.interpret));
   
   await loadNotifications();
   // Initialize socket after authentication

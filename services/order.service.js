@@ -39,22 +39,29 @@ class OrderSession {
       try {
         console.log(`🔄 Loading options menu for user ${this.userId} in session ${this.sessionId}`);
         const userConfig = await databaseService.getUserConfig(this.userId);
-        /*
-        this.optionsMenu = userConfig && userConfig.businessInfo ?
-          `Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*");\nsaber mais sobre o programa e como usá-lo (digite "*4*") ou\nver a ${userConfig.businessInfo.title} (digite "*5*")?` :
-          'Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`';
         
-        this.chooseOption = userConfig && userConfig.businessInfo ?
-          `Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos;\n("*4*") para saber mais sobre o programa e como usá-lo ou\n("*5*") para ver a ${userConfig.businessInfo.title}` :
-          'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo';
-        */
-        this.optionsMenu = 'Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?`';
-        this.chooseOption = 'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo';
-
+        // Check if businessInfo is properly configured (has title AND (media OR text))
+        const hasBusinessInfo = userConfig && userConfig.businessInfo && 
+                                userConfig.businessInfo.title && 
+                                (userConfig.businessInfo.text || userConfig.businessInfo.media);
+        
+        if (hasBusinessInfo && !userConfig.PIXKey) {
+          this.optionsMenu = `Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*");\nsaber mais sobre o programa e como usá-lo (digite "*4*") ou\nver ${userConfig.businessInfo.title} (digite "*5*")?`;
+          this.chooseOption = `Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos;\n("*4*") para saber mais sobre o programa e como usá-lo ou\n("*5*") para ver ${userConfig.businessInfo.title}`;
+        } else if (!hasBusinessInfo && userConfig.PIXKey) {
+          this.optionsMenu = `Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*") ou\nver a chave PIX (digite "*5*")?`;
+          this.chooseOption = `Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos;\n("*4*") para saber mais sobre o programa e como usá-lo ou\n("*5*") para ver a chave PIX`;
+        } else if (hasBusinessInfo && userConfig.PIXKey) {
+          this.optionsMenu = `Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*");\nsaber mais sobre o programa e como usá-lo (digite "*4*");\nver ${userConfig.businessInfo.title} (digite "*5*") ou\nver a chave PIX (digite "*6*")?`;
+          this.chooseOption = `Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos;\n("*4*") para saber mais sobre o programa e como usá-lo;\n("*5*") para ver ${userConfig.businessInfo.title} ou\n("*6*") para ver a chave PIX`;
+        } else {
+          this.optionsMenu = 'Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*")?';
+          this.chooseOption = 'Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos ou\n("*4*") para saber mais sobre o programa e como usá-lo';
+        }
 
         this.optionsMenuLoaded = true;
         console.log(`✅ Loaded options menu for user ${this.userId}`);
-        return this.optionsMenu, this.chooseOption;
+        return this.optionsMenu;
       } catch (error) {
         console.error('❌ Error getting options menu:', error);
         this.optionsMenu = null;
@@ -591,7 +598,6 @@ class OrderService {
         // Get product names for example
         const productNames = session.getProductNames();
         let example = '';
-        session.chooseOptionAttempts = 0;
         
         if (productNames.length >= 2) {
           const idx1 = Math.floor(Math.random() * productNames.length);
@@ -606,6 +612,7 @@ class OrderService {
           example = '2 [produto1] e 3 [produto2]';
         }
 
+        session.chooseOptionAttempts = 0;
         session.waitingForOption = true;
         session.state = 'option';
         let info = 'Ok, aqui temos instruções de como utilizar o programa e mais sobre ele!\n\n';
@@ -620,28 +627,114 @@ class OrderService {
           isChatBot: true,
           clientStatus: '',
         };
-      } /*else if (messageLower === '5') {
+      } else if (messageLower === '5') {
+        // Option 5: Show business info
         const config = await databaseService.getUserConfig(userId);
-        const callByName = config ? config.callByName : true;
 
-        const callName = callByName ? name : 'Cliente sem nome';
-        const okay = callName !== 'Cliente sem nome' ? `Certo, ${callName}.` : 'Certo.';
-        session.waitingForOption = true;
-        session.state = 'option';
-        session.chooseOptionAttempts = 0;
+        const hasBusinessInfo = config && config.businessInfo && 
+                                  config.businessInfo.title && 
+                                  (config.businessInfo.text || config.businessInfo.media);
 
+        if(!hasBusinessInfo && config.PIXKey) {
+          session.chooseOptionAttempts = 0;
+          session.waitingForOption = true;
+          session.state = 'option';
 
-        const businessInformation = `${okay} ${config.businessInfo.title}:\n\n${config.businessInfo.text}`;
+          let PIXKeyMessage = `Aqui está a chave PIX: ${config.PIXKey}`;
+          PIXKeyMessage += `\n\nE agora? ${session.optionsMenu}`;
+          return {
+            success: true,
+            message: PIXKeyMessage,
+            isChatBot: true,
+            clientStatus: '',
+          };
+        }
+        else {
+          
+          if (!hasBusinessInfo) {
+            // If businessInfo not configured, treat as invalid option
+            session.chooseOptionAttempts++;
+            if(session.chooseOptionAttempts >= 2) {
+              session.waitingForOption = false;
+              session.state = 'waiting_for_next';
+              return {
+                success: true,
+                message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
+                isChatBot: false,
+                clientStatus: 'talkToEmployee',
+              };
+            }
+            return {
+              success: false,
+              message: session.chooseOption,
+              isChatBot: true,
+              clientStatus: '',
+            };
+          }
 
-        return {
-          success: true,
-          message: businessInformation,
-          media: config.businessInfo.media,
-          isChatBot: true,
-          clientStatus: '',
-        };
-        
-      } */else {
+          const callByName = config ? config.callByName : true;
+          const callName = callByName ? name : 'Cliente sem nome';
+          const okay = callName !== 'Cliente sem nome' ? `Certo, ${callName}.` : 'Certo.';
+          
+          session.waitingForOption = true;
+          session.state = 'option';
+          session.chooseOptionAttempts = 0;
+
+          let businessMessage = `${okay} Aqui está ${config.businessInfo.title}:`;
+          businessMessage += config.businessInfo.text ? '\n\n' : '';
+          if (config.businessInfo.text) {
+            businessMessage += config.businessInfo.text;
+          }
+          businessMessage += `\n\nE agora? ${session.optionsMenu}`;
+
+          return {
+            success: true,
+            message: businessMessage,
+            media: config.businessInfo.media || null,
+            isChatBot: true,
+            clientStatus: '',
+          };
+        }
+      } else if (messageLower === '6') {
+        // Option 6: Show PIX key
+        const config = await databaseService.getUserConfig(userId);
+        const hasBusinessInfo = config && config.businessInfo && 
+                                config.businessInfo.title && 
+                                (config.businessInfo.text || config.businessInfo.media);
+        if(hasBusinessInfo && config.PIXKey) {
+          session.chooseOptionAttempts = 0;
+          session.waitingForOption = true;
+          session.state = 'option';
+          let PIXKeyMessage = `Aqui está a chave PIX: ${config.PIXKey}`;
+          PIXKeyMessage += `\n\nE agora? ${session.optionsMenu}`;
+          return {
+            success: true,
+            message: PIXKeyMessage,
+            isChatBot: true,
+            clientStatus: '',
+          };
+        }
+        else {
+          // If PIX key not configured, treat as invalid option
+          session.chooseOptionAttempts++;
+          if(session.chooseOptionAttempts >= 2) {
+            session.waitingForOption = false;
+            session.state = 'waiting_for_next';
+            return {
+              success: true,
+              message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
+              isChatBot: false,
+              clientStatus: 'talkToEmployee',
+            };
+          }
+          return {
+            success: false,
+            message: session.chooseOption,
+            isChatBot: true,
+            clientStatus: '',
+          };
+        }
+      } else {
         session.chooseOptionAttempts++;
         if(session.chooseOptionAttempts >= 2) {
           session.waitingForOption = false;
@@ -779,6 +872,8 @@ class OrderService {
           response = response.replace(/\n\*\*[^\n]*Total:[^\n]*\n/g, '');
           response = response.replace(/\s*\(R\$[0-9.,]+ cada\)/g, '');
         }
+
+        response += (config.PIXKey && config.showPIXKeyInOrderConfirmation) ? `\n\n💳 Aqui está a chave PIX para pagamento: ${config.PIXKey}` : '';
 
         return { success: true, message: response, isChatBot: true, clientStatus: 'confirmedOrder',};
 

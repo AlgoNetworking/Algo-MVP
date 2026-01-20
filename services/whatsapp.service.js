@@ -1027,26 +1027,36 @@ class WhatsAppService {
     }
 
     try {
-      // Handle media messages
-      if (media && media.data && media.mimetype) {
-        const buffer = Buffer.from(media.data, 'base64');
-        
-        if (media.mimetype.startsWith('image/')) {
+      // Handle media messages (support data URLs or raw base64)
+      if (media && media.data) {
+        let base64Payload = media.data;
+        let detectedMime = media.mimetype || null;
+        if (typeof base64Payload === 'string' && base64Payload.startsWith('data:')) {
+          const m = base64Payload.match(/^data:(.+);base64,(.*)$/);
+          if (m) {
+            detectedMime = m[1] || detectedMime;
+            base64Payload = m[2] || '';
+          }
+        }
+
+        const buffer = Buffer.from(base64Payload || '', 'base64');
+
+        if ((detectedMime || '').startsWith('image/')) {
           // Send image with optional caption
           await sock.sendMessage(recipient, {
             image: buffer,
             caption: message || undefined,
-            mimetype: media.mimetype
+            mimetype: detectedMime
           });
           console.log(`✅ Image sent from user ${userId} to ${recipient}`);
-        } else if (media.mimetype === 'application/pdf' || 
-                  media.mimetype.includes('document') ||
-                  media.mimetype.includes('officedocument')) {
+        } else if (detectedMime === 'application/pdf' || 
+                  (detectedMime || '').includes('document') ||
+                  (detectedMime || '').includes('officedocument')) {
           // Send document with optional caption
           await sock.sendMessage(recipient, {
             document: buffer,
             caption: message || undefined,
-            mimetype: media.mimetype,
+            mimetype: detectedMime,
             fileName: media.filename || 'document'
           });
           console.log(`✅ Document sent from user ${userId} to ${recipient}`);
@@ -1055,7 +1065,7 @@ class WhatsAppService {
           await sock.sendMessage(recipient, {
             document: buffer,
             caption: message || undefined,
-            mimetype: media.mimetype,
+            mimetype: detectedMime,
             fileName: media.filename || 'file'
           });
           console.log(`✅ File sent from user ${userId} to ${recipient}`);

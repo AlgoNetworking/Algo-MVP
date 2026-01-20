@@ -276,6 +276,28 @@
                     </small>
                 </div>
                 <div class="form-group" style="margin-top: 15px;">
+                    <label style="font-weight:700; margin-bottom:8px;">Mostrar Chave PIX no Resumo do Pedido</label>
+                    <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+                        <button id="toggleShowPIXKey" class="toggle-btn"></button>
+                        <span id="toggleShowPIXKeyLabel" class="toggle-status">Ativado</span>
+                    </div>
+                    <small style="display:block; margin-top:8px; color:#7f8c8d;">
+                        Quando desativado, o resumo do pedido não mostrará a chave PIX.
+                    </small>
+                </div>
+                <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">
+                            💳 Chave PIX
+                        </label>
+                        <input type="text" id="PIXKeyInput" placeholder="Insira sua chave PIX aqui"
+                                style="width: 100%; padding: 10px; border: 2px solid #e9ecef; border-radius: 8px; font-size: 14px;">
+                        <small style="display: block; margin-top: 5px; color: #7f8c8d;">
+                            Esta chave aparecerá no resumo do pedido para que seus clientes possam fazer o pagamento 
+                            e quando a opção "Mostrar Chave PIX no Resumo do Pedido" estiver ativada.
+                            Também será mostrada como opção no menu dos clientes.
+                        </small>
+                    </div>
+                <div class="form-group" style="margin-top: 15px;">
                     <label style="font-weight:700; margin-bottom:8px;">⏱️ Intervalo entre lembretes (minutos)</label>
                     <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
                         <!-- you asked for a textarea — we use a single-line textarea but treat it like an integer-only input via JS -->
@@ -290,6 +312,19 @@
                 <div class="form-group" style="margin-top: 15px;">
                     <label style="font-weight:700; margin-bottom:8px;">📒 Apresentar dados do seu negócio para seus clientes (como tabelas de preço, horários de funcionamento, etc)</label>
                     <div style="display:flex; align-items:center; gap:12px; margin-top:8px;"></div>
+                        <!-- Title Field -->
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">
+                                📋 Título
+                            </label>
+                            <input type="text" id="businessInfoTitle" 
+                                    style="width: 100%; padding: 10px; border: 2px solid #e9ecef; border-radius: 8px; font-size: 14px;"
+                                    placeholder="Ex: Tabela de Preços, Horários de Funcionamento, Sobre Nosso Negócio">
+                            <small style="display: block; margin-top: 5px; color: #7f8c8d;">
+                                Este título aparecerá como opção 5 no menu dos clientes
+                            </small>
+                        </div>
+                        
                         <!-- File Upload Section -->
                         <div style="margin-bottom: 15px; padding: 15px; background: #f8f9fa; border: 2px dashed #9DB044; border-radius: 8px;">
                             <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">
