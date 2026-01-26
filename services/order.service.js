@@ -372,6 +372,8 @@ class OrderService {
   async processMessage({ userId, sessionId, message, messageType, phoneNumber, name, orderType }) {
     const session = this.getSession(sessionId, userId);
 
+    const config = await databaseService.getUserConfig(userId);
+
     const messageLower = message.toLowerCase().trim();
 
     // Get user's product names for example
@@ -416,7 +418,7 @@ class OrderService {
       `${Math.floor(Math.random() * 10) + 1} ${productNames[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${productNames[differentIdx]}`
       : null;
       const hint = example
-        ? `(digite seu pedido naturalmente como: ${example})\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n*Caso não queira pedir, basta digitar \"cancelar\".*`
+        ? `(digite seu pedido naturalmente como: ${example})\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n*Caso não queira pedir, basta digitar \"não\".*`
         : '(não há produtos disponíveis no momento)';
       session.waitingForOption = false;
       return {
@@ -495,7 +497,6 @@ class OrderService {
     if (session.state === 'waiting_for_next') {
       session.state = 'option';
       session.waitingForOption = true;
-      const config = await databaseService.getUserConfig(userId);
       const callByName = config ? config.callByName : true;
 
       const callName = callByName ? name : 'Cliente sem nome';
@@ -555,7 +556,6 @@ class OrderService {
           clientStatus: 'talkToEmployee',
         };
       } else if (messageLower === '3') {
-        const config = await databaseService.getUserConfig(userId);
         const callByName = config ? config.callByName : true;
 
         const callName = callByName ? name : 'Cliente sem nome';
@@ -629,7 +629,6 @@ class OrderService {
         };
       } else if (messageLower === '5') {
         // Option 5: Show business info
-        const config = await databaseService.getUserConfig(userId);
 
         const hasBusinessInfo = config && config.businessInfo && 
                                   config.businessInfo.title && 
@@ -640,7 +639,7 @@ class OrderService {
           session.waitingForOption = true;
           session.state = 'option';
 
-          let PIXKeyMessage = `Aqui está a chave PIX: ${config.PIXKey}`;
+          let PIXKeyMessage = `Caso o pagamento for em Pix, segue a chave abaixo: ${config.PIXKey}`;
           PIXKeyMessage += `\n\nE agora? ${session.optionsMenu}`;
           return {
             success: true,
@@ -697,7 +696,6 @@ class OrderService {
         }
       } else if (messageLower === '6') {
         // Option 6: Show PIX key
-        const config = await databaseService.getUserConfig(userId);
         const hasBusinessInfo = config && config.businessInfo && 
                                 config.businessInfo.title && 
                                 (config.businessInfo.text || config.businessInfo.media);
@@ -760,7 +758,7 @@ class OrderService {
 
       if (confirmWords.includes(messageLower)) {
         // Before confirming, check for disabled products in any new items
-        const { disabledProductsFound } = orderParser.parse(message, session.currentDb);
+        const { disabledProductsFound } = orderParser.parse(message, session.currentDb, config);
         
         if (disabledProductsFound.length > 0) {
           // Reset to collecting state
@@ -842,8 +840,6 @@ class OrderService {
         session.resetCurrent();
         session.state = 'waiting_for_next';
 
-        const config = await databaseService.getUserConfig(userId);
-
         let response = '✅ **PEDIDO CONFIRMADO COM SUCESSO!**\n\n**Itens confirmados:**\n';
 
         let totalPrice = 0;
@@ -911,7 +907,7 @@ class OrderService {
       } else {
         // Try parsing as new items
         if (session.orderType !== 'outro') {
-          const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb);
+          const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb, config);
         
           if (disabledProductsFound.length > 0) {
             // Reset to collecting state when disabled product is ordered
@@ -956,7 +952,7 @@ class OrderService {
           }
         } 
         else {
-          const { disabledProductsFound } = orderParser.parse(message, session.currentDb);
+          const { disabledProductsFound } = orderParser.parse(message, session.currentDb, config);
 
           const parsedOrders = [];
 
@@ -1071,7 +1067,7 @@ class OrderService {
         }
       } else {
         if (session.orderType !== 'outro') {
-          const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb);
+          const { parsedOrders, updatedDb, disabledProductsFound } = orderParser.parse(message, session.currentDb, config);
           
           // If disabled products found, don't start timer but keep the enabled ones
           if (disabledProductsFound.length > 0) {
@@ -1128,7 +1124,7 @@ class OrderService {
           }
         }
         else {
-          const { disabledProductsFound } = orderParser.parse(message, session.currentDb);
+          const { disabledProductsFound } = orderParser.parse(message, session.currentDb, config);
 
           const parsedOrders = [];
 

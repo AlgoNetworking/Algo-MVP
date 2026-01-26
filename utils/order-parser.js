@@ -820,10 +820,12 @@ function parseLine(line, productsDb, similarityThreshold, uncertainRange) {
 }
 
 // UPDATED: Main parse function that processes each line separately and accumulates
-function parse(message, productsDb, similarityThreshold = 76, uncertainRange = [60, 80]) {
+function parse(message, productsDb, userConfig, uncertainRange = [60, 80]) {
   // Split message by lines and filter out empty lines
   const lines = message.split('\n').map(line => line.trim()).filter(line => line.length > 0);
   
+  const similarityThreshold = (userConfig && userConfig.tolerateMisspellings) ? 76 : 100;
+
   let allParsedOrders = [];
   let allDisabledProductsFound = [];
   
@@ -832,7 +834,7 @@ function parse(message, productsDb, similarityThreshold = 76, uncertainRange = [
   
   // Process each line independently, accumulating results
   for (const line of lines) {
-    const result = parseLine(line, currentDb, similarityThreshold, uncertainRange);
+    const result = parseLine(line, currentDb, similarityThreshold);
     
     // Merge results
     allParsedOrders = [...allParsedOrders, ...result.parsedOrders];

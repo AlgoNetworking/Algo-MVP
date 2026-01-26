@@ -3987,6 +3987,7 @@ let userConfig = {
   interpret: true,
   answerUnknownUsers: true,
   productsHavePrice: true,
+  tolerateMisspellings: true,
   showPIXKeyInOrderConfirmation: true,
   PIXKey: "",
   reminderInterval: 30, // default in minutes (1..90)
@@ -4069,6 +4070,19 @@ function renderConfigUI() {
     } else {
       toggleProductsHavePrice.classList.remove('active');
       productsHavePriceLabel.textContent = 'Desativado';
+    }
+  }
+
+  // Tolerate Misspellings UI
+  const toggleTolerateMisspellings = document.getElementById('toggleTolerateMisspellings');
+  const tolerateMisspellingsLabel = document.getElementById('toggleTolerateMisspellingsLabel');
+  if (toggleTolerateMisspellings && tolerateMisspellingsLabel) {
+    if (userConfig.tolerateMisspellings) {
+      toggleTolerateMisspellings.classList.add('active');
+      tolerateMisspellingsLabel.textContent = 'Ativado';
+    } else {
+      toggleTolerateMisspellings.classList.remove('active');
+      tolerateMisspellingsLabel.textContent = 'Desativado';
     }
   }
 
@@ -4274,9 +4288,17 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+// Toggle tolerate misspellings handler (does NOT save automatically)
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'toggleTolerateMisspellings') {
+    userConfig.tolerateMisspellings = !userConfig.tolerateMisspellings;
+    renderConfigUI();
+  }
+});
+
 document.addEventListener('click', (e) => {
   if (e.target && e.target.id === 'toggleShowPIXKey') {
-    userConfig.showPIXKeyInOrderConfirmation = !userConfig.showPIXKeyInOrderConfirmation;
+    userConfig.showPIXKeyInOrderConfirmation = !userConfig.showPIXKeyInOrderConfirmation; 
     renderConfigUI();
   }
 });
