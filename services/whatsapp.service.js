@@ -1793,11 +1793,12 @@ class WhatsAppService {
       const example = filteredProducts[0] ?
       `${Math.floor(Math.random() * 10) + 1} ${filteredProducts[idx1]} e ${Math.floor(Math.random() * 10) + 1} ${filteredProducts[differentIdx]}`
       : null;
-      
+      /*
       hint += `\n\n(Isto é uma mensagem automática para a sua conveniência 😊`;
       hint += example ? `, digite naturalmente como: ${example})` : `)`;
       hint += '\ndigite \"pronto\" quando terminar seu pedido ou aguarde a mensagem automática!\n';
-      hint += '*Caso não queira pedir, digite \"cancelar\".*';
+      hint += '*Caso não queira pedir, digite \"não\".*';
+      */
     }
     
     return messages[Math.floor(Math.random() * messages.length)] + hint;

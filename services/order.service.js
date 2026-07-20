@@ -49,7 +49,7 @@ class OrderSession {
           this.optionsMenu = `Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*");\nsaber mais sobre o programa e como usá-lo (digite "*4*") ou\nver ${userConfig.businessInfo.title} (digite "*5*")?`;
           this.chooseOption = `Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos;\n("*4*") para saber mais sobre o programa e como usá-lo ou\n("*5*") para ver ${userConfig.businessInfo.title}`;
         } else if (!hasBusinessInfo && userConfig.PIXKey) {
-          this.optionsMenu = `Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*") ou\nsaber mais sobre o programa e como usá-lo (digite "*4*") ou\nver a chave PIX (digite "*5*")?`;
+          this.optionsMenu = `Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*");\nsaber mais sobre o programa e como usá-lo (digite "*4*") ou\nver a chave PIX (digite "*5*")?`;
           this.chooseOption = `Por favor, escolha uma opção:\n("*1*") para pedir;\n("*2*") para falar com um funcionário;\n("*3*") para ver a lista de produtos;\n("*4*") para saber mais sobre o programa e como usá-lo ou\n("*5*") para ver a chave PIX`;
         } else if (hasBusinessInfo && userConfig.PIXKey) {
           this.optionsMenu = `Você deseja:\nrealizar um pedido (digite "*1*");\nfalar com um funcionário (digite "*2*");\nver a lista de produtos (digite "*3*");\nsaber mais sobre o programa e como usá-lo (digite "*4*");\nver ${userConfig.businessInfo.title} (digite "*5*") ou\nver a chave PIX (digite "*6*")?`;
@@ -739,7 +739,7 @@ class OrderService {
           session.state = 'waiting_for_next';
           return {
             success: true,
-            message: 'O programa detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
+            message: 'O sistema detectou que você quer falar com um funcionário. Assim que pudermos terá uma resposta!\n\n(digite "sair" caso queira voltar a falar com um robô)',
             isChatBot: false,
             clientStatus: 'talkToEmployee',
           };
@@ -1199,7 +1199,7 @@ class OrderService {
       }
     }
 
-    return { success: false, message: 'Estado não reconhecido. Digite \'cancelar\' para reiniciar.', isChatBot: true, clientStatus: '',};
+    return { success: false, message: 'Estado não reconhecido. Digite \"cancelar\" para reiniciar.', isChatBot: true, clientStatus: '',};
   }
 
   async getUpdates(sessionId, userId) {
